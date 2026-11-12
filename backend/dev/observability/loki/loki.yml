@@ -1,0 +1,57 @@
+# Loki 3.7.8 – local dev copy of dergeorg's loki.yml (infra/portainerstacks
+# monitoring/loki/loki.yml) + the planned otlp_config (research D §2.3).
+# Differences: retention 72h, schema start date.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: 2025-09-07
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 72h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  allow_structured_metadata: true
+  volume_enabled: true
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  # OTLP ingest: service.instance.id is a random id per JVM start -> keep it
+  # out of the index (stream churn), store it as structured metadata instead.
+  otlp_config:
+    resource_attributes:
+      attributes_config:
+        - action: structured_metadata
+          attributes: [service.instance.id]
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+pattern_ingester:
+  enabled: false
+
+analytics:
+  reporting_enabled: false

@@ -1,0 +1,87 @@
+# Grafana datasources – local dev copy of the planned dergeorg provisioning
+# (research D §2.7). Fixed uids prometheus / loki / tempo so the generated
+# dashboards and the cross-links are identical to prod.
+# $$ escapes $ against Grafana's env interpolation in provisioning files.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: trace_id              # exemplar label of Micrometer metrics via OTLP (verified)
+          datasourceUid: tempo
+          urlDisplayLabel: "Trace öffnen"
+        - name: traceID               # exemplar label of Tempo's traces_spanmetrics_* (verified, Tempo 3.1.0)
+          datasourceUid: tempo
+          urlDisplayLabel: "Trace öffnen"
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 2000
+      derivedFields:
+        # trace_id as structured metadata (ECS stage in Alloy, or OTLP logs)
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: "Trace öffnen"
+        # fallback: trace id inside a raw JSON line (Boot ECS/logstash: "traceId")
+        - name: TraceID (JSON)
+          matcherType: regex
+          matcherRegex: '"trace[_.]?[iI]d"\s*:\s*"([0-9a-f]{32})"'
+          datasourceUid: tempo
+          url: '$${__value.raw}'
+          urlDisplayLabel: "Trace öffnen (JSON)"
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      streamingEnabled: { search: true, metrics: true }
+      nodeGraph: { enabled: true }
+      serviceMap: { datasourceUid: prometheus }
+      search: { hide: false }
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: "-10m"
+        spanEndTimeShift: "10m"
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        tags:
+          - { key: service.name, value: service_name }
+          - { key: deployment.environment.name, value: deployment_environment_name }
+        filterByTraceID: false          # would add |="<id>" – the id is metadata, not in the line text
+        customQuery: true
+        query: '{$${__tags}} | trace_id="$${__span.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        tags:
+          - { key: service.name, value: service }
+        queries:
+          - name: Requests/s
+            query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))'
+          - name: Fehler/s
+            query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags,status_code="STATUS_CODE_ERROR"}[5m]))'
+          - name: p95
+            query: 'histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{$$__tags}[5m])))'

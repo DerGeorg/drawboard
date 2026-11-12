@@ -1,0 +1,4 @@
+# No local alert rules yet – the service rule set (research D §5) lives in the
+# homelab repo generator (gen_alerts.py). This file keeps the directory so
+# Grafana does not log an error at start.
+apiVersion: 1

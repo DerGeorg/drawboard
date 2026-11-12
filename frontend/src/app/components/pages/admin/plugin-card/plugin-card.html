@@ -1,0 +1,103 @@
+<article class="float-panel flex flex-col gap-3 p-4" [attr.data-plugin-id]="plugin().id">
+  <header class="flex flex-wrap items-start justify-between gap-2">
+    <div class="min-w-0">
+      <h2 class="text-base font-semibold">
+        {{ plugin().name }}
+        <span class="text-sm font-normal text-(--color-st-grey)">{{ plugin().version }}</span>
+      </h2>
+      <p class="font-mono text-xs break-all text-(--color-st-grey)">{{ plugin().id }}</p>
+    </div>
+    <span
+      [class]="plugin().enabled ? 'badge badge-sm badge-success' : 'badge badge-sm badge-ghost'"
+      data-testid="state"
+      >{{ plugin().enabled ? 'Enabled' : 'Disabled' }}</span
+    >
+  </header>
+
+  @if (plugin().description) {
+    <p class="text-sm">{{ plugin().description }}</p>
+  }
+
+  <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
+    <dt class="text-(--color-st-grey)">SHA-384</dt>
+    <dd class="font-mono break-all" data-testid="sha384">{{ plugin().bundleSha384 }}</dd>
+    <dt class="text-(--color-st-grey)">Installed</dt>
+    <dd>{{ plugin().installedAt }}</dd>
+    <dt class="text-(--color-st-grey)">Block types</dt>
+    <dd>
+      @for (type of plugin().blockTypes; track type.type) {
+        <span class="mr-2 inline-block"
+          >{{ type.label }} <code class="text-[11px]">{{ type.type }}</code></span
+        >
+      } @empty {
+        none
+      }
+    </dd>
+  </dl>
+
+  <form [formRoot]="pluginForm" class="flex flex-col gap-3">
+    <fieldset class="flex flex-col gap-2">
+      <legend class="mb-1 text-sm font-semibold">Requested capabilities</legend>
+      @for (capability of plugin().requestedCapabilities; track $index) {
+        <label class="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm mt-0.5"
+            [formField]="pluginForm.grants[$index]"
+            [attr.data-capability]="capability.name"
+          />
+          <span class="min-w-0">
+            <code class="text-xs">{{ capability.name }}</code>
+            <span class="block text-xs text-(--color-st-grey)">{{
+              text[capability.name] ?? 'Unknown capability.'
+            }}</span>
+            @if (capability.name === 'network') {
+              <ul class="mt-1 list-disc pl-5 font-mono text-xs" data-testid="network-hosts">
+                @for (host of hosts()[$index]; track host) {
+                  <li class="break-all">https://{{ host }}</li>
+                }
+              </ul>
+            } @else if (capability.value) {
+              <span class="block font-mono text-xs break-all">{{ capability.value }}</span>
+            }
+          </span>
+        </label>
+      } @empty {
+        <p class="text-sm text-(--color-st-grey)">This plugin requests no capabilities.</p>
+      }
+    </fieldset>
+
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" class="toggle toggle-sm" [formField]="pluginForm.enabled" />
+      Enabled on all boards
+    </label>
+
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="submit"
+        class="btn btn-sm st-btn-primary-yellow"
+        [disabled]="!dirty() || pluginForm().submitting()"
+      >
+        Save
+      </button>
+      <button type="button" class="btn btn-sm btn-ghost text-error" (click)="askRemove()">
+        Remove
+      </button>
+    </div>
+  </form>
+</article>
+
+@if (confirmRemove()) {
+  <drawboard-modal heading="Remove plugin?" (closed)="cancelRemove()">
+    <p class="text-sm">
+      {{ plugin().name }} is removed with its files and its stored data on every board. Its blocks
+      stay on the boards as placeholders and come back when it is installed again.
+    </p>
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button" class="btn btn-ghost btn-sm" (click)="cancelRemove()">Cancel</button>
+      <button type="button" class="btn btn-sm btn-error" [disabled]="removing()" (click)="remove()">
+        Remove plugin
+      </button>
+    </div>
+  </drawboard-modal>
+}

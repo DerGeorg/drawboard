@@ -1,0 +1,13 @@
+# Hand-formatted: aligned comments and GitLab's own YAML tags (!reference).
+.gitlab-ci.yml
+
+# Generated
+package-lock.json
+dist/
+coverage/
+junit/
+.angular/
+test-results/
+playwright-report/
+e2e/.auth/
+sourcemaps/

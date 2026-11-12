@@ -1,0 +1,348 @@
+// =============================================================================
+// Alloy – local dev copy of the dergeorg "OTLP gateway per host" design
+// (research D §2.5; prod: gen_alloy.py TEMPLATE in infra/portainerstacks).
+//
+// Differences to prod, on purpose:
+//   * runs on the compose network instead of network_mode host; the backends
+//     are reached by service name (tempo:4317, loki:3100, prometheus:9090)
+//     instead of <note-LAN-IP>:4417/3100/9090
+//   * host.name = "local"
+//   * no host/cAdvisor/syslog blocks (not needed to test the app pipeline)
+//   * docker logs: prod ships every container unparsed; here containers with
+//     the label at.dergeorg.log-format=ecs additionally get the ECS JSON stage
+//     (trace_id / span_id / request_id as structured metadata). That stage is
+//     the proposal for prod.
+//   * dev only: ECS log files of apps started on the Mac (dev/logs/*.log,
+//     mounted to /var/log/host-apps) are tailed and go through the same stage.
+//   * faro.receiver (browser telemetry of the Angular frontend, research N4):
+//     published on the Mac as :12347 and additionally open for direct CORS
+//     posts from the local frontend origins; prod only receives same-origin
+//     /faro traffic forwarded by the frontend's own server.
+// =============================================================================
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// ------------------------------------------------------------ OTLP (Apps)
+// Apps send OTLP/HTTP to http://localhost:4318 (app on the Mac) or
+// http://alloy:4318 (app container on the compose network).
+otelcol.receiver.otlp "apps" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.memory_limiter.apps.input]
+    logs    = [otelcol.processor.memory_limiter.apps.input]
+    traces  = [otelcol.processor.memory_limiter.apps.input]
+  }
+}
+
+otelcol.processor.memory_limiter "apps" {
+  check_interval = "1s"
+  limit          = "400MiB"
+
+  output {
+    metrics = [otelcol.processor.transform.apps.input]
+    logs    = [otelcol.processor.transform.apps.input]
+    traces  = [otelcol.processor.transform.apps.input]
+  }
+}
+
+// Defaults so dashboards/alerts never see an empty env and we know the host.
+otelcol.processor.transform "apps" {
+  error_mode = "ignore"
+
+  trace_statements {
+    context    = "resource"
+    statements = [
+      `set(attributes["deployment.environment.name"], "unknown") where attributes["deployment.environment.name"] == nil`,
+      `set(attributes["host.name"], "local")`,
+    ]
+  }
+
+  metric_statements {
+    context    = "resource"
+    statements = [
+      `set(attributes["deployment.environment.name"], "unknown") where attributes["deployment.environment.name"] == nil`,
+      `set(attributes["host.name"], "local")`,
+    ]
+  }
+
+  log_statements {
+    context    = "resource"
+    statements = [
+      `set(attributes["deployment.environment.name"], "unknown") where attributes["deployment.environment.name"] == nil`,
+      `set(attributes["host.name"], "local")`,
+    ]
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.apps.input]
+    logs    = [otelcol.processor.batch.apps.input]
+    traces  = [otelcol.processor.batch.apps.input]
+  }
+}
+
+otelcol.processor.batch "apps" {
+  output {
+    traces  = [otelcol.exporter.otlp.tempo.input]
+    logs    = [otelcol.exporter.otlphttp.loki.input]
+    metrics = [otelcol.exporter.otlphttp.prometheus.input]   // option A (Prometheus OTLP receiver)
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// OTLP logs are not used by the app (decision: ECS JSON on stdout), but the
+// gateway accepts them like prod would.
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+  }
+}
+
+otelcol.exporter.otlphttp "prometheus" {
+  client {
+    endpoint = "http://prometheus:9090/api/v1/otlp"
+  }
+}
+
+// ------------------------------------------------------------ Container logs
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  // same labels as prod: container, stack
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+
+  // service_name: container label at.dergeorg.service (= OTel service.name)
+  // wins over Loki's default (container name).
+  rule {
+    source_labels = ["__meta_docker_container_label_at_dergeorg_service"]
+    regex         = "(.+)"
+    target_label  = "service_name"
+  }
+
+  // marker for the ECS stage below, dropped again before Loki
+  rule {
+    source_labels = ["__meta_docker_container_label_at_dergeorg_log_format"]
+    regex         = "(.+)"
+    target_label  = "log_format"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  labels        = { job = "docker", instance = "local" }
+  forward_to    = [loki.process.containers.receiver]
+}
+
+// ------------------------------------------------------------ App logs from the Mac
+// An app started with bootRun / java -jar has no container stdout. With
+// LOGGING_FILE_NAME=<repo>/dev/logs/<service>.log it also writes its ECS lines
+// to a file (logging.structured.format.file=ecs); Alloy tails that file.
+local.file_match "host_apps" {
+  path_targets = [{
+    "__path__"   = "/var/log/host-apps/*.log",
+    "job"        = "host-app",
+    "instance"   = "local",
+    "log_format" = "ecs",
+  }]
+}
+
+loki.source.file "host_apps" {
+  targets    = local.file_match.host_apps.targets
+  forward_to = [loki.process.host_apps.receiver]
+}
+
+// service_name from the line itself (ECS service.name = spring.application.name),
+// then the same ECS stage as for containers.
+loki.process "host_apps" {
+  stage.json {
+    expressions = { service_name = "service.name" }
+  }
+
+  stage.labels {
+    values = { service_name = "" }
+  }
+
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  forward_to = [loki.process.containers.receiver]
+}
+
+loki.process "containers" {
+  // Spring Boot structured logging (logging.structured.format.console=ecs):
+  // {"@timestamp":"…","log":{"level":"INFO",…},"service":{"name":…,"environment":…},
+  //  "message":"…","traceId":"…","spanId":"…","requestId":"…"}
+  stage.match {
+    selector = "{log_format=\"ecs\"}"
+
+    stage.json {
+      expressions = {
+        ts          = "\"@timestamp\"",
+        level       = "log.level",
+        environment = "service.environment",
+        trace_id    = "traceId",
+        span_id     = "spanId",
+        request_id  = "requestId",
+      }
+    }
+
+    stage.timestamp {
+      source = "ts"
+      format = "RFC3339Nano"
+    }
+
+    // index label, low cardinality; same name as the OTLP/Prometheus label
+    stage.labels {
+      values = { deployment_environment_name = "environment" }
+    }
+
+    // per-line ids -> structured metadata (not labels!)
+    // "level" -> Loki derives detected_level from it
+    stage.structured_metadata {
+      values = {
+        trace_id   = "",
+        span_id    = "",
+        request_id = "",
+        level      = "",
+      }
+    }
+  }
+
+  stage.label_drop {
+    values = ["log_format"]
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ------------------------------------------------------------ Faro (browser telemetry)
+// The Angular frontend (Grafana Faro Web SDK) posts logs, exceptions, web
+// vitals, events and traces here. Normal path: same origin, the frontend
+// forwards /faro/* to this receiver (ng serve proxy -> http://localhost:12347,
+// frontend image -> FARO_RECEIVER_URL). The CORS list only allows the local
+// frontend origins to post directly (http://localhost:12347/collect).
+faro.receiver "web" {
+  server {
+    listen_address           = "0.0.0.0"          // default 127.0.0.1 is unreachable from outside the container
+    listen_port              = 12347
+    cors_allowed_origins     = ["http://localhost:4200", "http://localhost:18090"]
+    max_allowed_payload_size = "1MiB"
+
+    rate_limiting {
+      enabled    = true
+      strategy   = "per_app"                      // one noisy app/env cannot starve the others
+      rate       = 50                             // requests/s per app + environment
+      burst_size = 100
+    }
+  }
+
+  // Minified stack frames -> original TypeScript file/line. Hidden source maps
+  // (ng build sourceMap.hidden) are never served to browsers: copy them to
+  // dev/sourcemaps/<app version>/ (mounted to /var/sourcemaps). {{ .Release }}
+  // is Faro's app.release (= APP_VERSION of the frontend image). ng serve
+  // builds are not minified, they need no maps.
+  sourcemaps {
+    download = false
+
+    location {
+      path                 = "/var/sourcemaps/{{ .Release }}"
+      minified_path_prefix = "http://localhost:18090/"
+    }
+  }
+
+  // label "kind" (log | exception | measurement | event) taken from the
+  // payload (an empty value means "take this key from the line")
+  extra_log_labels = { kind = "" }
+  log_format       = "logfmt"
+
+  output {
+    logs   = [loki.process.faro.receiver]
+    traces = [otelcol.processor.memory_limiter.apps.input]   // same path as the backend traces -> Tempo
+  }
+}
+
+loki.process "faro" {
+  stage.logfmt {
+    mapping = {
+      service_name                = "app_name",
+      deployment_environment_name = "app_environment",
+      trace_id                    = "traceID",
+      session_id                  = "session_id",
+    }
+  }
+
+  // same label names as the backend streams, so Tempo's trace -> logs link
+  // ({service_name=…, deployment_environment_name=…} | trace_id="…") finds
+  // the browser's lines too
+  stage.labels {
+    values = {
+      service_name                = "",
+      deployment_environment_name = "",
+    }
+  }
+
+  stage.static_labels {
+    values = { job = "faro" }
+  }
+
+  // per-line ids -> structured metadata, never labels
+  stage.structured_metadata {
+    values = {
+      trace_id   = "",
+      session_id = "",
+    }
+  }
+
+  // defence in depth (the SDK's beforeSend already strips them): no query
+  // strings or fragments in page_url
+  stage.replace {
+    expression = "page_url=\"?[^ ?#\"]*([?#][^ \"]*)"
+    replace    = ""
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+// ------------------------------------------------------------ Self metrics
+// otelcol_receiver_accepted_*, otelcol_exporter_send_failed_* etc. are scraped
+// by Prometheus from alloy:12345/metrics (prometheus.yml).

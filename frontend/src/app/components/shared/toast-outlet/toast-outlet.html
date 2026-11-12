@@ -1,0 +1,27 @@
+<div class="fixed right-4 bottom-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-3">
+  @for (toast of toasts.toasts(); track toast.id) {
+    <div
+      [class]="cardClass[toast.kind]"
+      [attr.role]="toast.kind === 'error' ? 'alert' : 'status'"
+      data-testid="toast"
+    >
+      <div class="min-w-0 flex-1">
+        <p class="text-sm font-medium">{{ toast.message }}</p>
+        @if (toast.requestId) {
+          <p class="mt-1 text-xs opacity-80">
+            Request id
+            <code class="st-code-inline" data-testid="toast-request-id">{{ toast.requestId }}</code>
+          </p>
+        }
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square"
+        aria-label="Dismiss"
+        (click)="toasts.dismiss(toast.id)"
+      >
+        ×
+      </button>
+    </div>
+  }
+</div>

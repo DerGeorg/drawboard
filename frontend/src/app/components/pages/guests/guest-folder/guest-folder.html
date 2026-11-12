@@ -1,0 +1,36 @@
+<section class="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 px-4 py-6">
+  <header class="flex items-center gap-3">
+    <drawboard-dg-logo [size]="26" />
+    <h1 class="text-xl font-semibold tracking-tight">Shared folder</h1>
+    <drawboard-guest-badge class="ml-auto" />
+  </header>
+
+  @if (boards.error(); as error) {
+    <drawboard-load-error [error]="error" subject="the folder" (retry)="boards.reload()" />
+  } @else if (boards.hasValue()) {
+    @if (items().length === 0) {
+      <p class="text-(--color-st-grey)" data-testid="empty">There are no boards in this folder.</p>
+    } @else {
+      <ul class="flex flex-col gap-2" aria-label="Boards" [attr.aria-busy]="boards.isLoading()">
+        @for (board of items(); track board.id) {
+          <li
+            class="relative flex items-center gap-3 rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) p-3 focus-within:ring-2 focus-within:ring-(--color-st-primary) hover:shadow-lg"
+          >
+            <drawboard-icon name="board" />
+            <a
+              [routerLink]="['/s', 'b', board.id]"
+              class="min-w-0 flex-1 truncate font-medium after:absolute after:inset-0 after:content-[''] focus:outline-none"
+              >{{ board.title }}</a
+            >
+            <drawboard-role-badge [role]="board.role" />
+          </li>
+        }
+      </ul>
+      <drawboard-pager [page]="boards.value().page" />
+    }
+  } @else {
+    <p class="text-(--color-st-grey)" aria-live="polite">Loading the folder…</p>
+  }
+
+  <drawboard-guest-made-with class="mt-auto self-center pt-4" />
+</section>

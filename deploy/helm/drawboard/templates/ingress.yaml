@@ -1,0 +1,94 @@
+{{- if .Values.ingress.enabled }}
+{{- $ctx := dict "ctx" . "component" "frontend" }}
+{{- $nginx := .Values.ingress.nginx }}
+{{- /*
+  ingress-nginx has one body size limit per Ingress object, so the upload routes get an Ingress of their
+  own (same host, longer path wins). The frontend's nginx enforces the same caps again. All of them go
+  to the frontend only; the backend and its management port are not reachable from here.
+*/}}
+{{- $routes := list }}
+{{- if $nginx.enabled }}
+{{- $routes = list
+      (dict "suffix" "-files" "path" "/api/boards/[^/]+/files$" "type" "ImplementationSpecific" "size" $nginx.bodySize.files)
+      (dict "suffix" "-plugins" "path" "/api/admin/plugins" "type" "Exact" "size" $nginx.bodySize.plugins)
+      (dict "suffix" "-snapshot" "path" "/api/boards/[^/]+/snapshot$" "type" "ImplementationSpecific" "size" $nginx.bodySize.snapshot) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "drawboard.fullname" . }}
+  labels:
+    {{- include "drawboard.labels" (dict "ctx" . "component" "ingress") | nindent 4 }}
+  {{- if or $nginx.enabled .Values.ingress.annotations }}
+  annotations:
+    {{- if $nginx.enabled }}
+    # All paths of this host may be regex (the upload Ingresses below): ingress-nginx applies it host-wide.
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ $nginx.bodySize.default | quote }}
+    nginx.ingress.kubernetes.io/proxy-request-buffering: {{ ternary "on" "off" $nginx.requestBuffering | quote }}
+    # Collaboration WebSocket: idle timeouts far above the 30 s ping interval (S7.9).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: {{ $nginx.timeoutSeconds | quote }}
+    nginx.ingress.kubernetes.io/proxy-send-timeout: {{ $nginx.timeoutSeconds | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "drawboard.componentName" $ctx }}
+                port:
+                  name: http
+{{- range $r := $routes }}
+---
+# Upload route {{ $r.path }}: body size {{ $r.size }}, request buffering {{ ternary "on" "off" $nginx.requestBuffering }} (S2.8).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "drawboard.fullname" $ }}{{ $r.suffix }}
+  labels:
+    {{- include "drawboard.labels" (dict "ctx" $ "component" "ingress") | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ $r.size | quote }}
+    nginx.ingress.kubernetes.io/proxy-request-buffering: {{ ternary "on" "off" $nginx.requestBuffering | quote }}
+    nginx.ingress.kubernetes.io/proxy-read-timeout: {{ $nginx.timeoutSeconds | quote }}
+    nginx.ingress.kubernetes.io/proxy-send-timeout: {{ $nginx.timeoutSeconds | quote }}
+    {{- with $.Values.ingress.uploadAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with $.Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $.Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $.Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ $r.path | quote }}
+            pathType: {{ $r.type }}
+            backend:
+              service:
+                name: {{ include "drawboard.componentName" $ctx }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}

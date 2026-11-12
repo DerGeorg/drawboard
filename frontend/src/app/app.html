@@ -1,0 +1,10 @@
+@if (!fullWindow()) {
+  <drawboard-header />
+}
+<main [class]="fullWindow() ? 'flex-1' : 'mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6'">
+  <router-outlet />
+</main>
+@if (!fullWindow()) {
+  <drawboard-footer />
+}
+<drawboard-toast-outlet />

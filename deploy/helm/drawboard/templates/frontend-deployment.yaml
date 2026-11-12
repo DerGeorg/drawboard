@@ -1,0 +1,109 @@
+{{- $ctx := dict "ctx" . "component" "frontend" }}
+{{- $name := include "drawboard.componentName" $ctx }}
+{{- $backend := include "drawboard.componentName" (dict "ctx" . "component" "backend") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "drawboard.labels" $ctx | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.frontend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "drawboard.podSecurityContext" (dict "uid" .Values.frontend.runAsUser "gid" .Values.frontend.runAsGroup) | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "drawboard.image" (dict "ctx" . "image" .Values.frontend.image) | quote }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          securityContext:
+            {{- include "drawboard.containerSecurityContext" (dict "uid" .Values.frontend.runAsUser "gid" .Values.frontend.runAsGroup) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: APP_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            # REST and the collaboration WebSocket go to the backend Service.
+            - name: BACKEND_URL
+              value: {{ printf "http://%s:8080" $backend | quote }}
+            - name: OIDC_ISSUER
+              value: {{ default .Values.oidc.issuerUri .Values.frontend.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.frontend.oidc.clientId | quote }}
+            - name: OIDC_SCOPE
+              value: {{ .Values.frontend.oidc.scope | quote }}
+            - name: FILES_ORIGIN
+              value: {{ default .Values.files.origin .Values.frontend.filesOrigin | quote }}
+            - name: PLUGIN_ORIGIN
+              value: {{ default .Values.plugins.origin .Values.frontend.pluginOrigin | quote }}
+            - name: FARO_RECEIVER_URL
+              value: {{ .Values.frontend.faro.receiverUrl | quote }}
+            - name: FARO_SAMPLING_RATE
+              value: {{ .Values.frontend.faro.samplingRate | quote }}
+            {{- if .Values.frontend.faro.appName }}
+            - name: FARO_APP_NAME
+              value: {{ .Values.frontend.faro.appName | quote }}
+            {{- end }}
+            {{- if .Values.frontend.faro.namespace }}
+            - name: FARO_NAMESPACE
+              value: {{ .Values.frontend.faro.namespace | quote }}
+            {{- end }}
+            {{- with .Values.frontend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        # Read-only root file system: nginx temp files and the rendered template need these.
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.frontend.tmp.sizeLimit }}
+        - name: nginx-conf
+          emptyDir:
+            sizeLimit: {{ .Values.frontend.confd.sizeLimit }}
+      {{- include "drawboard.scheduling" .Values.frontend | nindent 6 }}

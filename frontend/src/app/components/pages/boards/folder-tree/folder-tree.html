@@ -1,0 +1,36 @@
+<div class="flex items-center justify-between px-3 pt-2 pb-1">
+  <h2 class="text-xs font-semibold tracking-wide text-(--color-st-grey) uppercase">Folders</h2>
+  <button
+    type="button"
+    class="btn btn-square btn-xs btn-ghost"
+    aria-label="New folder"
+    (click)="startCreate()"
+  >
+    <drawboard-icon name="folderPlus" />
+  </button>
+</div>
+
+@if (creating()) {
+  <div class="px-2 pb-2">
+    <drawboard-name-form
+      label="Name of the new folder"
+      (save)="create($event)"
+      (dismissed)="stopCreate()"
+    />
+  </div>
+}
+
+@if (library.resource.error()) {
+  <p class="px-3 text-sm text-(--color-st-red)" role="alert">
+    Folders could not be loaded.
+    <button type="button" class="link" (click)="library.reload()">Try again</button>
+  </p>
+} @else if (library.tree().length > 0) {
+  <ul class="flex flex-col gap-0.5" aria-label="Folders">
+    @for (node of library.tree(); track node.folder.id) {
+      <drawboard-folder-tree-node [node]="node" [active]="active()" />
+    }
+  </ul>
+} @else if (library.resource.hasValue() && !creating()) {
+  <p class="px-3 text-sm text-(--color-st-grey)">No folders yet.</p>
+}

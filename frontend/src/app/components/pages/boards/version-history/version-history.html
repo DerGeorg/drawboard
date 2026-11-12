@@ -1,0 +1,59 @@
+<drawboard-modal heading="Version history" (closed)="close()">
+  @if (versions.error(); as error) {
+    <drawboard-load-error [error]="error" subject="the versions" (retry)="versions.reload()" />
+  } @else if (versions.hasValue()) {
+    @if (items().length === 0) {
+      <p class="text-(--color-st-grey)" data-testid="empty">
+        No earlier versions are kept yet. They appear while people work on the board.
+      </p>
+    } @else {
+      <p class="mb-3 text-sm text-(--color-st-grey)">
+        Restoring replaces the board for everyone who has it open. Changes that were not saved yet
+        are lost.
+      </p>
+      <ul class="flex max-h-96 flex-col gap-2 overflow-y-auto" aria-label="Versions">
+        @for (version of items(); track version.id) {
+          <li
+            class="flex flex-wrap items-center gap-3 rounded-xl border-(length:--border-size-xs) border-(--color-st-white-darker) p-3"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium">{{ when(version) }}</p>
+              <p class="text-xs text-(--color-st-grey)">{{ ago(version) }} · {{ size(version) }}</p>
+            </div>
+            @if (confirming() === version.id) {
+              <div
+                role="group"
+                aria-label="Restore this version?"
+                class="flex flex-wrap items-center gap-2"
+              >
+                <span class="text-sm font-medium">Replace the board with this version?</span>
+                <button
+                  type="button"
+                  class="btn btn-sm st-btn-primary-red"
+                  [disabled]="busy()"
+                  (click)="restore(version)"
+                >
+                  Yes, restore
+                </button>
+                <button type="button" class="btn btn-sm btn-ghost" (click)="cancel()">
+                  Cancel
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-sm btn-outline st-btn-primary-outline"
+                [disabled]="busy()"
+                (click)="ask(version)"
+              >
+                Restore
+              </button>
+            }
+          </li>
+        }
+      </ul>
+    }
+  } @else {
+    <p class="text-(--color-st-grey)" aria-live="polite">Loading the versions…</p>
+  }
+</drawboard-modal>

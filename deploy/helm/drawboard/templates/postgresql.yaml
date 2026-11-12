@@ -1,0 +1,127 @@
+{{- if .Values.postgresql.enabled }}
+{{- $ctx := dict "ctx" . "component" "postgresql" }}
+{{- $name := include "drawboard.componentName" $ctx }}
+{{- $pg := .Values.postgresql }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  # ClusterIP only: no LoadBalancer, no NodePort, ever.
+  type: ClusterIP
+  selector:
+    {{- include "drawboard.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ $pg.persistence.retentionPolicy }}
+    whenScaled: {{ $pg.persistence.retentionPolicy }}
+  selector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "drawboard.labels" $ctx | nindent 8 }}
+        {{- with $pg.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $pg.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "drawboard.podSecurityContext" (dict "uid" $pg.runAsUser "gid" $pg.runAsGroup) | nindent 8 }}
+      containers:
+        - name: postgresql
+          image: {{ printf "%s:%s" $pg.image.repository $pg.image.tag | quote }}
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          securityContext:
+            {{- include "drawboard.containerSecurityContext" (dict "uid" $pg.runAsUser "gid" $pg.runAsGroup) | nindent 12 }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ $pg.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ $pg.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drawboard.db.secretName" . }}
+                  key: {{ $pg.auth.passwordKey }}
+            - name: POSTGRES_INITDB_ARGS
+              value: "--encoding=UTF8"
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml $pg.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $pg.tmp.sizeLimit }}
+        - name: run
+          emptyDir:
+            sizeLimit: 1Mi
+      {{- include "drawboard.scheduling" $pg | nindent 6 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "drawboard.selectorLabels" $ctx | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml $pg.persistence.accessModes | nindent 10 }}
+        {{- with $pg.persistence.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.persistence.size }}
+{{- end }}

@@ -1,0 +1,110 @@
+{{- if .Values.gotenberg.enabled }}
+{{- $ctx := dict "ctx" . "component" "gotenberg" }}
+{{- $name := include "drawboard.componentName" $ctx }}
+{{- $g := .Values.gotenberg }}
+# LibreOffice as a service (S4.10): converts Office documents to PDF for the backend, nothing else.
+# Same hardening as the compose files: only POST /forms/libreoffice/convert is left, non-root,
+# read-only root file system, no capabilities, memory limit. A NetworkPolicy lets only the backend in
+# and nothing out (the counterpart of the compose network with `internal: true`).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  # One instance: the backend converts one document at a time per instance anyway.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "drawboard.labels" $ctx | nindent 8 }}
+        {{- with $g.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $g.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "drawboard.podSecurityContext" (dict "uid" $g.runAsUser "gid" $g.runAsGroup) | nindent 8 }}
+      containers:
+        - name: gotenberg
+          image: {{ include "drawboard.image" (dict "ctx" . "image" $g.image) | quote }}
+          imagePullPolicy: {{ $g.image.pullPolicy }}
+          args:
+            - gotenberg
+            - --chromium-disable-routes=true
+            - --pdfengines-disable-routes=true
+            - --webhook-disable=true
+            - --api-timeout=60s
+            - --api-disable-health-check-logging=true
+            - --libreoffice-restart-after=20
+          securityContext:
+            {{- include "drawboard.containerSecurityContext" (dict "uid" $g.runAsUser "gid" $g.runAsGroup) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/gotenberg
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ $g.tmp.sizeLimit }}
+        - name: home
+          emptyDir:
+            sizeLimit: {{ $g.home.sizeLimit }}
+      {{- include "drawboard.scheduling" $g | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "drawboard.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+{{- end }}

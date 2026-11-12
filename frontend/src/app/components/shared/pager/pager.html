@@ -1,0 +1,31 @@
+@if (page().totalPages > 1) {
+  <nav class="flex items-center justify-between gap-4" aria-label="Pages">
+    @if (hasPrevious()) {
+      <a
+        class="btn btn-sm btn-outline st-btn-primary-outline"
+        routerLink="."
+        [queryParams]="{ page: current() - 1 }"
+        rel="prev"
+      >
+        Previous
+      </a>
+    } @else {
+      <span></span>
+    }
+    <span class="text-sm text-(--color-st-grey)" data-testid="page-position">
+      Page {{ current() }} of {{ page().totalPages }}
+    </span>
+    @if (hasNext()) {
+      <a
+        class="btn btn-sm btn-outline st-btn-primary-outline"
+        routerLink="."
+        [queryParams]="{ page: current() + 1 }"
+        rel="next"
+      >
+        Next
+      </a>
+    } @else {
+      <span></span>
+    }
+  </nav>
+}

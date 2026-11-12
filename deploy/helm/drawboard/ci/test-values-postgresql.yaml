@@ -1,0 +1,49 @@
+# Everything on: built-in PostgreSQL, OTLP, Faro, guests, an existing Secret and claim, ClamAV (fail
+# closed), own origins for files and plugins, trusted proxies, all fake.
+publicUrl: https://draw.example.org:8443
+oidc:
+  issuerUri: https://sso.example.org
+  audience: drawboard-api
+  jwkSetUri: http://keycloak.auth.svc/realms/x/protocol/openid-connect/certs
+adminGroup: drawboard-admins
+trustedProxies:
+  - 10.244.0.0/16
+  - 192.0.2.4/32
+ingress:
+  host: draw.example.org
+  tls:
+    - secretName: drawboard-tls
+      hosts: [draw.example.org]
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  uploadAnnotations:
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+postgresql:
+  enabled: true
+  auth:
+    existingSecret: drawboard-db
+backend:
+  otlp:
+    endpoint: http://alloy.monitoring.svc:4318
+  collab:
+    COLLAB_MAX_LOG_BYTES: "52428800"
+  files:
+    FILES_MAX_VIDEO_BYTES: "524288000"
+frontend:
+  faro:
+    receiverUrl: http://alloy.monitoring.svc:12347
+guests:
+  enabled: true
+secrets:
+  existingSecret: drawboard-keys
+files:
+  origin: https://files.example.org
+  persistence:
+    existingClaim: drawboard-files
+plugins:
+  origin: https://plugins.example.org
+clamav:
+  host: clamav.security.svc
+  maxBytes: 524288000
+  timeoutSeconds: 120
+  failClosed: true

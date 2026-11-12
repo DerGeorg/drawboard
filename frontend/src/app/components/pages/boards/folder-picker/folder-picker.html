@@ -1,0 +1,29 @@
+<drawboard-modal [heading]="heading()" (closed)="closed.emit()">
+  <ul class="flex max-h-80 flex-col gap-1 overflow-y-auto" aria-label="Folders">
+    <li>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker) disabled:cursor-not-allowed disabled:opacity-50"
+        [disabled]="current() === null"
+        (click)="pick(null)"
+      >
+        <drawboard-icon name="board" />
+        My boards (top level)
+      </button>
+    </li>
+    @for (row of rows(); track row.folder.id) {
+      <li>
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-lg py-2 pr-3 text-left text-sm hover:bg-(--color-st-white-darker) disabled:cursor-not-allowed disabled:opacity-50"
+          [style.padding-left.rem]="0.75 + row.depth * 1.25"
+          [disabled]="row.folder.id === current() || excluded().has(row.folder.id)"
+          (click)="pick(row.folder.id)"
+        >
+          <drawboard-icon name="folder" />
+          <span class="truncate">{{ row.folder.name }}</span>
+        </button>
+      </li>
+    }
+  </ul>
+</drawboard-modal>

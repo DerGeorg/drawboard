@@ -1,0 +1,196 @@
+# =============================================================================
+# drawboard-backend - defaults for every environment. Everything that differs per environment comes from
+# environment variables; credentials never live in this file.
+#
+#   DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD   PostgreSQL (one database, one schema per module)
+#   OIDC_ISSUER_URI                                        required: OpenID Connect provider; must equal the token's "iss" exactly
+#   OIDC_JWK_SET_URI (optional)                            internal URL for the signing keys (container network); default: discovery
+#   OIDC_AUDIENCE                                          required: a token's "aud" must contain it (e.g. drawboard-api)
+#   OIDC_WEB_CLIENT_ID (default drawboard-web)             public client Swagger UI logs in with (dev only)
+#   OIDC_CLAIM_USERNAME (default preferred_username)       claim with the user name
+#   OIDC_CLAIM_GROUPS (default groups)                     claim with the groups; a dot path is allowed (resource_access.x.roles)
+#   DRAWBOARD_ADMIN_GROUP (optional)                       instance admin = the CURRENT token's groups claim contains this; empty = nobody
+#   DRAWBOARD_PUBLIC_URL                                   required: origin of the frontend (https://drawboard.example.org); the WebSocket
+#                                                          handshake accepts only this exact Origin
+#   DRAWBOARD_GUESTS_ENABLED (default false)               guest links on this instance (S1.14); needs DRAWBOARD_GUEST_SIGNING_KEYS[_FILE]
+#   DRAWBOARD_GUEST_SIGNING_KEYS / _FILE                   EC P-256 keys (PKCS#8 PEM): the first signs guest tokens, all verify (S1.5)
+#   DRAWBOARD_TRASH_RETENTION_DAYS (default 30)            days a deleted board/folder stays restorable, then it is purged (S7.7)
+#   DRAWBOARD_TRASH_CLEANUP_SECONDS (default 3600)         how often the cleanup job looks
+#   DRAWBOARD_USER_SEARCH (default all)                    all | off: whether the member picker may search users (S6.10)
+#   DRAWBOARD_TRUSTED_PROXIES (default empty)              CIDR list of the proxies whose X-Forwarded-For counts (rate limits, audit)
+#   DRAWBOARD_FILES_DIR                                    required: directory (volume) the uploaded files are stored in (S4)
+#   DRAWBOARD_FILE_URL_KEYS / _FILE                        required: keys that sign the file URLs, comma separated, each base64 of >= 32
+#                                                          random bytes; the first signs, all verify (S4.4). _FILE wins (secret file)
+#   DRAWBOARD_GOTENBERG_URL (optional)                     the Gotenberg sidecar (http://gotenberg:3000); without it Office documents are
+#                                                          stored but not converted (conversion FAILED)
+#   DRAWBOARD_CLAMAV_HOST / _PORT (optional)               the ClamAV daemon (clamd) that scans uploads (S4.12); without it nothing is scanned.
+#                                                          _MAX_BYTES (25 MiB), _TIMEOUT_SECONDS (60), _FAIL_CLOSED (false): see FilesProperties
+#   DRAWBOARD_FILES_ORIGIN (optional)                      set when files are served from an origin of their own (S4.6): CORP same-site
+#   DRAWBOARD_PLUGIN_PSEUDONYM_KEY / _FILE                 required: secret of the pseudonymous user ids plugins see (S3.8)
+#   DRAWBOARD_PLUGIN_ORIGIN (optional)                     origin plugin assets are served from (S3.4); without it the app origin
+#   DRAWBOARD_UPLOAD_SPOOL_DIR (default: the JVM temp dir)  directory multipart uploads are spooled to; put it on a volume of its own (README, "Uploads")
+#   FILES_* / PLUGINS_*  (optional)                        limits of the file storage and the plugins, see FilesProperties / PluginsProperties
+#   COLLAB_*  (optional)                                   limits of the collaboration, see CollabProperties (e.g. COLLAB_MAX_LOG_BYTES)
+#   OTEL_EXPORTER_OTLP_ENDPOINT                            e.g. http://alloy:4318 - traces and metrics (OTLP/HTTP)
+#   APP_ENVIRONMENT                                        dev | prod -> deployment.environment.name
+# =============================================================================
+
+spring:
+  application:
+    name: drawboard-backend                  # -> OTel service.name and ECS service.name
+  reactor:
+    # MANDATORY for WebFlux + coroutines: trace context, MDC (traceId, spanId, requestId) and the request id
+    # follow every thread hop. With the default "limited", logs lose their ids after the first suspension.
+    context-propagation: auto
+  http:
+    codecs:
+      # JSON bodies up to 1 MB + the envelope: the plugin storage (PUT .../plugin-storage/{id}, at most 1 MB of JSON, S3.8) is the
+      # largest. Spring's default of 256 KB would answer a legitimate 500 KB object with a 413.
+      max-in-memory-size: 2MB
+  webflux:
+    multipart:
+      # The uploads of the API: the snapshot (PUT /api/boards/{id}/snapshot, 50 MB, S2.8/S2.7), files (POST
+      # /api/boards/{id}/files, S4.1) and plugins (POST /api/admin/plugins, 20 MB, S3.9). Spring spools a part to a temp
+      # file BEFORE the handler runs and cuts it off at this size (413) - so it is the largest upload, a video. The per-type
+      # caps (50 MB for everything else) are enforced by the handlers while they read the part. Small parts stay in memory.
+      # What reaches the spool is bounded BEFORE it by UploadGuardWebFilter (Content-Length, caps per route, uploads per user and
+      # in flight; app.uploads below). Every multipart form of the contract has exactly ONE part, hence max-parts: 1.
+      max-disk-usage-per-part: ${FILES_MAX_VIDEO_BYTES:524288000}
+      max-parts: 1
+      # Compose: a volume of its own (README, "Uploads"); the default is where Spring spooled before.
+      file-storage-directory: ${DRAWBOARD_UPLOAD_SPOOL_DIR:${java.io.tmpdir}}
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:drawboard}
+    username: ${DB_USER:drawboard}
+    password: ${DB_PASSWORD:}
+  flyway:
+    # R2DBC application: Flyway gets its own JDBC connection; no DataSource and no pool are created.
+    # Schemas and locations come from the modules (FlywayModule beans), never from here.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:drawboard}
+    user: ${DB_USER:drawboard}
+    password: ${DB_PASSWORD:}
+
+app:
+  web:
+    # IP addresses / CIDR blocks of the reverse proxies whose X-Forwarded-For is believed (S7.3). Empty = none: the socket
+    # address counts. Compose: the Docker network of the frontend container; Helm: the ingress controller's pods.
+    trusted-proxies: ${DRAWBOARD_TRUSTED_PROXIES:}
+  security:
+    # Any OpenID Connect provider; nothing here names one. See OidcProperties for the meaning of each value.
+    oidc:
+      issuer-uri: ${OIDC_ISSUER_URI}
+      jwk-set-uri: ${OIDC_JWK_SET_URI:}
+      audience: ${OIDC_AUDIENCE}               # required: startup fails without it
+      claim-username: ${OIDC_CLAIM_USERNAME:preferred_username}
+      claim-groups: ${OIDC_CLAIM_GROUPS:groups}
+      admin-group: ${DRAWBOARD_ADMIN_GROUP:}
+    # Guest access via share links (S1). Off by default; enabling it needs signing keys. Issuer of guest tokens:
+    # <DRAWBOARD_PUBLIC_URL>/guest (must differ from OIDC_ISSUER_URI). See GuestProperties.
+    guest:
+      enabled: ${DRAWBOARD_GUESTS_ENABLED:false}
+      signing-keys: ${DRAWBOARD_GUEST_SIGNING_KEYS:}
+      signing-keys-file: ${DRAWBOARD_GUEST_SIGNING_KEYS_FILE:}
+      public-url: ${DRAWBOARD_PUBLIC_URL}
+  openapi:
+    # Swagger UI logs in here: the openIdConnectUrl of the served contract (/openapi/drawboard-api.yaml) is rewritten
+    # to <issuer>/.well-known/openid-configuration (the browser's view of the provider = the token's "iss").
+    oidc-issuer: ${OIDC_ISSUER_URI}
+  uploads:
+    # The upload guard (core, UploadGuardWebFilter): decided from the headers, before the body is read. The caps follow the handlers' own;
+    # the filter adds a megabyte for the multipart envelope. Content-Length is required (411).
+    max-file-bytes: ${files.max-video-bytes:524288000}
+    max-snapshot-bytes: ${collab.max-snapshot-bytes:52428800}
+    max-plugin-bytes: 20971520                 # = the 20 MB PluginsApiService reads at most
+    per-user-concurrent: 2                     # uploads in flight per signed-in user, then 429
+    per-user-per-minute: ${files.uploads-per-minute:30}   # uploads started per user, route and minute, then 429
+    global-concurrent: 8                       # in flight in the instance: with the caps it bounds the spool directory
+
+plugins:
+  # Plugins (module plugins): installed by upload, sandboxed on the client. The pseudonym key is a secret of its own.
+  public-url: ${DRAWBOARD_PUBLIC_URL}        # the only frame-ancestors of a plugin frame
+  pseudonym-key: ${DRAWBOARD_PLUGIN_PSEUDONYM_KEY:}          # required: this or the _FILE variant, startup fails without
+  pseudonym-key-file: ${DRAWBOARD_PLUGIN_PSEUDONYM_KEY_FILE:}
+  plugin-origin: ${DRAWBOARD_PLUGIN_ORIGIN:}  # optional own origin for the assets (S3.4)
+
+files:
+  # The file storage (module files): bytes on a volume under their UUID, signed short-lived URLs, optional Gotenberg.
+  # Limits: FILES_MAX_FILE_BYTES, FILES_MAX_VIDEO_BYTES, FILES_MAX_BYTES_PER_USER, FILES_MAX_BYTES_PER_BOARD, ...
+  dir: ${DRAWBOARD_FILES_DIR}                 # required: startup fails without it
+  url-keys: ${DRAWBOARD_FILE_URL_KEYS:}
+  url-keys-file: ${DRAWBOARD_FILE_URL_KEYS_FILE:}
+  gotenberg-url: ${DRAWBOARD_GOTENBERG_URL:}
+  files-origin: ${DRAWBOARD_FILES_ORIGIN:}
+  clamav-host: ${DRAWBOARD_CLAMAV_HOST:}      # optional (S4.12): clamd that scans every upload before the file is visible; empty = no scan
+  clamav-port: ${DRAWBOARD_CLAMAV_PORT:3310}
+  clamav-max-bytes: ${DRAWBOARD_CLAMAV_MAX_BYTES:26214400}   # larger files are not sent: 413 with clamav-fail-closed, else accepted; with fail-closed keep it >= files.max-video-bytes
+  clamav-timeout-seconds: ${DRAWBOARD_CLAMAV_TIMEOUT_SECONDS:60}
+  clamav-fail-closed: ${DRAWBOARD_CLAMAV_FAIL_CLOSED:false}  # true: an upload that could not be scanned is refused
+
+drawboard:
+  public-url: ${DRAWBOARD_PUBLIC_URL}        # required: startup fails without it (S2.2)
+  trash-retention-days: ${DRAWBOARD_TRASH_RETENTION_DAYS:30}    # S7.7: purged for good this long after the deletion
+  trash-cleanup-seconds: ${DRAWBOARD_TRASH_CLEANUP_SECONDS:3600}
+  guests-enabled: ${app.security.guest.enabled}   # ONE switch (app.security.guest.enabled, DRAWBOARD_GUESTS_ENABLED): the signer and the API read the same value
+  user-search: ${DRAWBOARD_USER_SEARCH:all}  # all | off (S6.10): the member picker searches users by prefix
+
+collab:
+  # Limits and times of the real-time collaboration; the defaults are those of docs/collab-protocol.md (sizes in bytes,
+  # times in seconds). Environment: COLLAB_MAX_LOG_BYTES, COLLAB_IDLE_TIMEOUT_SECONDS, ... (relaxed binding).
+  # One replica only: tickets, rooms and sequence numbers live in this process (README, section "Collaboration").
+  max-update-bytes: 1048576
+
+server:
+  port: 8080                                # inside the container; never 8080 on the Mac (profile dev: 18081)
+  shutdown: graceful
+
+logging:
+  structured:
+    format:
+      console: ecs                          # one JSON line per event on stdout, incl. traceId, spanId, requestId
+      file: ecs                             # only used with LOGGING_FILE_NAME (local dev: Alloy tails dev/logs/)
+    ecs:
+      service:
+        environment: ${APP_ENVIRONMENT:local}
+
+management:
+  server:
+    port: 8081                              # actuator on its own port: not reachable through the reverse proxy
+  endpoints:
+    web:
+      exposure:
+        include: health,info                # metrics are pushed via OTLP, nothing else is exposed
+  endpoint:
+    health:
+      probes:
+        enabled: true                       # /actuator/health/liveness and /readiness for the container
+      show-details: never
+  tracing:
+    sampling:
+      probability: 1.0                      # Boot's default is 0.1
+  opentelemetry:
+    resource-attributes:
+      service.namespace: drawboard
+      service.version: ${spring.application.version:unknown}   # Implementation-Version of the jar = -Pversion
+      deployment.environment.name: ${APP_ENVIRONMENT:local}
+  otlp:
+    metrics:
+      export:
+        enabled: true                       # endpoint: OTEL_EXPORTER_OTLP_ENDPOINT (+ /v1/metrics)
+        base-time-unit: seconds             # otherwise every timer is named *_milliseconds_*
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true          # buckets for p95/p99 in Grafana
+
+springdoc:
+  # Swagger UI shows the CONTRACT (the bundled spec from the contract jar), not a spec generated from the code.
+  # Off by default = off in production; the dev profile switches it on.
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    url: /openapi/drawboard-api.yaml
+    oauth:
+      client-id: ${OIDC_WEB_CLIENT_ID:drawboard-web}   # the PUBLIC client of the frontend, never the API
+      use-pkce-with-authorization-code-grant: true
+      scopes: openid

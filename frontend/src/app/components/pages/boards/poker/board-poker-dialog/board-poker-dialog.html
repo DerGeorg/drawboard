@@ -1,0 +1,382 @@
+<section
+  class="float-panel flex max-h-[calc(100dvh-6rem)] w-[min(24rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto p-4"
+  [attr.aria-labelledby]="`${ids}-heading`"
+  data-testid="poker-dialog"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h2 [id]="`${ids}-heading`" class="truncate text-lg font-bold">Planning poker</h2>
+    @if (quick()) {
+      <span class="badge badge-ghost badge-sm ml-auto shrink-0" data-testid="quick-marker"
+        >quick round</span
+      >
+    }
+    <button
+      type="button"
+      class="btn btn-square btn-xs btn-ghost"
+      aria-label="Close planning poker"
+      (click)="close()"
+    >
+      <drawboard-icon name="close" />
+    </button>
+  </div>
+
+  <div class="-mt-2 min-w-0">
+    <p class="text-xs font-bold tracking-widest text-teal-700 uppercase">
+      {{ quick() ? 'Quick round' : 'Story' }}
+    </p>
+    <p class="truncate text-lg font-semibold" data-testid="poker-title">
+      @if (quick()) {
+        {{ round()?.title || 'Quick round' }}
+      } @else {
+        {{ story()?.title || 'Untitled story' }}
+      }
+    </p>
+    @if (deckLine(); as line) {
+      <p class="mt-0.5 text-sm text-(--color-st-grey)" data-testid="poker-deck">{{ line }}</p>
+    }
+  </div>
+
+  @switch (view()) {
+    @case ('loading') {
+      <p class="text-sm text-(--color-st-grey)" aria-live="polite">Loading the round…</p>
+    }
+    @case ('idle') {
+      <p class="text-sm" data-testid="poker-idle">
+        @if (quick()) {
+          This quick round is not available any more.
+        } @else {
+          No estimation is running on this story.
+        }
+      </p>
+      @if (story()?.estimate; as estimate) {
+        <p
+          class="flex h-12 items-center justify-center rounded-xl bg-(--color-st-yellow) px-3 text-base font-bold text-(--color-st-on-yellow)"
+          data-testid="estimate-set"
+        >
+          Estimate set: {{ points(estimate) }}
+        </p>
+      }
+    }
+    @case ('start') {
+      @if (story()?.estimate; as estimate) {
+        <p
+          class="flex h-12 items-center justify-center rounded-xl bg-(--color-st-yellow) px-3 text-base font-bold text-(--color-st-on-yellow)"
+          data-testid="estimate-set"
+        >
+          Estimate set: {{ points(estimate) }}
+        </p>
+      }
+      <form [formRoot]="startForm" class="flex flex-col gap-3" data-testid="poker-start">
+        <div>
+          <label [for]="`${ids}-title`" class="text-xs font-medium">What is estimated</label>
+          <input
+            [id]="`${ids}-title`"
+            type="text"
+            class="st-input"
+            autocomplete="off"
+            [formField]="startForm.title"
+            [attr.aria-describedby]="`${ids}-title-errors`"
+          />
+          <drawboard-field-errors [id]="`${ids}-title-errors`" [field]="startForm.title" />
+        </div>
+        <div>
+          <label [for]="`${ids}-deck`" class="text-xs font-medium">Deck</label>
+          <select [id]="`${ids}-deck`" class="select select-sm w-full" [formField]="startForm.deck">
+            <option value="FIBONACCI">Fibonacci: 0, 1, 2, 3, 5, 8, 13, 21, ?, ☕</option>
+            <option value="TSHIRT">T-shirt: XS, S, M, L, XL, ?</option>
+            <option value="CUSTOM">Custom</option>
+          </select>
+        </div>
+        @if (startForm.deck().value() === 'CUSTOM') {
+          <div>
+            <label [for]="`${ids}-custom`" class="text-xs font-medium"
+              >Values, separated by commas</label
+            >
+            <input
+              [id]="`${ids}-custom`"
+              type="text"
+              class="st-input"
+              autocomplete="off"
+              placeholder="1, 2, 4, 8, 16, ?"
+              [formField]="startForm.custom"
+              [attr.aria-describedby]="`${ids}-custom-errors`"
+            />
+            <drawboard-field-errors [id]="`${ids}-custom-errors`" [field]="startForm.custom" />
+          </div>
+        }
+        <button
+          type="submit"
+          class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+          [disabled]="busy()"
+        >
+          Start estimating
+        </button>
+      </form>
+    }
+    @case ('open') {
+      @if (round(); as r) {
+        <div class="flex flex-col gap-4" data-testid="poker-open">
+          <p class="-mt-2 text-xs text-(--color-st-grey)">Started by {{ r.facilitatorName }}</p>
+          <section [attr.aria-labelledby]="`${ids}-people`">
+            <h3 [id]="`${ids}-people`" class="text-center text-xs font-medium">
+              <span class="sr-only">Participants: </span>{{ votedCount() }} of
+              {{ r.participants.length }} voted
+            </h3>
+            <ul
+              class="mt-3 flex flex-wrap justify-center gap-x-3 gap-y-4"
+              data-testid="participants"
+            >
+              @for (p of r.participants; track $index) {
+                <li class="flex w-[4.25rem] flex-col items-center gap-1.5">
+                  @if (p.voted) {
+                    <div
+                      class="poker-back aspect-[108/156] w-full rounded-xl border-[3px] border-(--color-st-surface) shadow-md"
+                    ></div>
+                  } @else {
+                    <div
+                      class="aspect-[108/156] w-full rounded-xl border-2 border-dashed border-(--color-st-white-darker)"
+                    ></div>
+                  }
+                  <drawboard-avatar
+                    size="sm"
+                    [name]="p.displayName"
+                    [color]="colorOf(p.displayName)"
+                  />
+                  <span class="w-full truncate text-center text-xs font-semibold">{{
+                    p.displayName
+                  }}</span>
+                  @if (p.guest) {
+                    <span class="badge badge-ghost badge-xs">guest</span>
+                  }
+                  <span class="sr-only">{{ p.voted ? 'voted' : 'thinking…' }}</span>
+                </li>
+              }
+            </ul>
+          </section>
+          @if (canVote()) {
+            <div
+              role="group"
+              aria-label="Your vote"
+              class="flex flex-wrap justify-center gap-1.5 pt-2"
+            >
+              @for (value of r.deck.values; track value) {
+                <button
+                  type="button"
+                  class="flex h-14 w-10 cursor-pointer items-center justify-center rounded-lg border-2 border-(--color-st-white-darker) bg-(--color-st-surface) font-extrabold shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-st-primary) disabled:cursor-default disabled:opacity-60 aria-pressed:-translate-y-2 aria-pressed:border-(--color-st-primary) aria-pressed:bg-(--color-st-yellow) aria-pressed:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:aria-pressed:translate-y-0"
+                  [class]="valueClass(value, true)"
+                  [attr.aria-pressed]="myVote() === value"
+                  [attr.aria-label]="value === 'coffee' ? 'coffee (need a break)' : value"
+                  [disabled]="busy()"
+                  (click)="vote(value)"
+                >
+                  {{ display(value) }}
+                </button>
+              }
+            </div>
+            <p class="text-center text-xs" aria-live="polite" data-testid="my-vote">
+              @if (myVote(); as mine) {
+                You voted <strong>{{ display(mine) }}</strong
+                >. You can change it until the reveal.
+              } @else {
+                You have not voted yet.
+              }
+            </p>
+          } @else {
+            <p class="text-center text-xs text-(--color-st-grey)">
+              You can watch this round but not vote.
+            </p>
+          }
+          @if (canFacilitate()) {
+            <div class="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+                [disabled]="busy()"
+                (click)="reveal()"
+              >
+                Reveal votes
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                [disabled]="busy()"
+                (click)="cancel()"
+              >
+                Cancel round
+              </button>
+            </div>
+          }
+        </div>
+      }
+    }
+    @case ('revealed') {
+      @if (round(); as r) {
+        <div class="flex flex-col gap-4" data-testid="poker-result">
+          @if (r.result; as result) {
+            <ul
+              class="poker-table flex flex-wrap justify-center gap-x-3 gap-y-4"
+              [class.poker-animated]="!reducedMotion()"
+              aria-label="Votes"
+              data-testid="revealed-cards"
+            >
+              @for (v of result.votes; track $index) {
+                <li class="flex w-[4.25rem] flex-col items-center gap-1.5">
+                  <div
+                    class="poker-flip aspect-[108/156] w-full"
+                    [attr.aria-label]="`${v.displayName} voted ${display(v.value)}`"
+                    role="img"
+                  >
+                    <div class="poker-flip-inner" [style.--i]="$index">
+                      <div
+                        class="poker-side flex items-center justify-center rounded-xl border-[3px] border-(--color-st-primary) bg-(--color-st-surface) font-extrabold shadow-md"
+                        [class]="valueClass(v.value, false)"
+                        data-testid="card-face"
+                      >
+                        {{ display(v.value) }}
+                      </div>
+                      <div
+                        class="poker-side poker-side-back poker-back rounded-xl border-[3px] border-(--color-st-surface) shadow-md"
+                        aria-hidden="true"
+                      ></div>
+                    </div>
+                  </div>
+                  <drawboard-avatar
+                    size="sm"
+                    [name]="v.displayName"
+                    [color]="colorOf(v.displayName)"
+                  />
+                  <span class="w-full truncate text-center text-xs font-semibold">{{
+                    v.displayName
+                  }}</span>
+                  @if (v.guest) {
+                    <span class="badge badge-ghost badge-xs">guest</span>
+                  }
+                </li>
+              }
+            </ul>
+            <dl class="grid grid-cols-3 gap-2">
+              <div class="rounded-xl bg-(--color-st-white) px-3 py-2">
+                <dt class="text-xs text-(--color-st-grey)">Average</dt>
+                <dd class="text-2xl font-extrabold">{{ result.average ?? '–' }}</dd>
+              </div>
+              <div class="rounded-xl bg-(--color-st-white) px-3 py-2">
+                <dt class="text-xs text-(--color-st-grey)">Median</dt>
+                <dd class="text-2xl font-extrabold">{{ result.median ?? '–' }}</dd>
+              </div>
+              <div class="rounded-xl bg-(--color-st-yellow)/25 px-3 py-2" data-testid="suggestion">
+                <dt class="text-xs text-(--color-st-grey)">Suggestion</dt>
+                <dd class="text-2xl font-extrabold">
+                  {{ result.suggestion ? display(result.suggestion) : '–' }}
+                </dd>
+              </div>
+            </dl>
+            <ul class="flex flex-col gap-1 text-xs" aria-label="Distribution">
+              @for (d of result.distribution; track d.value) {
+                <li class="flex items-center gap-2">
+                  <span class="w-10 text-right font-semibold">{{ display(d.value) }}</span>
+                  <span
+                    class="h-3 rounded bg-(--color-st-yellow)"
+                    [style.width]="width(d.count)"
+                  ></span>
+                  <span>{{ d.count }}</span>
+                </li>
+              }
+            </ul>
+          }
+          @if (quick()) {
+            <p class="text-center text-xs text-(--color-st-grey)" data-testid="quick-note">
+              A quick round: the result is only shown here and saved nowhere.
+            </p>
+            <div class="flex flex-col items-center gap-1">
+              @if (canStartAgain()) {
+                <button
+                  type="button"
+                  class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+                  (click)="newRound()"
+                >
+                  New round
+                </button>
+              }
+              <button type="button" class="btn btn-sm btn-ghost" (click)="close()">Close</button>
+            </div>
+          } @else if (canWrite()) {
+            @if (estimates().length > 0) {
+              <div
+                role="group"
+                aria-label="Estimate for the card"
+                class="flex flex-wrap justify-center gap-1.5"
+              >
+                @for (value of estimates(); track value) {
+                  <button
+                    type="button"
+                    class="flex h-9 min-w-8 cursor-pointer items-center justify-center rounded-lg border-2 border-(--color-st-white-darker) bg-(--color-st-surface) px-1.5 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-st-primary) aria-pressed:border-(--color-st-primary) aria-pressed:bg-(--color-st-yellow)"
+                    [attr.aria-pressed]="chosen() === value"
+                    (click)="pick(value)"
+                  >
+                    {{ value }}
+                  </button>
+                }
+              </div>
+            }
+            <div class="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+                [disabled]="chosen() === undefined"
+                (click)="writeEstimate()"
+              >
+                @if (chosen(); as value) {
+                  Use {{ value }} as the estimate
+                } @else {
+                  Pick an estimate
+                }
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" (click)="releaseCard()">
+                Close without estimate
+              </button>
+            </div>
+          } @else if (story()?.estimate; as estimate) {
+            <p
+              class="flex h-12 items-center justify-center rounded-xl bg-(--color-st-yellow) px-3 text-base font-bold text-(--color-st-on-yellow)"
+              data-testid="estimate-set"
+            >
+              Estimate set: {{ points(estimate) }}
+            </p>
+          }
+        </div>
+      }
+    }
+    @case ('cancelled') {
+      <p class="text-sm" data-testid="poker-cancelled">
+        This round was cancelled; its votes are gone.
+      </p>
+      @if (quick()) {
+        <div class="flex flex-col items-center gap-1">
+          @if (canStartAgain()) {
+            <button
+              type="button"
+              class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+              (click)="newRound()"
+            >
+              New round
+            </button>
+          }
+          <button type="button" class="btn btn-sm btn-ghost" (click)="close()">Close</button>
+        </div>
+      } @else if (canWrite()) {
+        <button type="button" class="btn btn-sm btn-ghost self-start" (click)="releaseCard()">
+          Detach the round from the card
+        </button>
+      }
+    }
+  }
+
+  @if (retrying()) {
+    <p class="text-xs text-(--color-st-grey)" aria-live="polite">
+      The server is busy - trying again shortly.
+    </p>
+  }
+  @if (message(); as text) {
+    <p class="text-xs text-error" role="alert" data-testid="poker-message">{{ text }}</p>
+  }
+</section>

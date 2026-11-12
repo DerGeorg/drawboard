@@ -1,0 +1,42 @@
+<section
+  class="float-panel flex w-[min(26rem,calc(100vw-2rem))] flex-col gap-2 p-3"
+  aria-labelledby="diagram-editor-title"
+  data-testid="diagram-editor"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h2 id="diagram-editor-title" class="text-sm font-semibold">Diagram source (Mermaid)</h2>
+    <button
+      type="button"
+      class="btn btn-square btn-xs btn-ghost"
+      aria-label="Close the diagram source"
+      (click)="close()"
+    >
+      <drawboard-icon name="close" />
+    </button>
+  </div>
+  <textarea
+    #area
+    class="textarea h-72 w-full font-mono text-xs leading-snug"
+    aria-label="Mermaid source"
+    spellcheck="false"
+    [readOnly]="readOnly()"
+    [value]="source()"
+    (input)="edit(area.value)"
+  ></textarea>
+  <div class="flex items-center justify-between gap-2 text-xs text-(--color-st-grey)">
+    <a
+      class="link"
+      href="https://mermaid.js.org/intro/syntax-reference.html"
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      referrerpolicy="no-referrer"
+      >Mermaid syntax</a
+    >
+    <span class="tabular-nums">{{ size() }} of {{ limit }}</span>
+  </div>
+  @if (tooLarge()) {
+    <p class="text-xs text-error" role="alert">
+      The source would be larger than {{ limit }}: the last change was not saved.
+    </p>
+  }
+</section>

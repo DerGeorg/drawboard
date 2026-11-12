@@ -1,0 +1,151 @@
+<div class="flex h-full bg-(--color-st-white) text-(--color-st-black)">
+  @if (drawerOpen()) {
+    <button
+      type="button"
+      class="fixed inset-0 z-20 cursor-default bg-black/40 md:hidden"
+      tabindex="-1"
+      aria-hidden="true"
+      (click)="closeDrawer()"
+    ></button>
+  }
+
+  <aside
+    id="library-sidebar"
+    [class]="`fixed inset-y-0 left-0 z-30 flex w-64 shrink-0 flex-col gap-4 border-r-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) p-4 transition-transform md:static md:translate-x-0 ${drawerOpen() ? 'translate-x-0' : 'max-md:invisible max-md:-translate-x-full'}`"
+    aria-label="Library"
+  >
+    <a routerLink="/boards" class="zoom flex items-center gap-2 px-1" aria-label="Drawboard home">
+      <drawboard-dg-logo [size]="26" />
+      <span class="text-lg font-semibold tracking-tight">Drawboard</span>
+      @if (environmentBadge; as environment) {
+        <span class="badge badge-sm st-badge-yellow" data-testid="environment">{{
+          environment
+        }}</span>
+      }
+    </a>
+
+    <ng-content select="[sidebar-action]" />
+
+    <nav aria-label="Boards" class="flex min-h-0 flex-col gap-1 overflow-y-auto">
+      @for (item of nav; track item.id) {
+        <a
+          routerLink="/boards"
+          [queryParams]="item.view === 'recent' ? {} : { view: item.view }"
+          [class]="navClass(view() === item.view)"
+          [attr.aria-current]="view() === item.view ? 'page' : null"
+          (click)="closeDrawer()"
+          (dragover)="allowDrop($event, item.view)"
+          (drop)="drop($event, item.view)"
+        >
+          <drawboard-icon [name]="item.icon" />
+          {{ item.label }}
+        </a>
+        @if (item.view === 'mine') {
+          <ng-content select="[sidebar-folders]" />
+        }
+      }
+    </nav>
+  </aside>
+
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header
+      class="flex items-center gap-3 border-b-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) px-4 py-2.5"
+    >
+      <button
+        type="button"
+        class="btn btn-square btn-sm btn-ghost md:hidden"
+        aria-label="Open the sidebar"
+        aria-controls="library-sidebar"
+        [attr.aria-expanded]="drawerOpen()"
+        (click)="toggleDrawer()"
+      >
+        <drawboard-icon name="menu" />
+      </button>
+
+      <div role="search" class="relative max-w-xl flex-1">
+        <label for="library-search" class="sr-only">Search boards</label>
+        <span
+          class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-(--color-st-grey)"
+        >
+          <drawboard-icon name="search" />
+        </span>
+        <input
+          id="library-search"
+          type="search"
+          class="st-input pl-10!"
+          placeholder="Search boards"
+          autocomplete="off"
+          [value]="search()"
+          (input)="setSearch($event)"
+        />
+      </div>
+
+      @if (user(); as current) {
+        <div class="relative ml-auto">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-full p-1 pr-2 hover:bg-(--color-st-white-darker) focus-visible:ring-2 focus-visible:ring-(--color-st-primary)"
+            aria-label="Account menu"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="userMenuOpen()"
+            (click)="toggleUserMenu()"
+          >
+            <drawboard-avatar [name]="current.displayName" />
+            <span
+              class="hidden max-w-40 truncate text-sm font-medium sm:inline"
+              data-testid="current-user"
+              >{{ current.displayName }}</span
+            >
+            <drawboard-icon name="chevronDown" />
+          </button>
+          @if (userMenuOpen()) {
+            <button
+              type="button"
+              class="fixed inset-0 z-10 cursor-default"
+              tabindex="-1"
+              aria-hidden="true"
+              (click)="closeUserMenu()"
+            ></button>
+            <ul
+              class="float-panel absolute top-full right-0 z-20 mt-2 w-56 p-1"
+              role="menu"
+              aria-label="Account"
+            >
+              <li role="none" class="px-3 py-2 text-xs text-(--color-st-grey)">
+                Signed in as {{ current.username }}
+              </li>
+              @if (current.admin) {
+                <li role="none">
+                  <a
+                    routerLink="/admin/plugins"
+                    role="menuitem"
+                    class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker)"
+                    (click)="closeUserMenu()"
+                  >
+                    <drawboard-icon name="puzzle" />
+                    Plugins
+                  </a>
+                </li>
+              }
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker)"
+                  (click)="logout()"
+                >
+                  <drawboard-icon name="logout" />
+                  Sign out
+                </button>
+              </li>
+            </ul>
+          }
+        </div>
+      }
+    </header>
+
+    <div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+      <ng-content />
+    </div>
+  </div>
+</div>

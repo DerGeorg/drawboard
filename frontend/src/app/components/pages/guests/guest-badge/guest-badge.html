@@ -1,0 +1,17 @@
+@if (guest(); as current) {
+  <span class="inline-flex items-center gap-2">
+    <span class="badge st-badge-yellow" data-testid="guest-badge">Guest</span>
+    <span class="hidden max-w-32 truncate text-sm font-medium sm:inline" data-testid="guest-name">{{
+      current.name
+    }}</span>
+    <button
+      type="button"
+      class="btn btn-square btn-sm btn-ghost"
+      aria-label="Leave as guest"
+      title="Leave"
+      (click)="leave()"
+    >
+      <drawboard-icon name="logout" />
+    </button>
+  </span>
+}

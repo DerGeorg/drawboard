@@ -1,0 +1,2138 @@
+# All reusable components of the Drawboard API: ONE file, so IntelliJ's OpenAPI
+# preview can render it. Every key under components.schemas becomes exactly
+# one generated model with exactly this name (Kotlin data class / enum class,
+# TypeScript type) - checked after generation by
+# scripts/check-generated-models.mjs. Do not nest object schemas or enums
+# inside properties: give them their own key and $ref them
+# ('#/components/schemas/<Name>'). One comment block per topic.
+openapi: 3.1.0
+info:
+  title: Drawboard API - common
+  # Never stamped: only the bundle of ../openapi.yaml carries the version.
+  version: 0.0.0
+components:
+  schemas:
+    # --- errors ------------------------------------------------------------
+    # Error body of every API of the application — RFC 9457 problem details,
+    # media type application/problem+json. `type` is omitted on purpose (RFC 9457:
+    # absent = about:blank); `code` is what clients switch on.
+    ErrorModel:
+      type: object
+      description: |
+        RFC 9457 problem details plus application extensions. Body of every 4xx
+        and 5xx response, media type application/problem+json.
+      required: [code, status, title, timestamp]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code, repeated for convenience.
+          examples: [404]
+        title:
+          type: string
+          description: HTTP reason phrase of the status.
+          examples: [Not Found]
+        detail:
+          type: string
+          description: English text for developers and logs. The UI localises via `code` + `params`, never by parsing this.
+        instance:
+          type: string
+          description: Path of the request.
+          examples: [/api/boards/0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f]
+        params:
+          type: object
+          description: Values for the placeholders of the code's message. Never secrets or personal data.
+          additionalProperties:
+            type: string
+          examples:
+            - boardId: 0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f
+        violations:
+          type: array
+          description: One entry per invalid field (only with VALIDATION_FAILED).
+          items:
+            $ref: '#/components/schemas/FieldViolation'
+        requestId:
+          type: string
+          description: Correlation id (inbound X-Request-Id, otherwise the trace id). Same as the X-Request-Id response header.
+        traceId:
+          type: string
+          description: OpenTelemetry trace id — look the request up in Tempo.
+        timestamp:
+          type: string
+          format: date-time
+    FieldViolation:
+      type: object
+      description: One invalid field of a request. The rejected value is never echoed.
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          description: Path of the field, e.g. `title`.
+          examples: [title]
+        code:
+          type: string
+          description: Name of the violated constraint (NotBlank, Size, Min, …).
+          examples: [Size]
+        message:
+          type: string
+          description: English text for developers.
+    ErrorCode:
+      type: string
+      description: |
+        Application-wide error codes. Platform codes are unprefixed; domain codes
+        are `<MODULE>_<SUBDOMAIN>_<PROBLEM>`. A published code is never renamed or
+        removed. Adding a code is NOT a breaking change: clients must tolerate
+        codes they do not know (treat them like the HTTP status alone).
+
+        BAD_GATEWAY and GATEWAY_TIMEOUT are never sent by the backend itself: the
+        proxy in front of it (the frontend's nginx or Node server forwarding /api,
+        or a gateway) writes them as application/problem+json with this model
+        when the backend cannot be reached or does not answer in time. Clients
+        should treat them as transient and offer a retry.
+      enum:
+        # platform — the same in every application
+        - VALIDATION_FAILED          # 400, see violations
+        - MALFORMED_REQUEST          # 400, body or parameter unreadable
+        - UNAUTHORIZED               # 401, no or invalid token
+        - FORBIDDEN                  # 403, the user may not do this
+        - NOT_FOUND                  # 404, no such route
+        - METHOD_NOT_ALLOWED         # 405
+        - NOT_ACCEPTABLE             # 406, Accept excludes application/json
+        - CONFLICT                   # 409, concurrent modification (stale version)
+        - UNSUPPORTED_MEDIA_TYPE     # 415
+        - INTERNAL_ERROR             # 500
+        - BAD_GATEWAY                # 502, written by the proxy in front of the backend: backend unreachable or connection failed
+        - GATEWAY_TIMEOUT            # 504, written by the proxy in front of the backend: backend did not answer in time
+        - PAYLOAD_TOO_LARGE          # 413, params: limit (bytes)
+        - TOO_MANY_REQUESTS          # 429, see the Retry-After header
+        # module library, subdomain boards
+        - LIBRARY_BOARD_NOT_FOUND    # 404, params: boardId (also when the user may not see the board)
+        - LIBRARY_BOARD_ACCESS_DENIED # 403, params: boardId, required (the role the action needs)
+        # module library, subdomain folders
+        - LIBRARY_FOLDER_NOT_FOUND   # 404, params: folderId (also when the user may not see the folder, and for a target folder of create/move the caller does not own)
+        - LIBRARY_FOLDER_CYCLE       # 409, params: folderId, parentId (the new parent is the folder itself or lies below it)
+        # module library, subdomain sharing
+        - LIBRARY_USER_NOT_FOUND     # 404, params: userId (no such user: users exist after their first sign-in)
+        - LIBRARY_SHARE_NOT_FOUND    # 404, params: linkId on operations with a linkId in the path; NO params on exchange and refresh (unknown, revoked and expired tokens answer the same body, S1.12)
+        - LIBRARY_SHARE_LOGIN_REQUIRED # 401, no params (the link is for signed-in users only, or guests are disabled on this instance: sign in and exchange again)
+        - LIBRARY_SHARE_PASSWORD_REQUIRED # 403, no params (the link has a password and none was sent)
+        - LIBRARY_SHARE_PASSWORD_INVALID # 403, no params (the password does not match; every failure counts toward the rate limit)
+        # module collab
+        - COLLAB_SNAPSHOT_NOT_REQUESTED # 409, params: boardId, upToSeq (no open compaction request of this user for this sequence number)
+        - COLLAB_VERSION_NOT_FOUND   # 404, params: boardId, versionId (no such kept version of this board)
+        # module files
+        - FILES_FILE_NOT_FOUND       # 404, params: fileId (no such file on this board; also on /files/{fileId} when the signature is valid but the file or variant is gone)
+        - FILES_TYPE_NOT_ALLOWED     # 415, params: mediaType (the detected type; absent when nothing was recognised) - not on the allowlist, SVG, or the extension does not match the content
+        - FILES_QUOTA_EXCEEDED       # 413, params: scope (USER or BOARD), limit (bytes) - the upload would exceed the storage quota of the user or the board
+        - FILES_URL_INVALID          # 403, no params - a file URL whose signature is wrong, expired or made with a retired key; the same body for every reason
+        - FILES_RANGE_NOT_SATISFIABLE # 416, no params - Range header with more than one range, malformed, or outside the file (Content-Range carries the size)
+        # module plugins
+        - PLUGINS_PLUGIN_NOT_FOUND   # 404, params: pluginId (not installed; on the board routes also: not enabled)
+        - PLUGINS_ARCHIVE_INVALID    # 400, params: reason (NOT_A_ZIP, TOO_MANY_ENTRIES, UNPACKED_TOO_LARGE, UNSAFE_PATH, FILE_TYPE_NOT_ALLOWED, MANIFEST_MISSING, ENTRY_MISSING), path (the offending entry, when there is one) - the uploaded ZIP violates S3.9 or the file rules of docs/plugin-protocol.md
+        - PLUGINS_MANIFEST_INVALID   # 400, see violations (field = JSON path inside drawboard-plugin.json, e.g. blockTypes[0].type)
+        - PLUGINS_VERSION_EXISTS     # 409, params: pluginId, installedVersion (an upload with the same or a lower version than the installed one)
+        - PLUGINS_CAPABILITY_NOT_REQUESTED # 400, params: capability (name, plus `:value` when it has one) - a grant the installed version does not request
+        # module planning, subdomain rounds
+        - PLANNING_ROUND_NOT_FOUND   # 404, params: roundId (no such round on this board)
+        - PLANNING_ROUND_ALREADY_OPEN # 409, params: storyBlockId, roundId (the OPEN round of that story card; never for quick rounds)
+        - PLANNING_ROUND_LIMIT_REACHED # 409, params: limit (the board already has this many OPEN rounds, 10, quick rounds included)
+        - PLANNING_ROUND_CLOSED      # 409, params: roundId, state (REVEALED or CANCELLED) - vote, reveal or cancel on a round that is no longer OPEN
+        - PLANNING_ROUND_FULL        # 409, params: roundId, limit - castPokerVote by a non-participant when the round has 200 participants, 50 guests, or 20 guests of the caller's share link
+        - PLANNING_VALUE_INVALID     # 400, params: roundId (the vote is not a value of the round's deck; the value itself is not echoed)
+
+    # --- paging ------------------------------------------------------------
+    # Paging, shared by every "<Resource>Page" schema. OpenAPI has no generics, so
+    # each resource has its own page schema (items: <Resource>[]) that embeds
+    # PageInfo. Request side: parameters PageNumber and PageSize below.
+    PageInfo:
+      type: object
+      description: Position of a page in the whole result.
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Zero-based page number.
+        size:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Requested page size (the last page may hold fewer items).
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          format: int32
+          minimum: 0
+
+    # --- boards ------------------------------------------------------------
+    # Schemas of the resource "boards". Every top-level key becomes exactly one
+    # generated model with exactly this name (Kotlin data class, TypeScript
+    # interface). Do not nest object schemas or enums inside properties — give them
+    # their own top-level key here and $ref them (checked after generation).
+    Board:
+      type: object
+      description: |
+        Metadata of a board as returned by the API. The drawing itself is not
+        part of this resource; it is synchronised over the collaboration
+        WebSocket. The board summary and thumbnail (S2.9) are not part of the
+        contract yet; they follow in a later change.
+      required: [id, title, ownerId, folderId, role, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        ownerId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Id of the owning user (`CurrentUser.id`).
+        folderId:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: |
+            Folder of the owner's space the board lives in; null = the root of
+            the owner's space. Changed with moveBoard.
+        role:
+          $ref: '#/components/schemas/BoardRole'
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Last change of the metadata or the drawing.
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: |
+            When the board was moved to the trash (itself or with its folder).
+            Only set in the trash listing (listTrash); a board in the trash is
+            purged for good 30 days after this instant.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Optimistic-lock version of the metadata, raised by every change
+            (title, folder). Send it back unchanged in `BoardUpdate.version`
+            and `BoardMove.version`.
+    BoardRole:
+      type: string
+      description: |
+        What the caller may do with a board or folder, strongest first:
+        OWNER (everything, including delete, sharing and restoring versions),
+        EDITOR (change the drawing and the title), COMMENTER (comment only),
+        VIEWER (read only). A role on a folder applies to everything below it;
+        when a caller has several roles on a board (own grant, group grant,
+        grant inherited from a folder, link), the strongest one wins.
+      enum: [OWNER, EDITOR, COMMENTER, VIEWER]
+    NewBoard:
+      type: object
+      description: |
+        Payload to create a board. Deliberately a separate schema from Board: a
+        caller can never set id, owner, role, timestamps or version.
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # At least one non-blank character. Written so that it means the same
+          # unanchored (JSON Schema, ECMA-262) and anchored (Java @Pattern, which
+          # must match the whole string): a title of blanks only is rejected.
+          pattern: '^\s*\S[\s\S]*'
+          description: Leading and trailing whitespace is removed by the server.
+        folderId:
+          type: string
+          format: uuid
+          description: |
+            Folder of the caller's own space to create the board in; absent =
+            the root of the space. A folder the caller does not own, or one in
+            the trash, answers 404 LIBRARY_FOLDER_NOT_FOUND.
+    BoardUpdate:
+      type: object
+      description: |
+        Payload to change a board's metadata: the new values of the changeable
+        fields plus the version they are based on (optimistic locking).
+      required: [title, version]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # Same pattern as NewBoard.title.
+          pattern: '^\s*\S[\s\S]*'
+          description: Leading and trailing whitespace is removed by the server.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The `version` of the board as last read. Another version -> 409 CONFLICT.
+    BoardMove:
+      type: object
+      description: |
+        Payload of moveBoard: the folder the board moves to plus the version
+        it is based on. A separate schema (not a field of BoardUpdate) because
+        the generated Kotlin cannot tell an absent field from `null`, and
+        here `null` means "move to the root".
+      required: [folderId, version]
+      properties:
+        folderId:
+          type: [string, 'null']
+          format: uuid
+          description: Target folder of the owner's space; null = the root of the space.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The `version` of the board as last read. Another version -> 409 CONFLICT.
+    BoardPage:
+      type: object
+      description: One page of boards.
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Board'
+        page:
+          $ref: '#/components/schemas/PageInfo'
+
+    # --- folders -----------------------------------------------------------
+    # Schemas of the resource "folders" (module library, subdomain folders).
+    Folder:
+      type: object
+      description: |
+        A folder of a user's space. Folders form a tree per user; boards live
+        in a folder or in the root of the space. Roles granted on a folder
+        apply to every folder and board below it.
+      required: [id, name, ownerId, parentId, role, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        ownerId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Id of the owning user (`CurrentUser.id`).
+        parentId:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: Parent folder; null = the root of the owner's space.
+        role:
+          $ref: '#/components/schemas/BoardRole'
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Last change of the folder itself (name, parent).
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: |
+            When the folder was moved to the trash. Only set in the trash
+            listing (listTrash); purged for good 30 days after this instant.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Optimistic-lock version, raised by every change of name or parent.
+            Send it back unchanged in `FolderUpdate.version`.
+    NewFolder:
+      type: object
+      description: Payload to create a folder in the caller's own space.
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # Same pattern as NewBoard.title: at least one non-blank character.
+          pattern: '^\s*\S[\s\S]*'
+          description: Leading and trailing whitespace is removed by the server.
+        parentId:
+          type: string
+          format: uuid
+          description: |
+            Parent folder of the caller's own space; absent = the root. A
+            folder the caller does not own, or one in the trash, answers 404
+            LIBRARY_FOLDER_NOT_FOUND.
+    FolderUpdate:
+      type: object
+      description: |
+        Payload to rename and/or move a folder: the new name, the new parent
+        (send the current one to keep it) and the version they are based on.
+      required: [name, parentId, version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # Same pattern as NewBoard.title.
+          pattern: '^\s*\S[\s\S]*'
+          description: Leading and trailing whitespace is removed by the server.
+        parentId:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            New parent folder of the owner's space; null = the root. The folder
+            itself or a folder below it -> 409 LIBRARY_FOLDER_CYCLE.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The `version` of the folder as last read. Another version -> 409 CONFLICT.
+    FolderList:
+      type: object
+      description: Folders, unpaged (a user's folder tree is small).
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Folder'
+
+    # --- library views: shared with me, trash --------------------------------
+    SharedWithMe:
+      type: object
+      description: |
+        Boards and folders other users shared with the caller directly (user
+        grant, group grant of one of the caller's current groups, or a link
+        the caller opened while signed in), most recently changed first.
+        Boards inside a shared folder are not repeated here: list them with
+        listBoards and `folderId`. `role` is the caller's effective role.
+      required: [boards, folders]
+      properties:
+        boards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Board'
+        folders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Folder'
+    Trash:
+      type: object
+      description: |
+        The caller's deleted boards and folders, most recently deleted first,
+        each with `deletedAt`. A folder deleted with its content is one entry:
+        its boards and subfolders are restored or purged with it and are not
+        listed separately. Entries are purged automatically 30 days after
+        `deletedAt`.
+      required: [boards, folders]
+      properties:
+        boards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Board'
+        folders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Folder'
+
+    # --- sharing: members ----------------------------------------------------
+    # Schemas of the resource "sharing" (module library, subdomain sharing).
+    GrantRole:
+      type: string
+      description: |
+        Role that can be granted to a user, a group or a link: EDITOR,
+        COMMENTER or VIEWER (meaning as in BoardRole). OWNER can never be
+        granted; transferring ownership is not part of the API.
+      enum: [EDITOR, COMMENTER, VIEWER]
+    MemberPrincipalKind:
+      type: string
+      description: |
+        Who a grant is for: USER (granted by the owner to a user), GROUP
+        (granted to a group of the OIDC provider; it applies to everyone whose
+        current access token carries the group), LINK_USER (a signed-in user
+        who opened a share link; the grant was remembered with the link's
+        role).
+      enum: [USER, GROUP, LINK_USER]
+    MemberPrincipal:
+      type: object
+      description: |
+        The holder of a grant, or the owner. Carries no email address (S6.9).
+      required: [kind, displayName]
+      properties:
+        kind:
+          $ref: '#/components/schemas/MemberPrincipalKind'
+        userId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Set for USER and LINK_USER (`CurrentUser.id` of that user).
+        group:
+          type: string
+          readOnly: true
+          description: Set for GROUP, the group name as it appears in the access tokens.
+        displayName:
+          type: string
+          readOnly: true
+          description: Display name of the user (else the username), or the group name.
+        username:
+          type: string
+          readOnly: true
+          description: Set for USER and LINK_USER.
+    Member:
+      type: object
+      description: One grant on a board or folder.
+      required: [principal, role]
+      properties:
+        principal:
+          $ref: '#/components/schemas/MemberPrincipal'
+        role:
+          $ref: '#/components/schemas/GrantRole'
+        inheritedFrom:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Set when the grant is not on this board or folder itself but on a
+            folder above it: the id of that folder. Such a grant is changed or
+            removed on that folder, not here.
+    MemberList:
+      type: object
+      description: |
+        Everyone with access to a board or folder besides links: the owner and
+        every grant, direct ones and those inherited from folders above. A
+        principal can appear more than once (e.g. a direct grant and an
+        inherited one); the strongest role wins.
+      required: [owner, items]
+      properties:
+        owner:
+          $ref: '#/components/schemas/MemberPrincipal'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+    MemberUpdate:
+      type: object
+      description: The role to grant (creates the grant or changes its role).
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/GrantRole'
+
+    # --- sharing: links ------------------------------------------------------
+    ShareAudience:
+      type: string
+      description: |
+        Who can use a share link: SIGNED_IN (anyone signed in who has the link;
+        the default choice in the UI) or GUESTS (also people without an
+        account, as guests; works only when the instance enables guests,
+        S1.14).
+      enum: [SIGNED_IN, GUESTS]
+    ShareLink:
+      type: object
+      description: |
+        A share link of a board or folder, as the owner sees it. The token is
+        never part of it: it exists only in the response that created the
+        link (CreatedShareLink.url); the server stores only its hash.
+      required: [id, role, audience, passwordProtected, createdAt, useCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7). Not the token.
+        role:
+          $ref: '#/components/schemas/GrantRole'
+        audience:
+          $ref: '#/components/schemas/ShareAudience'
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: The link stops working at this instant; null = no expiry.
+        passwordProtected:
+          type: boolean
+          readOnly: true
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: Set once the owner revoked the link; a revoked link never works again.
+        useCount:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: Successful exchanges of this link.
+    ShareLinkList:
+      type: object
+      description: Every link of a board or folder, revoked and expired ones included, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShareLink'
+    NewShareLink:
+      type: object
+      description: Payload to create a share link.
+      required: [role, audience]
+      properties:
+        role:
+          $ref: '#/components/schemas/GrantRole'
+        audience:
+          $ref: '#/components/schemas/ShareAudience'
+        expiresAt:
+          type: string
+          format: date-time
+          description: Optional expiry, in the future. Absent = no expiry.
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          maxLength: 128
+          description: |
+            Optional password the link asks for (S1.11). Stored only as a hash
+            and never returned.
+    CreatedShareLink:
+      type: object
+      description: Answer of creating a share link - the only time the link's URL is ever shown.
+      required: [link, url]
+      properties:
+        link:
+          $ref: '#/components/schemas/ShareLink'
+        url:
+          type: string
+          readOnly: true
+          description: |
+            `<public URL>/s#<token>`. The token sits in the URL fragment, so it
+            never reaches a server log (S1.2). It appears ONLY in this response:
+            the server stores just its hash and cannot show it again; a lost
+            link is revoked and replaced by a new one.
+          examples: ['https://drawboard.example.org/s#3q2-7wEhZ8lO5vY0rN8cJ0kq1sV3bXo9uT2mF6aPzD4']
+
+    # --- sharing: exchange and guests ----------------------------------------
+    ShareResourceKind:
+      type: string
+      description: What a share link points to.
+      enum: [BOARD, FOLDER]
+    ShareExchange:
+      type: object
+      description: Payload of exchangeShareToken. Sent in the body only; never logged (S7.2).
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: The token from the URL fragment of the link (256 bit, base64url without padding).
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 128
+          description: The link's password, if it has one.
+        guestName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          # Same pattern as NewBoard.title: at least one non-blank character.
+          pattern: '^\s*\S[\s\S]*'
+          description: |
+            Display name of a guest (anonymous caller on a GUESTS link):
+            required there (missing -> 400 VALIDATION_FAILED on `guestName`),
+            ignored for signed-in callers. Sanitised by the server.
+    ShareAccess:
+      type: object
+      description: |
+        Result of exchanging a share token: what the link opens and with which
+        role. For a signed-in caller, `role` is the effective role (a stronger
+        role the caller already has wins) and `guestSession` is absent. For an
+        anonymous caller, `guestSession` carries the guest token.
+      required: [kind, id, role]
+      properties:
+        kind:
+          $ref: '#/components/schemas/ShareResourceKind'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Id of the board or folder.
+        role:
+          $ref: '#/components/schemas/BoardRole'
+        guestSession:
+          $ref: '#/components/schemas/GuestSession'
+    GuestSession:
+      type: object
+      description: |
+        A guest session: an app-signed guest JWT (S1.3) scoped to exactly one
+        board or folder and role. Kept in memory only; renewed with
+        refreshGuestSession before `expiresAt`.
+      required: [accessToken, expiresAt, kind, id, role, name]
+      properties:
+        accessToken:
+          type: string
+          readOnly: true
+          description: |
+            Guest JWT, sent as `Authorization: Bearer` on the operations guests
+            may call. Valid 15 minutes, never beyond the link's expiry; a guest
+            session ends at the latest 12 hours after the first exchange.
+        expiresAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Expiry of `accessToken`.
+        kind:
+          $ref: '#/components/schemas/ShareResourceKind'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Id of the board or folder the session is scoped to.
+        role:
+          $ref: '#/components/schemas/GrantRole'
+        name:
+          type: string
+          readOnly: true
+          description: The guest's display name as the server stored it (sanitised, at most 64 characters).
+    ShareRefresh:
+      type: object
+      description: Payload of refreshGuestSession.
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: The token of the link the guest session came from.
+
+    # --- collab ------------------------------------------------------------
+    # Schemas of the resource "collab" (module collab). The WebSocket messages
+    # are not OpenAPI schemas: docs/collab-protocol.md.
+    CollabTicket:
+      type: object
+      description: |
+        One-time ticket for the collaboration WebSocket of a board. Send it as
+        the subprotocol `ticket.<ticket>` next to `drawboard.v1`; never put it
+        into a URL or a log.
+      required: [ticket, expiresAt, url, protocol]
+      properties:
+        ticket:
+          type: string
+          readOnly: true
+          description: 256 bit random, base64url without padding (43 characters).
+          minLength: 43
+          maxLength: 43
+        expiresAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: The ticket must be redeemed before this instant (30 seconds after issuing).
+        url:
+          type: string
+          readOnly: true
+          description: |
+            Path of the WebSocket on this origin, e.g.
+            `/api/boards/0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f/collab`; the client
+            prefixes `wss://<host>` (or `ws://` locally).
+          examples: [/api/boards/0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f/collab]
+        protocol:
+          type: string
+          readOnly: true
+          description: The subprotocol to request next to the ticket.
+          examples: [drawboard.v1]
+    BoardSnapshotUpload:
+      type: object
+      description: |
+        Form of `PUT /boards/{boardId}/snapshot`. Not a generated model: the
+        generators turn its properties into parameters.
+      required: [snapshot]
+      properties:
+        snapshot:
+          type: string
+          format: binary
+          description: The whole drawing as one Yjs update (v1 encoding), at most 50 MB.
+    BoardVersion:
+      type: object
+      description: |
+        A kept version of a board's drawing: one of the snapshots the server
+        keeps (the last 5, or those of the last 7 days, within the board's
+        snapshot budget, S2.7/S2.8).
+      required: [id, upToSeq, createdAt, size]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        upToSeq:
+          type: integer
+          format: int64
+          minimum: 1
+          readOnly: true
+          description: The snapshot contains every update up to and including this sequence number.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the snapshot was uploaded.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: Size of the snapshot in bytes.
+    BoardVersionList:
+      type: object
+      description: The kept versions of a board, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BoardVersion'
+
+    # --- files -------------------------------------------------------------
+    # Schemas of the resource "files" (module files). The Yjs document holds
+    # only the fileId of a file; its bytes are fetched through signed URLs
+    # (FileUrl) from GET /files/{fileId} outside /api (S4.4).
+    BoardFile:
+      type: object
+      description: |
+        A file uploaded to a board (image, video, PDF or Office document).
+        Every file belongs to exactly one board; who may see the board may see
+        its files (S4.1). Blocks reference it by `id`; the bytes are never part
+        of this resource - get signed URLs with getFileUrls.
+      required: [id, boardId, name, mediaType, kind, size, createdAt, conversion]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7). Also the name the file is stored under.
+        boardId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: The board the file belongs to.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          readOnly: true
+          description: |
+            The original file name as uploaded, sanitised by the server (path
+            and control characters removed, at most 255 characters). Shown in
+            the UI and used in `Content-Disposition`; never used as a storage
+            path.
+          examples: [quarterly-report.docx]
+        mediaType:
+          type: string
+          readOnly: true
+          description: |
+            Media type detected by the server from the content (S4.2), never
+            the one the client sent.
+          examples: [image/png]
+        kind:
+          $ref: '#/components/schemas/BoardFileKind'
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: Size of the original in bytes.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        createdBy:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Id of the uploading user (`CurrentUser.id`). Absent for guests
+            (they may list files but must not collect user ids of members).
+        conversion:
+          $ref: '#/components/schemas/BoardFileConversion'
+        pageCount:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+          description: |
+            Number of pages: PDF, and DOCUMENT once `conversion` is DONE
+            (pages of the converted PDF). Absent otherwise.
+        width:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+          description: |
+            Width in pixels: IMAGE (read from the header before decoding,
+            S4.8); VIDEO when the container header carries it. Absent
+            otherwise.
+        height:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+          description: Height in pixels, like `width`.
+    BoardFileKind:
+      type: string
+      description: |
+        What a file is, from its detected media type: IMAGE (png, jpeg, gif,
+        webp), VIDEO (mp4, webm; streamed with range requests, not
+        transcoded), PDF, DOCUMENT (Office Open XML or OpenDocument text,
+        spreadsheet or presentation; converted to PDF on upload and shown like
+        a PDF, the original stays downloadable).
+      enum: [IMAGE, VIDEO, PDF, DOCUMENT]
+    BoardFileConversion:
+      type: string
+      description: |
+        State of the PDF conversion of a DOCUMENT (S4.10): PENDING (queued or
+        running; poll getFile, there is no push in M3), DONE (the `pdf`
+        variant exists), FAILED (conversion failed or timed out; only the
+        original can be downloaded). NONE for every other kind.
+      enum: [NONE, PENDING, DONE, FAILED]
+    BoardFileList:
+      type: object
+      description: |
+        Every file of a board, newest first (unpaged; a board holds at most
+        500 files).
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/BoardFile'
+    FileUpload:
+      type: object
+      description: |
+        Form of `POST /boards/{boardId}/files`. Not a generated model: the
+        generators turn its properties into parameters.
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: |
+            The file. Its part's `filename` becomes `BoardFile.name`
+            (sanitised); its extension must match the detected type. The
+            part's Content-Type is ignored.
+    FileContent:
+      type: string
+      format: binary
+      description: |
+        The bytes of a file variant as served by GET /files/{fileId}. An alias
+        (not a generated model): Kotlin `org.springframework.core.io.Resource`,
+        TypeScript `Blob`.
+    FileUrl:
+      type: object
+      description: |
+        Signed URLs of one file (S4.4). Every URL is relative to the origin of
+        the app (or of the files origin, when the deployment configures one):
+
+            /files/{fileId}?v=<variant>&exp=<unix seconds>&sig=<signature>
+
+        * `v` - the variant: `original`, `thumbnail` (IMAGE only) or `pdf`
+          (DOCUMENT with `conversion` DONE).
+        * `exp` - expiry as Unix time in seconds, at most 1 hour after
+          issuing.
+        * `sig` - `base64url(HMAC-SHA256(key, fileId + "|" + v + "|" + exp))`
+          without padding (43 characters); `fileId` in lowercase canonical
+          form. Keys come from the server's key list (the first one signs,
+          every one verifies, S1.5-style rotation).
+
+        The URL authorises on its own (no token, not bound to an IP), so it is
+        treated like a secret: never logged, never put into the Yjs document
+        or an export - the document stores the `fileId` only. Clients fetch
+        new URLs before `expiresAt`.
+      required: [fileId, url, originalUrl, expiresAt]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+          description: |
+            The variant a block displays: the original for IMAGE, VIDEO and
+            PDF; the converted PDF for DOCUMENT once `conversion` is DONE,
+            otherwise the original (served as attachment: the block shows a
+            download card).
+          examples: ['/files/0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f?v=original&exp=1794312000&sig=3q2-7wEhZ8lO5vY0rN8cJ0kq1sV3bXo9uT2mF6aPzD4']
+        thumbnailUrl:
+          type: string
+          readOnly: true
+          description: The `thumbnail` variant (at most 512 px, re-encoded without metadata). IMAGE only.
+        pdfUrl:
+          type: string
+          readOnly: true
+          description: The `pdf` variant. DOCUMENT with `conversion` DONE only.
+        originalUrl:
+          type: string
+          readOnly: true
+          description: |
+            The `original` variant, for downloading. Office originals may
+            contain macros: the UI says so next to the download (S4.11).
+        expiresAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the URLs stop working (the same `exp` for all of them).
+    FileUrlList:
+      type: object
+      description: |
+        Signed URLs for the requested files, in the order of `ids`. Ids that
+        are not (or no longer) files of this board are left out, so one
+        deleted file does not fail the whole batch.
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/FileUrl'
+
+    # --- plugins -------------------------------------------------------------
+    # Schemas of the resource "plugins" (module plugins). The manifest
+    # (drawboard-plugin.json) and the host <-> plugin MessageChannel protocol
+    # are not OpenAPI schemas: docs/plugin-protocol.md.
+    Plugin:
+      type: object
+      description: |
+        An installed plugin, as an instance admin sees it. Installed by
+        upload (installPlugin) DISABLED and with no capability granted; the
+        admin then grants capabilities and enables it (updatePlugin).
+      required: [id, name, version, enabled, installedAt, installedBy, bundleSha384, assetBase, blockTypes, requestedCapabilities, grantedCapabilities, revision]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          minLength: 3
+          maxLength: 100
+          # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+          pattern: '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$'
+          description: |
+            Reverse-DNS-like namespace from the manifest (at least two
+            segments, lowercase), e.g. `org.example.timer`. Namespace of all
+            its block types. `core.*` and `drawboard.*` are reserved.
+          examples: [org.example.timer]
+        name:
+          type: string
+          readOnly: true
+          maxLength: 100
+          description: Display name from the manifest (plain text).
+        version:
+          type: string
+          readOnly: true
+          maxLength: 64
+          description: Version from the manifest (Semantic Versioning 2.0.0).
+          examples: [1.2.0]
+        description:
+          type: string
+          readOnly: true
+          maxLength: 1000
+          description: Description from the manifest (plain text).
+        enabled:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether boards load it. A disabled plugin is not in
+            listEnabledPlugins; its blocks render as placeholders, their
+            data is kept (S3.10).
+        installedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When this version was uploaded (install or upgrade).
+        installedBy:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Id of the admin who uploaded this version (`CurrentUser.id`).
+        bundleSha384:
+          type: string
+          readOnly: true
+          minLength: 96
+          maxLength: 96
+          description: |
+            SHA-384 of the uploaded ZIP, lowercase hex - the hash in the audit
+            event of the install (S3.6, S7.1), for comparing with the
+            publisher's checksum.
+        assetBase:
+          type: string
+          readOnly: true
+          description: |
+            Immutable path the plugin's files are served from (S3.5):
+            `/plugin-assets/<id>/<version>/<sha256>/` with the lowercase hex
+            SHA-256 of the uploaded ZIP; on the plugin origin when the
+            deployment has one (`DRAWBOARD_PLUGIN_ORIGIN`, S3.4), otherwise on
+            the app origin. Every file of the ZIP lies below it under its path
+            in the ZIP. A request is resolved against the entry list stored at
+            install (exact match of the path), never by joining the URL path
+            onto a directory; an unknown path answers 404. The prefix
+            `__drawboard/` is reserved for the generated frame document.
+            Served statically outside /api, without a token, with
+            `Cache-Control: public, max-age=31536000, immutable`,
+            `X-Content-Type-Options: nosniff`, `Access-Control-Allow-Origin: *`
+            without credentials. The frame document
+            `<assetBase>__drawboard/frame.html` is generated by the server
+            (not taken from the ZIP) and additionally carries the CSP of
+            S3.3 (docs/plugin-protocol.md, "Loading"). Not an operation of
+            this API: only the browser (iframe, module loader) fetches these
+            files, and a path with arbitrary depth cannot be described as one
+            OpenAPI path.
+          examples: [/plugin-assets/org.example.timer/1.2.0/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08/]
+        blockTypes:
+          type: array
+          readOnly: true
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/PluginBlockType'
+        requestedCapabilities:
+          type: array
+          readOnly: true
+          description: What the manifest of this version requests.
+          items:
+            $ref: '#/components/schemas/PluginCapability'
+        grantedCapabilities:
+          type: array
+          readOnly: true
+          description: What the admin granted - always a subset of `requestedCapabilities`.
+          items:
+            $ref: '#/components/schemas/PluginCapability'
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Optimistic-lock version of the installation, raised by every
+            change (enable, disable, grants, upgrade). Send it back unchanged
+            in `PluginUpdate.revision`. Named `revision` because `version` is
+            the plugin's own version.
+    PluginBlockType:
+      type: object
+      description: A block type a plugin contributes, from its manifest.
+      required: [type, label, defaultWidth, defaultHeight]
+      properties:
+        type:
+          type: string
+          readOnly: true
+          maxLength: 150
+          # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+          pattern: '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$'
+          description: Block type name; always starts with the plugin's `id` followed by a dot.
+          examples: [org.example.timer.countdown]
+        label:
+          type: string
+          readOnly: true
+          maxLength: 100
+          description: Name in the toolbar (plain text).
+        defaultWidth:
+          type: integer
+          format: int32
+          minimum: 16
+          maximum: 4096
+          readOnly: true
+          description: Width of a new block in board units.
+        defaultHeight:
+          type: integer
+          format: int32
+          minimum: 16
+          maximum: 4096
+          readOnly: true
+          description: Height of a new block in board units.
+    PluginCapabilityName:
+      type: string
+      description: |
+        What a sandboxed plugin may ask the host for (S3.8); every one is off
+        until an admin grants it. Messages per capability:
+        docs/plugin-protocol.md.
+
+        * `block.props` - write the props of its own blocks (types
+          `<pluginId>.*` only);
+        * `block.resize` - resize its own block;
+        * `board.read` - read structure and text of the current board (no
+          email addresses);
+        * `export.register` - offer an export format;
+        * `import.register` - import files of one media type (`value`);
+        * `ui.toast` - show a short plain-text notification;
+        * `ui.openLink` - ask the host to open a link (the host shows the
+          target host, `noopener`);
+        * `storage` - a key-value store per plugin and board, at most 1 MB;
+        * `network` - connect to the hosts in `value` (only as CSP
+          `connect-src` of its frame; never with the user's credentials).
+      enum: [block.props, block.resize, board.read, export.register, import.register, ui.toast, ui.openLink, storage, network]
+    PluginCapability:
+      type: object
+      description: |
+        A capability, requested in the manifest or granted by the admin.
+        Grants match requests exactly (name and value).
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/PluginCapabilityName'
+        value:
+          type: string
+          maxLength: 1000
+          description: |
+            Only for `import.register` (one media type, e.g. `text/csv`; one
+            capability per type) and `network` (space-separated list of at
+            most 10 host names: https only, port 443 unless an explicit
+            `:port` is given, at least two labels, last label not `local`,
+            `lan`, `internal`, `localhost`, `home` or `arpa`, no wildcards, no
+            IP literals; e.g. `api.example.org tiles.example.org:8443`). The
+            admin UI shows the hosts before granting. Absent for every other
+            capability.
+    PluginList:
+      type: object
+      description: Every installed plugin, enabled or not, ordered by id.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plugin'
+    PluginUpload:
+      type: object
+      description: |
+        Form of `POST /admin/plugins`. Not a generated model: the generators
+        turn its properties into parameters.
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: |
+            The plugin as a ZIP (at most 20 MB, at most 200 entries, at most
+            50 MB unpacked, no `..` or absolute paths) with
+            `drawboard-plugin.json` at its root (S3.9, docs/plugin-protocol.md).
+    PluginUpdate:
+      type: object
+      description: |
+        Payload of updatePlugin: the complete new state of what the admin
+        controls, plus the revision it is based on.
+      required: [enabled, grantedCapabilities, revision]
+      properties:
+        enabled:
+          type: boolean
+        grantedCapabilities:
+          type: array
+          description: |
+            The complete set of granted capabilities (replaces the previous
+            one). Each must equal a requested capability of the installed
+            version, else 400 PLUGINS_CAPABILITY_NOT_REQUESTED.
+          items:
+            $ref: '#/components/schemas/PluginCapability'
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The `revision` of the plugin as last read. Another revision -> 409 CONFLICT.
+    EnabledPlugin:
+      type: object
+      description: |
+        What a board host needs to load an enabled plugin - no installer
+        information. The host builds the sandboxed frame itself (S3.2, S3.6)
+        and loads `assetBase` + `entry` as a module with `integrity`.
+      required: [id, version, assetBase, entry, integrity, blockTypes, grantedCapabilities, userPseudonym]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: The plugin's id (`Plugin.id`).
+          examples: [org.example.timer]
+        version:
+          type: string
+          readOnly: true
+          description: The plugin's version (`Plugin.version`).
+        assetBase:
+          type: string
+          readOnly: true
+          description: Immutable asset path, see `Plugin.assetBase`.
+        entry:
+          type: string
+          readOnly: true
+          description: |
+            Path of the ES module to load, relative to `assetBase` (the
+            manifest's `entry`, e.g. `dist/index.js`).
+        integrity:
+          type: string
+          readOnly: true
+          description: |
+            Subresource Integrity value of the entry module, computed at
+            install (S3.6): `sha384-<base64>`. The host puts it into the
+            `integrity` attribute of the module script.
+          examples: ['sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8wC']
+        blockTypes:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/PluginBlockType'
+        grantedCapabilities:
+          type: array
+          readOnly: true
+          items:
+            $ref: '#/components/schemas/PluginCapability'
+        userPseudonym:
+          type: string
+          readOnly: true
+          minLength: 43
+          maxLength: 43
+          description: |
+            Pseudonymous id of the caller for this plugin (S3.8):
+            `base64url(HMAC-SHA256(key, principal id + "|" + plugin id))`
+            without padding - stable per user and plugin, different for every
+            plugin, not reversible without the key. The key is the dedicated
+            secret `DRAWBOARD_PLUGIN_PSEUDONYM_KEY`, never the file-URL key;
+            rotating it changes every `userPseudonym` (plugins then see new
+            users). The host passes it
+            to the plugin as `user.id` (docs/plugin-protocol.md); a plugin
+            never sees the real user id.
+    EnabledPluginList:
+      type: object
+      description: The enabled plugins of this instance, ordered by id.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnabledPlugin'
+    PluginStorage:
+      type: object
+      description: |
+        The `storage` of one plugin on one board (S3.8): one opaque JSON
+        object the plugin owns. The server never interprets it.
+      required: [data, version]
+      properties:
+        data:
+          type: object
+          readOnly: true
+          additionalProperties: true
+          description: The stored object; `{}` when nothing was stored yet.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Optimistic-lock version, 0 when nothing was stored yet, raised by
+            every write. Send it back in `PluginStorageUpdate.version`.
+    PluginStorageUpdate:
+      type: object
+      description: Payload of putPluginStorage - replaces the whole object.
+      required: [data, version]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            The new object. Serialised as JSON at most 1 MB (1 048 576 bytes,
+            UTF-8), else 413 PAYLOAD_TOO_LARGE.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The `version` as last read (0 for the first write). Another version -> 409 CONFLICT.
+
+    # --- planning ----------------------------------------------------------
+    # Schemas of the resource "planning" (module planning, subdomain rounds):
+    # planning poker. Rounds and votes live only on the server, never in the
+    # Yjs document (S7.6). No user ids of participants or voters appear here.
+    PokerDeckKind:
+      type: string
+      description: |
+        The deck of a round. FIBONACCI is `0, 1, 2, 3, 5, 8, 13, 21, ?,
+        coffee`; TSHIRT is `XS, S, M, L, XL, ?`; CUSTOM is the facilitator's
+        own list (`PokerDeck.values`). `?` ("no idea") and `coffee` ("need a
+        break"; the UI shows a cup) are votes but no estimates.
+      enum: [FIBONACCI, TSHIRT, CUSTOM]
+    PokerDeck:
+      type: object
+      description: |
+        The cards voters choose from. In a request (`NewPokerRound.deck`):
+        `values` is required for CUSTOM and ignored for FIBONACCI and TSHIRT
+        (their decks are fixed). In an answer `values` is always set - the
+        fixed deck or the custom list - in the order the UI shows it.
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/PokerDeckKind'
+        values:
+          type: array
+          minItems: 2
+          maxItems: 20
+          description: |
+            CUSTOM: 2 to 20 values, distinct after Unicode NFC
+            normalisation, without control or format characters (Unicode
+            Cc/Cf) - else 400 VALIDATION_FAILED; ordered from the lowest to
+            the highest estimate - the order breaks ties of
+            `PokerResult.suggestion`. `?` and `coffee` may be part of it and
+            are no estimates there either.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 8
+            # No leading or trailing whitespace, no line breaks. Anchored on
+            # purpose: means the same for JSON Schema and Java's @Pattern.
+            pattern: '^\S(.{0,6}\S)?$'
+          examples:
+            - ['1', '2', '4', '8', '16', '?']
+    PokerRoundState:
+      type: string
+      description: |
+        OPEN (voting; values are secret), REVEALED (closed for good; every
+        vote and the result are visible), CANCELLED (closed for good without
+        reveal; the votes were deleted). REVEALED and CANCELLED never change
+        again.
+      enum: [OPEN, REVEALED, CANCELLED]
+    NewPokerRound:
+      type: object
+      description: |
+        Payload of createPokerRound. With `storyBlockId` the round estimates
+        that story card; without it, it is a quick round (no card, e.g. for
+        a fast estimate): its result is only shown, never written anywhere.
+      required: [title, deck]
+      properties:
+        storyBlockId:
+          type: string
+          minLength: 36
+          maxLength: 36
+          # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          description: |
+            Id of the story card block in the board's Yjs document (a
+            lowercase UUID as the board engine creates it). The server keeps
+            it as an opaque key and does not check the document. Leave it out
+            for a quick round that belongs to no card.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # Same pattern as NewBoard.title: at least one non-blank character.
+          pattern: '^\s*\S[\s\S]*'
+          description: |
+            What is estimated, usually the story card's title at the start of
+            the round (a copy; later edits of the card do not change it). A
+            quick round needs a title too; the UI may prefill one (e.g.
+            "Quick round").
+            Leading and trailing whitespace is removed by the server; control
+            or format characters (Unicode Cc/Cf) are rejected (400
+            VALIDATION_FAILED).
+        deck:
+          $ref: '#/components/schemas/PokerDeck'
+    PokerRound:
+      type: object
+      description: |
+        A planning poker round, as the caller sees it: on a story card, or a
+        quick round without a card (`storyBlockId` absent). While OPEN nobody
+        sees any value but their own (`myVote`); `participants` only says who
+        voted. After the reveal `result` carries every vote.
+      required: [id, title, deck, state, facilitatorName, createdAt, version, participants]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        storyBlockId:
+          type: string
+          readOnly: true
+          description: |
+            Id of the story card block (`NewPokerRound.storyBlockId`). Absent
+            for a quick round: it belongs to no card, its result is only
+            shown and written nowhere. A client binds a card's estimation
+            dialog to a round only when this equals that card's block id, so
+            a quick round never binds to a card.
+        title:
+          type: string
+          readOnly: true
+          description: The title given when the round was started.
+        deck:
+          $ref: '#/components/schemas/PokerDeck'
+        state:
+          $ref: '#/components/schemas/PokerRoundState'
+        facilitatorId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Id of the user who started the round (`CurrentUser.id`); with the
+            board's OWNER the only one who may reveal or cancel it. Absent
+            for guests (they must not collect user ids of members).
+        facilitatorName:
+          type: string
+          readOnly: true
+          description: Display name (else username) of the facilitator; `Deleted user` when that user was deleted.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        revealedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the round was revealed. Only for REVEALED.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Raised when a participant joins, a participant votes for the
+            first time, the round is revealed or cancelled, and when guest
+            participants are removed because their link was revoked. A
+            changed vote does NOT raise it (nobody else may notice it). The
+            `ETag` of getPokerRound is `W/"<version>"`.
+        participants:
+          type: array
+          readOnly: true
+          maxItems: 200
+          description: |
+            Who joined the round, in the order they joined: signed-in
+            members by fetching it while OPEN as possible voters or by
+            voting, guests only by voting. Never user ids, never values. At
+            most 200, of them at most 50 guests (20 per share link).
+          items:
+            $ref: '#/components/schemas/PokerParticipant'
+        myVote:
+          type: string
+          readOnly: true
+          description: |
+            The caller's own vote, a value of the deck. Absent when the
+            caller has not voted (and in CANCELLED rounds).
+        result:
+          $ref: '#/components/schemas/PokerResult'
+    PokerParticipant:
+      type: object
+      description: A participant of a round - display name and whether they voted, never the value.
+      required: [displayName, guest, voted]
+      properties:
+        displayName:
+          type: string
+          readOnly: true
+          description: |
+            Display name (else username) of a signed-in member, `Deleted
+            user` when the user was deleted since; for a guest the guest
+            name of their session (sanitised, at most 64 characters).
+        guest:
+          type: boolean
+          readOnly: true
+          description: |
+            True for a guest. Set by the server from the principal type; the
+            UI shows a guest badge, so a guest cannot pass as a member with
+            the same name (S1.10).
+        voted:
+          type: boolean
+          readOnly: true
+          description: Whether this participant has a vote in the round.
+    PokerResult:
+      type: object
+      description: |
+        Outcome of a revealed round (only set when `state` is REVEALED).
+        Numeric values are the deck values that are decimal numbers
+        (`^[0-9]+(\.[0-9]+)?$`, e.g. `0`, `13`, `0.5`); `?`, `coffee`,
+        t-shirt sizes and other text are not numeric.
+      required: [votes, distribution]
+      properties:
+        votes:
+          type: array
+          readOnly: true
+          maxItems: 200
+          description: Every vote, in the order the participants joined.
+          items:
+            $ref: '#/components/schemas/PokerResultVote'
+        average:
+          type: number
+          format: double
+          readOnly: true
+          description: |
+            Arithmetic mean of the numeric votes, rounded to two decimals.
+            Absent when there is no numeric vote.
+        median:
+          type: number
+          format: double
+          readOnly: true
+          description: |
+            Median of the numeric votes (mean of the two middle ones for an
+            even count), rounded to two decimals. Absent when there is no
+            numeric vote.
+        distribution:
+          type: array
+          readOnly: true
+          maxItems: 20
+          description: How often each value was chosen - only values with at least one vote, in deck order.
+          items:
+            $ref: '#/components/schemas/PokerValueCount'
+        suggestion:
+          type: string
+          readOnly: true
+          description: |
+            The value chosen most often, ignoring `?` and `coffee`; on a tie
+            the higher one (the one later in the deck). Absent when every
+            vote was `?` or `coffee`, or nobody voted. For a round on a
+            story card the facilitator's client writes it (or another deck
+            value the facilitator picks) into the card's `estimate`; for a
+            quick round it is only shown.
+    PokerResultVote:
+      type: object
+      description: One revealed vote.
+      required: [displayName, guest, value]
+      properties:
+        displayName:
+          type: string
+          readOnly: true
+          description: As in `PokerParticipant.displayName`.
+        guest:
+          type: boolean
+          readOnly: true
+        value:
+          type: string
+          readOnly: true
+          description: The value of the deck the participant chose.
+    PokerValueCount:
+      type: object
+      description: Number of votes for one deck value.
+      required: [value, count]
+      properties:
+        value:
+          type: string
+          readOnly: true
+        count:
+          type: integer
+          format: int32
+          minimum: 1
+          readOnly: true
+    PokerVote:
+      type: object
+      description: Payload of castPokerVote.
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 8
+          description: |
+            One value of the round's deck, exactly as in `PokerDeck.values`
+            (case-sensitive), else 400 PLANNING_VALUE_INVALID.
+          examples: ['5']
+    PokerRoundList:
+      type: object
+      description: Rounds of a board in one state, newest first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/PokerRound'
+
+    # --- users -------------------------------------------------------------
+    # Schemas of the resource "users".
+    CurrentUser:
+      type: object
+      description: |
+        The signed-in user. The profile is refreshed from the access token's
+        claims on every call of getCurrentUser.
+      required: [id, username, admin, guestLinksEnabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Id of the user in Drawboard (UUIDv7, assigned at the first login).
+            Not the provider's `sub`: that one is not a UUID with every provider.
+        username:
+          type: string
+          description: Claim configured as username (default `preferred_username`).
+        displayName:
+          type: [string, 'null']
+          description: Claim `name`, if the token carries it.
+        email:
+          type: [string, 'null']
+          format: email
+          description: Claim `email`, if the token carries it.
+        admin:
+          type: boolean
+          description: |
+            True when the configured groups claim contains the configured admin
+            group of this deployment. Instance administration only; boards are
+            governed by their sharing rules.
+        guestLinksEnabled:
+          type: boolean
+          description: |
+            Whether this instance allows share links for guests without an
+            account (`DRAWBOARD_GUESTS_ENABLED`, S1.14). When false, the UI
+            offers only links for signed-in users; a GUESTS link would be
+            answered with 403.
+    UserSummary:
+      type: object
+      description: |
+        Another user as shown when sharing (S6.9): id, username and display
+        name - never an email address.
+      required: [id, username]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: The user's id (`CurrentUser.id`), used for user grants.
+        username:
+          type: string
+          readOnly: true
+        displayName:
+          type: [string, 'null']
+          readOnly: true
+    UserSummaryList:
+      type: object
+      description: Search hits, at most 20.
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/UserSummary'
+  parameters:
+    # Reusable parameters. Parameter schemas stay primitive (no objects, no enums
+    # inline) so they never produce a generated model.
+    PageNumber:
+      name: page
+      in: query
+      required: false
+      description: Zero-based page number.
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+    PageSize:
+      name: size
+      in: query
+      required: false
+      description: Items per page.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+    BoardId:
+      name: boardId
+      in: path
+      required: true
+      description: Id of the board.
+      schema:
+        type: string
+        format: uuid
+    BoardFolderFilter:
+      name: folderId
+      in: query
+      required: false
+      description: |
+        List the boards of this folder (own, shared with the caller, or the
+        folder of a guest's link). Absent = the root of the caller's own space.
+      schema:
+        type: string
+        format: uuid
+    ParentFolderFilter:
+      name: parentId
+      in: query
+      required: false
+      description: |
+        List only the direct subfolders of this folder (own or shared with the
+        caller). Absent = every folder the caller owns, flat.
+      schema:
+        type: string
+        format: uuid
+    FolderId:
+      name: folderId
+      in: path
+      required: true
+      description: Id of the folder.
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: Id of the user (`UserSummary.id`).
+      schema:
+        type: string
+        format: uuid
+    GroupName:
+      name: group
+      in: path
+      required: true
+      description: |
+        Name of a group as it appears in the groups claim of the access tokens
+        (percent-encoded in the path). Letters, digits, `. _ @ : + -` and inner
+        spaces, at most 128 characters; group names with `/` (Keycloak full
+        group paths) cannot be granted - configure the groups mapper without
+        the full path.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^[A-Za-z0-9._@:+-]([A-Za-z0-9._@:+ -]*[A-Za-z0-9._@:+-])?$'
+    LinkId:
+      name: linkId
+      in: path
+      required: true
+      description: Id of the share link (`ShareLink.id`, not the token).
+      schema:
+        type: string
+        format: uuid
+    VersionId:
+      name: versionId
+      in: path
+      required: true
+      description: Id of the version (`BoardVersion.id`).
+      schema:
+        type: string
+        format: uuid
+    UserSearchQuery:
+      name: q
+      in: query
+      required: true
+      description: |
+        Search text, matched against username and display name (prefix,
+        case-insensitive). At least 2 characters.
+      schema:
+        type: string
+        minLength: 2
+        maxLength: 100
+    UpToSeq:
+      name: upToSeq
+      in: query
+      required: true
+      description: Sequence number from the WebSocket message `COMPACT`; the snapshot covers every update up to and including it.
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      description: Id of the file (`BoardFile.id`).
+      schema:
+        type: string
+        format: uuid
+    FileIds:
+      name: ids
+      in: query
+      required: true
+      description: |
+        Comma-separated ids of files of this board (`BoardFile.id`), 1 to 100,
+        e.g. `ids=<uuid>,<uuid>`. A string rather than an array because
+        parameter schemas stay primitive in this contract.
+      schema:
+        type: string
+        minLength: 36
+        maxLength: 3699
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(,[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}){0,99}$'
+    FileVariant:
+      name: v
+      in: query
+      required: true
+      description: The variant, part of the signed URL (`FileUrl`) - `original`, `thumbnail` or `pdf`.
+      schema:
+        type: string
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^(original|thumbnail|pdf)$'
+    FileUrlExpiry:
+      name: exp
+      in: query
+      required: true
+      description: Expiry of the signed URL, Unix time in seconds (`FileUrl`).
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    FileUrlSignature:
+      name: sig
+      in: query
+      required: true
+      description: Signature of the URL, base64url without padding (`FileUrl`). Never logged (S7.2).
+      schema:
+        type: string
+        minLength: 43
+        maxLength: 43
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^[A-Za-z0-9_-]{43}$'
+    ByteRange:
+      name: Range
+      in: header
+      required: false
+      description: |
+        One byte range (RFC 9110), e.g. `bytes=0-1048575` or `bytes=1048576-`
+        (S4.7). More than one range, a malformed value or a range outside the
+        file answers 416.
+      schema:
+        type: string
+        maxLength: 100
+    PluginId:
+      name: pluginId
+      in: path
+      required: true
+      description: Id of the plugin (`Plugin.id`), e.g. `org.example.timer`.
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 100
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$'
+    PokerRoundId:
+      name: roundId
+      in: path
+      required: true
+      description: Id of the planning poker round (`PokerRound.id`).
+      schema:
+        type: string
+        format: uuid
+    PokerRoundStateFilter:
+      name: state
+      in: query
+      required: false
+      description: |
+        List only rounds in this state (`PokerRoundState`): `OPEN` (default),
+        `REVEALED` or `CANCELLED`. A string with a pattern rather than the
+        enum because parameter schemas stay primitive in this contract.
+      schema:
+        type: string
+        default: OPEN
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^(OPEN|REVEALED|CANCELLED)$'
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: |
+        The `ETag` of the caller's last answer (RFC 9110, weak comparison),
+        e.g. `W/"17"`. Matches the current state -> 304 without a body.
+      schema:
+        type: string
+        maxLength: 200
+  headers:
+    # Response headers of GET /files/{fileId} (S4.5, S4.7).
+    FileContentDisposition:
+      description: |
+        `attachment; filename*=UTF-8''<name>` (RFC 6266/5987, the sanitised
+        `BoardFile.name`) for everything but images and videos, which are
+        `inline` with the same file name (S4.5).
+      schema:
+        type: string
+    FileContentTypeOptions:
+      description: Always `nosniff`.
+      schema:
+        type: string
+    FileContentSecurityPolicy:
+      description: Always `default-src 'none'; sandbox`.
+      schema:
+        type: string
+    FileCacheControl:
+      description: Always `private, max-age=3600`.
+      schema:
+        type: string
+    FileCrossOriginResourcePolicy:
+      description: |
+        `same-origin`; `same-site` when the deployment serves files from its
+        own origin (`DRAWBOARD_FILES_ORIGIN`, S4.6).
+      schema:
+        type: string
+    FileAcceptRanges:
+      description: Always `bytes`.
+      schema:
+        type: string
+    FileContentRange:
+      description: The range sent, `bytes <first>-<last>/<size>`.
+      schema:
+        type: string
+    FileContentLength:
+      description: Length of the body in bytes.
+      schema:
+        type: integer
+        format: int64
+    # Response headers of getPokerRound (polling with If-None-Match).
+    VaryAuthorization:
+      description: Always `Authorization` - the answer depends on the caller.
+      schema:
+        type: string
+    PokerRoundETag:
+      description: |
+        `W/"<version>"` of the round (`PokerRound.version`). Weak, because
+        the body depends on the caller (`myVote`). Send it back unchanged in
+        `If-None-Match`; `*` counts as no match.
+      schema:
+        type: string
+    NoStoreCacheControl:
+      description: |
+        Always `no-store`: the answer is per caller and changes while a round
+        is open; the browser must not cache it, so a 304 reaches the script.
+      schema:
+        type: string
+  responses:
+    # Reusable error responses. Every 4xx/5xx in api/ is a $ref to one of these,
+    # and every one of these is application/problem+json with ErrorModel.
+    BadRequest:
+      description: |
+        The request is invalid (VALIDATION_FAILED, MALFORMED_REQUEST), or a
+        domain rule named by the operation (PLUGINS_ARCHIVE_INVALID,
+        PLUGINS_MANIFEST_INVALID, PLUGINS_CAPABILITY_NOT_REQUESTED,
+        PLANNING_VALUE_INVALID).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    Unauthorized:
+      description: |
+        No or no valid access token (UNAUTHORIZED), or a share link that needs
+        a signed-in user (LIBRARY_SHARE_LOGIN_REQUIRED).
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge (RFC 6750).
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    Forbidden:
+      description: |
+        The caller may see the resource but not do this with it (FORBIDDEN,
+        LIBRARY_BOARD_ACCESS_DENIED), the operation is not open to guests
+        (FORBIDDEN), a share link's password is missing or wrong
+        (LIBRARY_SHARE_PASSWORD_REQUIRED, LIBRARY_SHARE_PASSWORD_INVALID), an
+        admin operation called by a non-admin (FORBIDDEN), or a signed file
+        URL does not verify (FILES_URL_INVALID).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    NotFound:
+      description: |
+        The resource does not exist or the caller may not see it (e.g.
+        LIBRARY_BOARD_NOT_FOUND, LIBRARY_FOLDER_NOT_FOUND,
+        LIBRARY_USER_NOT_FOUND, LIBRARY_SHARE_NOT_FOUND,
+        COLLAB_VERSION_NOT_FOUND, FILES_FILE_NOT_FOUND,
+        PLUGINS_PLUGIN_NOT_FOUND, PLANNING_ROUND_NOT_FOUND).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    NotAcceptable:
+      description: |
+        The Accept header excludes every media type the operation can answer with
+        (NOT_ACCEPTABLE). The error body itself is still application/problem+json.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    Conflict:
+      description: |
+        The resource was changed concurrently: the submitted version is not the
+        current one (CONFLICT). Read the resource again and retry. Also
+        domain conflicts named by the operation (LIBRARY_FOLDER_CYCLE,
+        COLLAB_SNAPSHOT_NOT_REQUESTED, PLUGINS_VERSION_EXISTS,
+        PLANNING_ROUND_ALREADY_OPEN, PLANNING_ROUND_LIMIT_REACHED,
+        PLANNING_ROUND_CLOSED, PLANNING_ROUND_FULL).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    UnsupportedMediaType:
+      description: |
+        The request body has a media type the operation does not read
+        (UNSUPPORTED_MEDIA_TYPE), or an uploaded file's detected type is not
+        allowed (FILES_TYPE_NOT_ALLOWED).
+      headers:
+        Accept:
+          description: The media types the operation accepts.
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    PayloadTooLarge:
+      description: |
+        The request body is larger than the operation accepts
+        (PAYLOAD_TOO_LARGE, params.limit in bytes), or an upload would exceed
+        a storage quota (FILES_QUOTA_EXCEEDED, params.scope and params.limit).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    RangeNotSatisfiable:
+      description: |
+        The Range header asks for more than one range, is malformed, or lies
+        outside the file (FILES_RANGE_NOT_SATISFIABLE, S4.7).
+      headers:
+        Content-Range:
+          description: '`bytes */<size>` - the size of the variant.'
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    TooManyRequests:
+      description: Rate limit of this caller exceeded (TOO_MANY_REQUESTS). Retry after the time in Retry-After.
+      headers:
+        Retry-After:
+          description: Seconds until the next request can succeed.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    InternalError:
+      description: Unexpected server error (INTERNAL_ERROR). Quote requestId when reporting it.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'

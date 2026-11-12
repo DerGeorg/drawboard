@@ -1,0 +1,181 @@
+@let current = board();
+<article
+  class="group relative flex flex-col overflow-hidden rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) transition-shadow focus-within:ring-2 focus-within:ring-(--color-st-primary) hover:shadow-lg"
+  [attr.aria-labelledby]="`board-${current.id}`"
+  [attr.draggable]="canMove() ? 'true' : null"
+  (dragstart)="dragStart($event)"
+  (dragend)="dragEnd()"
+>
+  <!-- 16:9 preview; a placeholder pattern (the canvas paper with its dot grid) until M2 brings thumbnails -->
+  <div
+    class="flex aspect-video items-center justify-center bg-(--color-board-paper) [background-image:radial-gradient(circle,rgba(15,23,42,0.28)_1px,transparent_1.4px)] [background-size:16px_16px] text-slate-400"
+    aria-hidden="true"
+    data-testid="preview"
+  >
+    <drawboard-icon name="board" />
+  </div>
+
+  <div class="flex items-start gap-2 p-3">
+    <div class="min-w-0 flex-1">
+      @if (editing()) {
+        <form [formRoot]="renameForm" class="flex flex-col gap-2">
+          <div>
+            <label [for]="`rename-${current.id}`" class="sr-only">Title of the board</label>
+            <input
+              [id]="`rename-${current.id}`"
+              type="text"
+              class="st-input"
+              autocomplete="off"
+              [formField]="renameForm.title"
+              [attr.aria-invalid]="renameForm.title().touched() && renameForm.title().invalid()"
+              [attr.aria-describedby]="`rename-${current.id}-errors`"
+            />
+            <drawboard-field-errors
+              [id]="`rename-${current.id}-errors`"
+              [field]="renameForm.title"
+            />
+          </div>
+          <div class="flex gap-2">
+            <button
+              type="submit"
+              class="btn btn-sm st-btn-primary-yellow"
+              [disabled]="renameForm().submitting()"
+            >
+              Save
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" (click)="editing.set(false)">
+              Cancel
+            </button>
+          </div>
+        </form>
+      } @else if (confirmingDelete()) {
+        <div role="group" aria-label="Move this board to the trash?" class="flex flex-col gap-2">
+          <p class="text-sm font-medium">Move “{{ current.title }}” to the trash?</p>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="btn btn-sm st-btn-primary-red"
+              [disabled]="busy()"
+              (click)="remove(current)"
+            >
+              Yes, move to trash
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" (click)="closeMenu()">Cancel</button>
+          </div>
+        </div>
+      } @else {
+        <!-- stretched link: the whole card opens the board, the menu button sits above it -->
+        <a
+          [id]="`board-${current.id}`"
+          [routerLink]="current.id"
+          class="block truncate font-medium after:absolute after:inset-0 after:content-[''] focus:outline-none"
+        >
+          {{ current.title }}
+        </a>
+        <p class="mt-0.5 flex items-center gap-2 text-xs text-(--color-st-grey)">
+          <span data-testid="edited">Edited {{ edited() }}</span>
+          <drawboard-role-badge [role]="current.role" />
+        </p>
+      }
+    </div>
+
+    @if (!editing() && !confirmingDelete()) {
+      <div class="relative z-10">
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Board actions"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="menuOpen()"
+          (click)="toggleMenu()"
+        >
+          <drawboard-icon name="more" />
+        </button>
+        @if (menuOpen()) {
+          <button
+            type="button"
+            class="fixed inset-0 z-10 cursor-default"
+            tabindex="-1"
+            aria-hidden="true"
+            (click)="closeMenu()"
+          ></button>
+          <ul
+            class="float-panel absolute right-0 bottom-full z-20 mb-1 w-44 p-1"
+            role="menu"
+            aria-label="Board actions"
+          >
+            <li role="none">
+              <button
+                type="button"
+                role="menuitem"
+                class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker)"
+                (click)="startShare()"
+              >
+                <drawboard-icon name="share" />
+                Share…
+              </button>
+            </li>
+            @if (canRename()) {
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker)"
+                  (click)="startRename()"
+                >
+                  <drawboard-icon name="rename" />
+                  Rename
+                </button>
+              </li>
+            }
+            @if (canMove()) {
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-(--color-st-white-darker)"
+                  (click)="startMove()"
+                >
+                  <drawboard-icon name="folder" />
+                  Move to…
+                </button>
+              </li>
+            }
+            @if (canDelete()) {
+              <li role="none">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-(--color-st-red) hover:bg-(--color-st-white-darker)"
+                  (click)="askDelete()"
+                >
+                  <drawboard-icon name="trash" />
+                  Move to trash
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
+  </div>
+</article>
+
+@if (moving()) {
+  <drawboard-folder-picker
+    heading="Move board to…"
+    [current]="current.folderId"
+    (picked)="move($event)"
+    (closed)="stopMove()"
+  />
+}
+
+@if (sharing()) {
+  <drawboard-share-dialog
+    kind="board"
+    [resourceId]="current.id"
+    [name]="current.title"
+    [role]="current.role"
+    (closed)="stopShare()"
+  />
+}

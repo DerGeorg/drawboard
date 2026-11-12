@@ -1,0 +1,46 @@
+<div class="float-panel flex items-center gap-0.5 p-1" role="group" aria-label="Zoom">
+  <div class="tooltip tooltip-top" data-tip="Zoom out (Ctrl −)">
+    <button
+      type="button"
+      class="btn btn-square btn-sm btn-ghost"
+      aria-label="Zoom out"
+      aria-keyshortcuts="Control+Minus Meta+Minus"
+      (click)="engine()?.zoomOut()"
+    >
+      <drawboard-icon name="zoomOut" />
+    </button>
+  </div>
+  <div class="tooltip tooltip-top" data-tip="Reset to 100 % (Shift+0)">
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost w-14 tabular-nums"
+      aria-label="Reset zoom to 100%"
+      aria-keyshortcuts="Shift+0"
+      (click)="engine()?.resetZoom()"
+    >
+      {{ zoomPercent() }}%
+    </button>
+  </div>
+  <div class="tooltip tooltip-top" data-tip="Zoom in (Ctrl +)">
+    <button
+      type="button"
+      class="btn btn-square btn-sm btn-ghost"
+      aria-label="Zoom in"
+      aria-keyshortcuts="Control+Plus Meta+Plus"
+      (click)="engine()?.zoomIn()"
+    >
+      <drawboard-icon name="zoomIn" />
+    </button>
+  </div>
+  <div class="tooltip tooltip-left" data-tip="Fit to content (Shift+1)">
+    <button
+      type="button"
+      class="btn btn-square btn-sm btn-ghost"
+      aria-label="Fit board to screen"
+      aria-keyshortcuts="Shift+1"
+      (click)="engine()?.fit()"
+    >
+      <drawboard-icon name="fit" />
+    </button>
+  </div>
+</div>

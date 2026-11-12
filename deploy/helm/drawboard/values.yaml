@@ -1,0 +1,412 @@
+# Drawboard Helm chart - default values.
+#
+# REQUIRED (no default, the chart refuses to render without them):
+#   publicUrl, oidc.issuerUri, oidc.audience, ingress.host (or ingress.enabled=false),
+#   postgresql.external.{host,database,user,existingSecret}  OR  postgresql.enabled=true
+#   with postgresql.auth.existingSecret,
+#   secrets.existingSecret (the key files of the backend, see below) OR secrets.create=true.
+# Secrets are never values: they are referenced by name (existingSecret), see README. The only
+# exception is the opt-in secrets.create, whose values you pass on the command line, not in a file.
+
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+# Browser origin of the deployment: scheme + host (+ port), nothing else, e.g.
+# https://draw.example.org. DRAWBOARD_PUBLIC_URL of the backend: the collaboration WebSocket
+# handshake accepts exactly this Origin (S2.2). Must contain ingress.host.
+publicUrl: ""
+
+# APP_ENVIRONMENT of both images: local | dev | prod (the header badge is hidden on prod).
+environment: prod
+# TZ of the backend (log timestamps); empty = container default (UTC).
+timezone: ""
+
+# ---------------------------------------------------------------------------------------------
+# OIDC: any provider (Keycloak, Authelia, Zitadel, Entra ID ...) by configuration only.
+# ---------------------------------------------------------------------------------------------
+oidc:
+  # OIDC_ISSUER_URI, REQUIRED. Must equal the `iss` of the access tokens byte for byte.
+  issuerUri: ""
+  # OIDC_AUDIENCE, REQUIRED (S6.2). `aud` of every access token must contain it. Use one
+  # audience per environment and never the SPA's client id.
+  audience: ""
+  # OIDC_JWK_SET_URI, optional: signing keys URL when the backend reaches the provider under
+  # another address than the browser. Empty = discovery through the issuer.
+  jwkSetUri: ""
+  # OIDC_CLAIM_USERNAME / OIDC_CLAIM_GROUPS (a dot path walks into objects).
+  claimUsername: preferred_username
+  claimGroups: groups
+
+# DRAWBOARD_ADMIN_GROUP: members of this group (value in the groups claim of the current token)
+# are instance admins. Empty = nobody is admin. Admin grants no access to boards.
+adminGroup: ""
+
+# ---------------------------------------------------------------------------------------------
+# Guest links. Off by default; enable only after the conditions in the README, "Before enabling
+# guest links" (trusted proxies verified, signing key as a Secret file, TLS and headers verified,
+# tested backups). Needs the key `secrets.keys.guestSigningKeys` in the backend Secret (see `secrets`).
+# ---------------------------------------------------------------------------------------------
+guests:
+  # DRAWBOARD_GUESTS_ENABLED
+  enabled: false
+
+# DRAWBOARD_TRUSTED_PROXIES: CIDRs of the proxies whose X-Forwarded-For header the backend believes
+# (rate limits, audit, guest session cap; S7.3). The backend's direct peer is the pod of the frontend
+# (its nginx), and the hop before it is the ingress controller. List the POD CIDR(S) the ingress
+# controller and the frontend pods get their addresses from (or exactly their addresses), e.g.
+# ["10.244.0.0/16"]. Too narrow: every client looks like the proxy and the rate limits count all
+# users together. Too wide: a client could name its own address. Empty = nobody is trusted
+# (the socket address counts); the chart prints a warning then.
+trustedProxies: []
+
+# ---------------------------------------------------------------------------------------------
+# Key files of the backend (S7.8): they are mounted as FILES under /run/secrets, never as env.
+#   file_url_keys         DRAWBOARD_FILE_URL_KEYS_FILE         required. One or more base64 keys of
+#                         >= 32 random bytes, comma or line separated; the first signs, all verify.
+#   plugin_pseudonym_key  DRAWBOARD_PLUGIN_PSEUDONYM_KEY_FILE  required. base64 of >= 32 random bytes.
+#                         A secret of its own: NEVER the same as file_url_keys.
+#   guest_signing_keys    DRAWBOARD_GUEST_SIGNING_KEYS_FILE    only with guests.enabled=true. EC P-256
+#                         private key(s), PKCS#8 PEM; the first signs, all verify.
+# Recommended: create the Secret yourself and reference it (README "Install", step 1). No key
+# material is, or ever will be, in the default values.
+# ---------------------------------------------------------------------------------------------
+secrets:
+  # Name of an existing Secret in the release namespace that holds the keys below.
+  existingSecret: ""
+  # Alternative for labs: the chart creates the Secret from `values` (set them with --set-file, never
+  # in a values file in git). Exclusive with existingSecret.
+  create: false
+  values:
+    fileUrlKeys: ""
+    pluginPseudonymKey: ""
+    guestSigningKeys: ""
+  # Key names inside the Secret; each is mounted as the file named in the comment above.
+  keys:
+    fileUrlKeys: file_url_keys
+    pluginPseudonymKey: plugin_pseudonym_key
+    guestSigningKeys: guest_signing_keys
+
+# ---------------------------------------------------------------------------------------------
+# Files (S4): where the uploaded files are stored (DRAWBOARD_FILES_DIR=/data/files).
+# ---------------------------------------------------------------------------------------------
+files:
+  # DRAWBOARD_FILES_ORIGIN: set when files are served from an origin of their own (S4.6):
+  # Cross-Origin-Resource-Policy: same-site. Also the default of frontend.filesOrigin.
+  origin: ""
+  persistence:
+    # true: a PersistentVolumeClaim (created, or `existingClaim`). false: an emptyDir - files are
+    # LOST when the pod is rescheduled; labs only.
+    enabled: true
+    existingClaim: ""      # use this PVC instead of creating one (must be writable for the backend gid)
+    size: 10Gi             # PVC request, or the sizeLimit of the emptyDir
+    storageClassName: ""   # empty = cluster default
+    accessModes: [ReadWriteOnce]
+    # Kept on `helm uninstall`: the files are the user's data. Remove the annotation to let Helm delete it.
+    annotations:
+      helm.sh/resource-policy: keep
+
+# DRAWBOARD_PLUGIN_ORIGIN: origin the plugin assets are served from (S3.4); empty = the app origin.
+# Also the default of frontend.pluginOrigin. Third-party plugins only with a separate plugin origin,
+# see the README, "Before enabling guest links", point 6.
+plugins:
+  origin: ""
+
+# ---------------------------------------------------------------------------------------------
+# Malware scan (S4.12). The chart does NOT deploy clamd: point it at one you run (own namespace, a
+# network without a route out, like Gotenberg). Empty host = no scan.
+# FAIL CLOSED: with failClosed=true an upload that could not be scanned is refused (503) and the
+# chart refuses to render unless maxBytes >= the video cap (500 MiB = 524288000, or
+# FILES_MAX_VIDEO_BYTES in backend.files). clamd's own StreamMaxLength, MaxFileSize and MaxScanSize
+# (clamd.conf) must be at least that too - the chart cannot see them. A clamd with lower limits
+# answers with an error, which is a 503 for every large video.
+# ---------------------------------------------------------------------------------------------
+clamav:
+  host: ""             # DRAWBOARD_CLAMAV_HOST, e.g. clamav.security.svc
+  port: 3310           # DRAWBOARD_CLAMAV_PORT
+  maxBytes: ""         # DRAWBOARD_CLAMAV_MAX_BYTES; empty = backend default (25 MiB)
+  timeoutSeconds: ""   # DRAWBOARD_CLAMAV_TIMEOUT_SECONDS; empty = backend default (60)
+  failClosed: false    # DRAWBOARD_CLAMAV_FAIL_CLOSED
+
+# ---------------------------------------------------------------------------------------------
+# Gotenberg (S4.10): LibreOffice as a service, converts Office documents to PDF for the backend.
+# Without it Office files are stored with conversion FAILED. Exactly like the compose files: only
+# POST /forms/libreoffice/convert is left (Chromium, PDF engine routes and webhooks are off),
+# non-root, read-only root file system, no capabilities, memory limit, and a NetworkPolicy that lets
+# only the backend in and nothing out.
+# ---------------------------------------------------------------------------------------------
+gotenberg:
+  enabled: true
+  image:
+    repository: gotenberg/gotenberg
+    tag: "8.40.0"
+    pullPolicy: IfNotPresent
+  runAsUser: 1001
+  runAsGroup: 1001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  # LibreOffice writes here (read-only root file system): /tmp and the user's home.
+  tmp:
+    sizeLimit: 768Mi
+  home:
+    sizeLimit: 128Mi
+  podAnnotations: {}
+  podLabels: {}
+  serviceAccount:
+    annotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------------------------
+# Backend (Spring Boot). Always exactly ONE replica: collaboration tickets, rooms and sequence
+# numbers live in memory (architecture 3.1). There is deliberately no replicaCount value.
+# ---------------------------------------------------------------------------------------------
+backend:
+  image:
+    repository: ghcr.io/dergeorg/drawboard-backend
+    tag: "1.16.0"      # empty = chart appVersion
+    pullPolicy: IfNotPresent
+  # uid/gid the image runs as (the image sets 10001).
+  runAsUser: 10001
+  runAsGroup: 10001
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  # Writable paths besides the files volume: /tmp (JVM files) and the upload spool. Both are
+  # disk-backed emptyDirs with a size limit, deliberately not medium: Memory (S2.8).
+  tmp:
+    sizeLimit: 1Gi
+  # DRAWBOARD_UPLOAD_SPOOL_DIR: Spring writes a multipart part to a temp file BEFORE the handler runs.
+  # The upload guard bounds what reaches it: at most 8 uploads in flight in the instance, each up to
+  # 500 MB + 1 MiB = 4 GiB at worst (README "Uploads"), so keep about 5 GB free on the node's disk.
+  # The directory is /spool/uploads (the application creates and empties it at start).
+  uploadSpool:
+    sizeLimit: 5Gi
+  # Observability. Empty endpoint = OTLP export off.
+  otlp:
+    endpoint: ""       # OTEL_EXPORTER_OTLP_ENDPOINT, e.g. http://alloy.monitoring:4318
+  # Collaboration tuning: COLLAB_* variables of backend/README.md (name: value), e.g.
+  #   COLLAB_MAX_LOG_BYTES: "104857600"
+  collab: {}
+  # Limits of the file storage: FILES_* variables (name: value, quote numbers), e.g.
+  #   FILES_MAX_VIDEO_BYTES: "524288000"
+  # The chart reads FILES_MAX_VIDEO_BYTES for the ClamAV fail-closed check.
+  files: {}
+  # Anything else for the backend container (list of Kubernetes env entries).
+  extraEnv: []
+  probes:
+    startup:
+      failureThreshold: 30
+      periodSeconds: 5
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    liveness:
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 5
+  podAnnotations: {}
+  podLabels: {}
+  serviceAccount:
+    annotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------------------------
+# Frontend (nginx-unprivileged). Serves the SPA and proxies /api, the WebSocket and /faro to
+# the backend.
+# ---------------------------------------------------------------------------------------------
+frontend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/dergeorg/drawboard-frontend
+    tag: "1.22.0"      # empty = chart appVersion
+    pullPolicy: IfNotPresent
+  runAsUser: 101       # nginx user of nginx-unprivileged
+  runAsGroup: 101
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  # nginx keeps temp files in /tmp (the upload routes are streamed, not buffered) and renders its
+  # template into conf.d at start.
+  tmp:
+    sizeLimit: 256Mi
+  confd:
+    sizeLimit: 1Mi
+  oidc:
+    # OIDC_ISSUER of the SPA; empty = oidc.issuerUri.
+    issuer: ""
+    # Public SPA client (code flow + PKCE). Must differ from oidc.audience.
+    clientId: drawboard-web
+    scope: openid profile email groups offline_access
+  # FILES_ORIGIN / PLUGIN_ORIGIN of the SPA (CSP img-src/media-src/connect-src and frame-src, S7.5):
+  # origins incl. scheme, e.g. https://files.example.org. Empty = files.origin / plugins.origin.
+  filesOrigin: ""
+  pluginOrigin: ""
+  # Grafana Faro (browser telemetry). Empty receiverUrl = Faro off.
+  faro:
+    receiverUrl: ""    # FARO_RECEIVER_URL, e.g. http://alloy.monitoring:12347
+    appName: ""        # FARO_APP_NAME, empty = image default
+    namespace: ""      # FARO_NAMESPACE, empty = image default
+    samplingRate: "1"
+  extraEnv: []
+  podAnnotations: {}
+  podLabels: {}
+  serviceAccount:
+    annotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------------------------
+# PostgreSQL. Default: an external server. Alternative: a small built-in StatefulSet.
+# There is no Bitnami (or other) subchart on purpose: Bitnami's free images and charts were
+# withdrawn/restricted in 2025, and the plain upstream image keeps the chart free of licence and
+# availability risks. For anything beyond a lab, use an operator-managed or external database
+# (CloudNativePG, a managed service) and keep backups with a tested restore (S7.7).
+# ---------------------------------------------------------------------------------------------
+postgresql:
+  enabled: false
+
+  # Used when enabled=false.
+  external:
+    host: ""
+    port: 5432
+    database: drawboard
+    user: drawboard
+    existingSecret: ""   # Secret with the password
+    passwordKey: password
+
+  # Used when enabled=true (built-in StatefulSet of postgres:18-alpine, never exposed outside the
+  # cluster: ClusterIP only, reachable by the backend only).
+  auth:
+    database: drawboard
+    username: drawboard
+    existingSecret: ""
+    passwordKey: password
+  image:
+    repository: postgres
+    tag: 18-alpine
+    pullPolicy: IfNotPresent
+  runAsUser: 70        # postgres user of the alpine image
+  runAsGroup: 70
+  persistence:
+    # PostgreSQL 18 keeps PGDATA in /var/lib/postgresql/18/docker -> the volume is mounted on
+    # the parent.
+    size: 8Gi
+    storageClassName: ""   # empty = cluster default
+    accessModes: [ReadWriteOnce]
+    # What happens to the PVC when the StatefulSet is deleted or scaled down: Retain | Delete.
+    retentionPolicy: Retain
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  tmp:
+    sizeLimit: 256Mi
+  podAnnotations: {}
+  podLabels: {}
+  serviceAccount:
+    annotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# ---------------------------------------------------------------------------------------------
+# Ingress: everything goes to the frontend only. Its nginx proxies /api, /files/, /plugin-assets/
+# and the WebSocket to the backend; the management port 8081 is never routed.
+#
+# ingress-nginx has ONE request body limit per Ingress object, not per path. The upload routes need
+# very different limits, so with ingress.nginx.enabled the chart renders four Ingress objects for the
+# same host: "/" and one each for the three upload routes (regex paths, use-regex). Their annotations
+# differ only in the body size (and the common timeouts). With another controller set
+# nginx.enabled=false (only the "/" Ingress is rendered) and configure the equivalent there:
+#   500m on /api/boards/*/files, 21m on /api/admin/plugins, 51m on /api/boards/*/snapshot,
+#   request buffering off on those, WebSocket idle timeouts well above the 30 s ping (S7.9).
+# ---------------------------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  host: ""             # REQUIRED when enabled; must be the host of publicUrl
+  # TLS, standard Ingress form, e.g.
+  #   - secretName: drawboard-tls
+  #     hosts: [draw.example.org]
+  tls: []
+  nginx:
+    enabled: true
+    # proxy-body-size per route. The frontend's nginx enforces the same caps a second time.
+    bodySize:
+      default: 2m        # "/" : the API's JSON bodies (the frontend nginx allows 1m on /api)
+      files: 500m        # /api/boards/*/files  (video cap 500 MB + the multipart envelope)
+      plugins: 21m       # /api/admin/plugins   (20 MB + envelope)
+      snapshot: 51m      # /api/boards/*/snapshot (50 MB + envelope, S2.8)
+    # proxy-request-buffering: off = the body is streamed to the frontend, not spooled to the
+    # ingress controller's disk first (the backend's upload guard needs Content-Length, which is kept).
+    requestBuffering: false
+    timeoutSeconds: 3600     # proxy-read-timeout and proxy-send-timeout
+  # Extra annotations of the "/" Ingress, e.g. cert-manager.io/cluster-issuer: letsencrypt
+  # (not copied to the upload Ingresses: two issuers for one secret name would fight).
+  annotations: {}
+  # Extra annotations of the three upload Ingresses (e.g. a WAF or rate-limit annotation).
+  uploadAnnotations: {}
+
+# ---------------------------------------------------------------------------------------------
+# NetworkPolicies (S7.9). On by default: all drawboard pods of the release are denied by default,
+# then exactly these flows are opened:
+#   ingress controller -> frontend:8080, frontend -> backend:8080, backend -> PostgreSQL:5432,
+#   backend -> OIDC provider:443, backend -> Gotenberg:3000, DNS, optional clamd / OTLP / Faro.
+#   PostgreSQL and Gotenberg accept only the backend; both have no egress.
+# Needs a CNI that enforces NetworkPolicy (Cilium, Calico ...).
+# ---------------------------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Where the ingress controller pods live.
+  ingressController:
+    namespaceSelector:
+      kubernetes.io/metadata.name: ingress-nginx
+    # Optional podSelector inside that namespace (empty = every pod there).
+    podSelector: {}
+  dns:
+    namespaceSelector:
+      kubernetes.io/metadata.name: kube-system
+    podSelector:
+      k8s-app: kube-dns
+  # Backend -> OIDC provider (JWKS / discovery), TCP.
+  oidc:
+    cidrs: ["0.0.0.0/0"]     # narrow this to the provider's address if you can
+    port: 443
+  # Backend -> external PostgreSQL (postgresql.enabled=false); port = postgresql.external.port.
+  externalPostgres:
+    cidrs: []                # empty = any destination on that port
+  # Backend -> OTLP receiver, only rendered when backend.otlp.endpoint is set.
+  otlp:
+    cidrs: []                # empty = any destination on that port
+    port: 4318
+  # Frontend nginx -> Faro receiver, only rendered when frontend.faro.receiverUrl is set.
+  faro:
+    cidrs: []
+    port: 12347
+  # Backend -> clamd, only rendered when clamav.host is set; port = clamav.port.
+  clamav:
+    cidrs: []                # empty = any destination on that port
+  # Gotenberg: only the backend may connect to :3000, and Gotenberg may connect to nobody (not even
+  # DNS: it only talks on localhost). The backend reaches it by Service name, which kube-dns resolves.

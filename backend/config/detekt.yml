@@ -1,0 +1,281 @@
+# =============================================================================
+# detekt-Regelwerk fuer Kotlin-Projekte (Spring Boot)
+#
+# Diese Datei gehoert in jedes Projekt kopiert, nach config/detekt.yml. Grund:
+# Entwickler sollen im Editor dieselben Regeln sehen wie die Pipeline, und
+# begruendete Ausnahmen sollen im Projekt stehen und nicht zentral, wo sie
+# niemand findet.
+#
+# Sie wird mit --build-upon-default-config verwendet: hier stehen nur die
+# Abweichungen von detekts Standard, nicht das ganze Regelwerk. Dadurch bleibt
+# die Datei lesbar und neue Regeln aus detekt-Aktualisierungen greifen von
+# selbst.
+#
+# Leitgedanke: streng bei allem, was spaeter Fehler verursacht (Nebenwirkungen,
+# verschluckte Ausnahmen, Nullbarkeit), nachsichtig bei allem, was nur
+# Geschmack ist (Zeilenlaenge, Anzahl Funktionen).
+# =============================================================================
+#
+# [project] Copy of ci/components 2.10.2 plus the lines marked [project]: the
+# ForbiddenImport block of ci/detekt-rules and the multi-module test source sets
+# (integrationTest, testFixtures) wherever the file excludes '**/test/**'.
+# Run with the rule set of ci/detekt-rules (see README):
+#   java -jar detekt-cli-1.23.8-all.jar --input modules/core/src,modules/api/src,modules/shared/src,modules/auditing/src,modules/users/src,modules/library/src \
+#     --config config/detekt.yml --build-upon-default-config --plugins detekt-rules-<version>.jar
+# =============================================================================
+
+build:
+  # Jede Regelverletzung laesst den Lauf scheitern. Wer bestehende Altlasten
+  # hat, erzeugt einmal eine Baseline statt diese Zahl hochzusetzen:
+  #   java -jar detekt-cli.jar --input src --config config/detekt.yml \
+  #        --build-upon-default-config --create-baseline
+  maxIssues: 0
+
+config:
+  # Warnt, wenn diese Datei Schluessel enthaelt, die detekt nicht kennt — sonst
+  # fallen Tippfehler in Regelnamen nie auf und die Regel gilt einfach nicht.
+  validation: true
+  warningsAsErrors: false
+
+processors:
+  active: true
+
+comments:
+  active: true
+  # Kommentarpflicht fuer oeffentliche Klassen ist in einem Projekt mit
+  # sprechenden Namen mehr Rauschen als Nutzen. Aus.
+  UndocumentedPublicClass:
+    active: false
+  UndocumentedPublicFunction:
+    active: false
+  UndocumentedPublicProperty:
+    active: false
+
+complexity:
+  active: true
+  LongParameterList:
+    # Spring-Konstruktoren mit Abhaengigkeiten werden schnell lang; das ist
+    # gewollte Konstruktor-Injektion und kein Fehler. Funktionen bleiben streng.
+    functionThreshold: 7
+    constructorThreshold: 12
+    ignoreDefaultParameters: true
+    ignoreAnnotated: ['Configuration', 'ConfigurationProperties']
+  LongMethod:
+    threshold: 60
+    ignoreAnnotated: ['Test', 'ParameterizedTest', 'Bean']
+  LargeClass:
+    threshold: 600
+  TooManyFunctions:
+    # Ein Repository oder ein Controller hat naturgemaess viele Methoden. Die
+    # Zahl allein sagt nichts ueber die Qualitaet.
+    thresholdInFiles: 30
+    thresholdInClasses: 30
+    thresholdInInterfaces: 30
+    ignoreDeprecated: true
+    ignorePrivate: true
+    ignoreOverridden: true
+    ignoreAnnotatedFunctions: ['Test', 'Bean']
+  CyclomaticComplexMethod:
+    threshold: 15
+    ignoreSingleWhenExpression: true
+    ignoreAnnotated: ['Test']
+  NestedBlockDepth:
+    threshold: 4
+
+coroutines:
+  active: true
+  # GlobalScope haengt an keiner Lebensdauer: solche Aufgaben laufen weiter,
+  # wenn die Anfrage schon beendet ist, und niemand bekommt ihre Fehler mit.
+  GlobalCoroutineUsage:
+    active: true
+  RedundantSuspendModifier:
+    active: true
+  SuspendFunWithFlowReturnType:
+    active: true
+
+empty-blocks:
+  active: true
+  EmptyFunctionBlock:
+    ignoreOverridden: true
+
+exceptions:
+  active: true
+  # Der haeufigste echte Fehler in Kotlin-Diensten: eine Ausnahme fangen und
+  # nichts damit tun. Der Dienst laeuft scheinbar weiter, die Daten sind falsch.
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - InterruptedException
+      - NumberFormatException
+      - ParseException
+      - MalformedURLException
+  TooGenericExceptionCaught:
+    active: true
+    exceptionNames:
+      - Error
+      - Exception
+      - Throwable
+      - RuntimeException
+    # In einer aeussersten Schicht ist ein breiter Fang legitim, wenn er
+    # protokolliert und uebersetzt — dort wird die Regel gezielt unterdrueckt.
+    allowedExceptionNameRegex: '_|(ignore|expected).*'
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
+  ReturnFromFinally:
+    active: true
+  PrintStackTrace:
+    # Ein Stapelabbild auf stdout landet nicht im Log-Aufbau und fehlt in Loki.
+    active: true
+
+naming:
+  active: true
+  FunctionNaming:
+    ignoreAnnotated: ['Test', 'ParameterizedTest', 'RepeatedTest']
+  TopLevelPropertyNaming:
+    constantPattern: '[A-Z][_A-Z0-9]*'
+  MatchingDeclarationName:
+    active: true
+  BooleanPropertyNaming:
+    active: true
+
+performance:
+  active: true
+  SpreadOperator:
+    # Der Einstiegspunkt jeder Spring-Boot-Anwendung in Kotlin gibt *args an
+    # SpringApplication.run weiter — das ist die vorgesehene Form, nicht ein
+    # Versehen. Die Kopie des Arrays entsteht genau einmal beim Start. In
+    # Tests ist der Aufruf mit *array ebenfalls ueblich und harmlos.
+    # Getestet: ohne diese Ausnahme scheitert jedes Spring-Boot-Kotlin-Projekt
+    # an seiner eigenen main-Funktion.
+    active: true
+    excludes:
+      - '**/*Application.kt'
+      - '**/test/**'
+      - '**/integrationTest/**'   # [project] jvm-test-suite source sets
+      - '**/testFixtures/**'      # [project]
+      - '**/*Test.kt'
+      - '**/*Spec.kt'
+  ForEachOnRange:
+    active: true
+
+potential-bugs:
+  active: true
+  # Die wichtigste Gruppe. Hier wird nichts abgeschaltet.
+  UnsafeCallOnNullableType:
+    active: true
+  UnsafeCast:
+    active: true
+  ImplicitDefaultLocale:
+    # String.format ohne Locale liefert auf einem Server mit anderer
+    # Spracheinstellung andere Zahlen als auf dem Entwicklungsrechner.
+    active: true
+  LateinitUsage:
+    # In Tests ist lateinit ueblich und harmlos, im Produktionscode ein
+    # Versprechen, das die JVM nicht prueft.
+    active: true
+    ignoreOnClassesPattern: '.*Test.*|.*Spec.*|.*IT'
+    ignoreAnnotated: ['Autowired', 'MockBean', 'MockkBean', 'Mock', 'InjectMocks']
+  ElseCaseInsteadOfExhaustiveWhen:
+    # Mit else uebersieht man beim Erweitern eines enum den neuen Fall.
+    active: true
+  ExitOutsideMain:
+    active: true
+  DontDowncastCollectionTypes:
+    active: true
+
+style:
+  active: true
+  # [project] From ci/detekt-rules (config/detekt-dergeorg.yml, rule set 1.1.0): the house bans. Tests assert with
+  # kotlin.test and a message; the rule set "dergeorg" itself is active with its defaults as soon as the jar is
+  # loaded with --plugins. The few places that must touch a banned type say so with @file:Suppress("ForbiddenImport")
+  # and a reason in the comment above it.
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'org.junit.jupiter.api.Assertions'
+        reason: 'Use kotlin.test with a message: assertEquals(expected, actual, "why").'
+      - value: 'org.junit.jupiter.api.Assertions.*'
+        reason: 'Use kotlin.test with a message: assertEquals(expected, actual, "why").'
+      - value: 'org.junit.jupiter.api.assert*'
+        reason: 'Use kotlin.test with a message: assertFailsWith<T>("why") { ... }.'
+      - value: 'org.hamcrest.*'
+        reason: 'Use kotlin.test with a message: assertEquals(expected, actual, "why").'
+      - value: 'java.time.*'
+        reason: 'Use kotlin.time (Instant, Clock, Duration); java.time only inside converters in core.'
+      - value: 'java.util.UUID'
+        reason: 'Use kotlin.uuid.Uuid with Uuid.generateV7(); java.util.UUID only inside converters in core.'
+      - value: 'org.slf4j.LoggerFactory'
+        reason: 'Inject the logger (AppLogger) through the constructor.'
+      - value: 'org.springframework.security.access.prepost.PreAuthorize'
+        reason: 'Permissions live in one place: the route table in core (SecurityConfig).'
+      - value: 'org.springframework.jdbc.core.*'
+        reason: 'No hand-written SQL: Spring Data JPA (MVC) or Spring Data R2DBC repositories.'
+      - value: 'org.springframework.jdbc.core.simple.JdbcClient'
+        reason: 'No hand-written SQL: Spring Data JPA (MVC) or Spring Data R2DBC repositories.'
+      - value: 'org.springframework.test.web.reactive.server.assertj.*'
+        reason: 'Overwrites describedAs(). Use exchange().expectBody<T>().returnResult() + assertThat(...).describedAs().'
+      - value: 'org.springframework.test.web.servlet.client.assertj.*'
+        reason: 'Overwrites describedAs(). Use exchange().expectBody<T>().returnResult() + assertThat(...).describedAs().'
+      - value: 'org.springframework.test.web.servlet.assertj.*'
+        reason: 'MockMvcTester overwrites describedAs(). Use RestTestClient (@AutoConfigureRestTestClient).'
+  MaxLineLength:
+    # 120 ist der Kotlin-Standard, 140 traegt der Ausfuehrlichkeit von
+    # Spring-Signaturen Rechnung, ohne unlesbar zu werden.
+    maxLineLength: 140
+    excludeCommentStatements: true
+  MagicNumber:
+    # Zahlen in Anmerkungen, Standardwerten und Tests sind dort erklaert, wo sie
+    # stehen. Im Ablauf einer Methode ist eine nackte Zahl dagegen ein Raetsel.
+    ignoreNumbers: ['-1', '0', '1', '2', '100', '1000']
+    ignoreAnnotation: true
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreEnums: true
+    ignoreConstantDeclaration: true
+    # [project] + jvm-test-suite source sets (integrationTest) and test fixtures
+    excludes: ['**/test/**', '**/integrationTest/**', '**/testFixtures/**', '**/*Test.kt', '**/*Spec.kt', '**/*IT.kt']
+  ForbiddenComment:
+    # Ein TODO ohne Vorgang ist ein Vorsatz, kein Plan. Mit Nummer ist es in
+    # Ordnung, deshalb der Ausdruck.
+    active: true
+    comments:
+      - reason: "TODO gehoert in einen Vorgang, nicht in den Quellcode. Erlaubt mit Nummer: // TODO(#123)"
+        value: 'TODO:'
+      - reason: "FIXME gehoert in einen Vorgang."
+        value: 'FIXME:'
+      - value: 'STOPSHIP'
+    allowedPatterns: 'TODO\(#\d+\)|FIXME\(#\d+\)'
+  ReturnCount:
+    max: 3
+    excludeGuardClauses: true
+  ThrowsCount:
+    max: 3
+  UnusedImports:
+    active: true
+  UnusedPrivateMember:
+    active: true
+    ignoreAnnotated: ['Preview']
+  UseCheckOrError:
+    active: true
+  UseRequire:
+    active: true
+  # Kotlin-Idiome, die Code kuerzer und weniger fehleranfaellig machen.
+  ExplicitItLambdaParameter:
+    active: true
+  MandatoryBracesLoops:
+    active: true
+  PreferToOverPairSyntax:
+    active: true
+  RedundantVisibilityModifierRule:
+    active: true
+  UnnecessaryAbstractClass:
+    active: true
+  UnnecessaryLet:
+    active: true
+  VarCouldBeVal:
+    active: true
+  # Wildcard-Importe verstecken, woher ein Name kommt, und brechen beim
+  # Aktualisieren einer Abhaengigkeit still.
+  WildcardImport:
+    active: true
+    excludeImports: ['java.util.*']

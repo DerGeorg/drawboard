@@ -1,0 +1,35 @@
+# gitleaks configuration of the GitHub sync (scripts/github-sync.sh): the default rules plus
+# exactly the findings the Fable review "Publishing the source" (2026-11-12) checked and cleared.
+# Every entry is as narrow as possible: a known throwaway VALUE, or one rule in one file.
+# Anything else stops the sync. Add an entry only after the value was checked the same way.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Throwaway keys of the dev profile and the integration tests (base64 of dev-only-... / integration-test-...)"
+targetRules = ["generic-api-key"]
+regexes = [
+  '''^ZGV2LW9ubHktZmlsZS11cmwta2V5LTAxMjM0NTY3ODlhYmNkZWY=$''',
+  '''^ZGV2LW9ubHktcGx1Z2luLXBzZXVkb255bS1rZXktMDEyMzQ1Njc4OQ==$''',
+  '''^aW50ZWdyYXRpb24tdGVzdC1maWxlLXVybC1rZXktMDEyMzQ1Njc4OQ==$''',
+  '''^aW50ZWdyYXRpb24tdGVzdC1wbHVnaW4tcHNldWRvbnltLWtleS0wMQ==$''',
+]
+
+[[allowlists]]
+description = "The sample nonce of RFC 6455 as Sec-WebSocket-Key in the WebSocket integration tests"
+targetRules = ["generic-api-key"]
+regexes = ['''^dGhlIHNhbXBsZSBub25jZQ==$''']
+
+[[allowlists]]
+description = "PEM parsing regex (GuestKeys) and the PEM template of a key generated per test run (GuestJwtTest)"
+targetRules = ["private-key"]
+paths = [
+  '''(^|/)backend/modules/core/src/main/kotlin/at/dergeorg/drawboard/core/infra/security/GuestKeys\.kt$''',
+  '''(^|/)backend/modules/core/src/test/kotlin/at/dergeorg/drawboard/core/infra/security/GuestJwtTest\.kt$''',
+]
+
+[[allowlists]]
+description = "admin/admin of the local Grafana in the backend dev README"
+targetRules = ["curl-auth-user"]
+paths = ['''(^|/)backend/dev/README\.md$''']

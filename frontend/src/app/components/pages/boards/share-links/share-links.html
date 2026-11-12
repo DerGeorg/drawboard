@@ -1,0 +1,179 @@
+@if (created(); as result) {
+  <section
+    class="mb-5 rounded-2xl border-(length:--border-size-xs) border-(--color-st-yellow) bg-(--color-st-yellow)/10 p-4"
+    aria-labelledby="share-created-heading"
+    data-testid="created"
+  >
+    <h3 id="share-created-heading" class="font-semibold">Your link is ready</h3>
+    <p class="mt-1 text-sm" role="alert">
+      Copy it now: this is the only time it is shown. Anyone who has it gets
+      {{ roleLabel(result.link.role) | lowercase }} access
+      {{ result.link.audience === 'GUESTS' ? 'even without an account' : 'when signed in' }}. If you
+      lose it, revoke the link and create a new one.
+    </p>
+    <div class="mt-3 flex gap-2">
+      <label for="share-created-url" class="sr-only">Link</label>
+      <input
+        id="share-created-url"
+        type="text"
+        readonly
+        class="st-input min-w-0 flex-1 font-mono text-xs"
+        [value]="result.url"
+        (focus)="selectUrl($event)"
+      />
+      <button type="button" class="btn st-btn-primary-yellow" (click)="copy(result.url)">
+        <drawboard-icon name="duplicate" />
+        {{ copied() ? 'Copied' : 'Copy' }}
+      </button>
+    </div>
+    <button type="button" class="btn btn-sm btn-ghost mt-3" (click)="done()">Done</button>
+  </section>
+}
+
+<form [formRoot]="linkForm" class="flex flex-col gap-4" aria-label="Create a link">
+  <fieldset class="flex flex-col gap-2">
+    <legend class="mb-1 text-sm font-semibold">Who can use the link</legend>
+    <label class="flex items-start gap-2 text-sm">
+      <input
+        type="radio"
+        name="share-audience"
+        class="radio radio-sm mt-0.5"
+        value="SIGNED_IN"
+        [checked]="linkForm().value().audience === 'SIGNED_IN'"
+        (change)="setAudience($event)"
+      />
+      <span>Anyone signed in <span class="text-(--color-st-grey)">(default)</span></span>
+    </label>
+    @if (guestLinksEnabled()) {
+      <label class="flex items-start gap-2 text-sm">
+        <input
+          type="radio"
+          name="share-audience"
+          class="radio radio-sm mt-0.5"
+          value="GUESTS"
+          [checked]="linkForm().value().audience === 'GUESTS'"
+          (change)="setAudience($event)"
+        />
+        <span>
+          Guests without account
+          <span class="block text-xs text-(--color-st-grey)"
+            >People who open the link can join without signing in, under a name they choose.</span
+          >
+        </span>
+      </label>
+    }
+  </fieldset>
+
+  <div class="flex flex-wrap gap-4">
+    <div>
+      <label for="share-link-role" class="mb-1 block text-sm font-semibold">Role</label>
+      <select id="share-link-role" class="select w-40" (change)="setRole($event)">
+        @for (role of roles; track role.value) {
+          <option [value]="role.value" [selected]="role.value === linkForm().value().role">
+            {{ role.label }}
+          </option>
+        }
+      </select>
+    </div>
+    <div>
+      <label for="share-link-expiry" class="mb-1 block text-sm font-semibold">
+        Expires <span class="font-normal text-(--color-st-grey)">(optional)</span>
+      </label>
+      <input
+        id="share-link-expiry"
+        type="datetime-local"
+        class="st-input"
+        [formField]="linkForm.expiresAt"
+        [attr.aria-invalid]="linkForm.expiresAt().touched() && linkForm.expiresAt().invalid()"
+        aria-describedby="share-link-expiry-errors"
+      />
+      <drawboard-field-errors id="share-link-expiry-errors" [field]="linkForm.expiresAt" />
+    </div>
+    <div>
+      <label for="share-link-password" class="mb-1 block text-sm font-semibold">
+        Password <span class="font-normal text-(--color-st-grey)">(optional, 8+ characters)</span>
+      </label>
+      <input
+        id="share-link-password"
+        type="password"
+        class="st-input"
+        autocomplete="new-password"
+        [formField]="linkForm.password"
+        [attr.aria-invalid]="linkForm.password().touched() && linkForm.password().invalid()"
+        aria-describedby="share-link-password-errors"
+      />
+      <drawboard-field-errors id="share-link-password-errors" [field]="linkForm.password" />
+    </div>
+  </div>
+
+  <div>
+    <button type="submit" class="btn st-btn-primary-yellow" [disabled]="linkForm().submitting()">
+      Create link
+    </button>
+  </div>
+</form>
+
+<h3 class="mt-6 mb-2 text-sm font-semibold">Existing links</h3>
+@if (links.error(); as error) {
+  <drawboard-load-error [error]="error" subject="the links" (retry)="links.reload()" />
+} @else if (links.hasValue()) {
+  @if (items().length === 0) {
+    <p class="text-sm text-(--color-st-grey)" data-testid="no-links">No links yet.</p>
+  } @else {
+    <ul class="flex flex-col gap-2" aria-label="Links">
+      @for (link of items(); track link.id) {
+        <li
+          class="rounded-xl border-(length:--border-size-xs) border-(--color-st-white-darker) p-3 text-sm"
+          [class.opacity-60]="state(link) !== 'Active'"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-medium">{{ roleLabel(link.role) }}</span>
+            <span class="text-(--color-st-grey)">· {{ audienceLabel(link.audience) }}</span>
+            <span
+              class="badge badge-sm ml-auto"
+              [class]="state(link) === 'Active' ? 'st-badge-green-simple' : 'st-badge-grey-simple'"
+              data-testid="state"
+              >{{ state(link) }}</span
+            >
+          </div>
+          <p class="mt-1 text-xs text-(--color-st-grey)">
+            Expires: {{ expiry(link) }} · Password: {{ link.passwordProtected ? 'yes' : 'no' }} ·
+            Used {{ link.useCount }} {{ link.useCount === 1 ? 'time' : 'times' }}
+          </p>
+          @if (state(link) !== 'Revoked') {
+            @if (revoking() === link.id) {
+              <div
+                role="group"
+                [attr.aria-label]="'Revoke this link?'"
+                class="mt-2 flex flex-wrap items-center gap-2"
+              >
+                <span class="font-medium">Revoke this link? It stops working for good.</span>
+                <button
+                  type="button"
+                  class="btn btn-sm st-btn-primary-red"
+                  [disabled]="busy()"
+                  (click)="revoke(link)"
+                >
+                  Yes, revoke
+                </button>
+                <button type="button" class="btn btn-sm btn-ghost" (click)="cancelRevoke()">
+                  Cancel
+                </button>
+              </div>
+            } @else {
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost mt-2 text-(--color-st-red)"
+                (click)="askRevoke(link)"
+              >
+                Revoke
+              </button>
+            }
+          }
+        </li>
+      }
+    </ul>
+  }
+} @else {
+  <p class="text-(--color-st-grey)" aria-live="polite">Loading the links…</p>
+}

@@ -1,0 +1,65 @@
+# =============================================================================
+# drawboard frontend - dev (Portainer stack "drawboard-frontend-dev" on note).
+#
+# The pipeline (deploy:dev, component deploy-portainer) sets APP_IMAGE to the
+# image it just built; the file itself never changes per release.
+# Public URL (NPM proxy host): https://drawboard-dev.dergeorg.at -> this container :8080.
+# Portainer GIT stack of this file on main (gitlab-devops scripts/24-drawboard-stacks.sh);
+# never edit it in the Portainer editor. It joins the network the backend stack creates and
+# reaches the backend as http://drawboard-backend:8080 (REST and the collaboration WebSocket).
+#
+# Sign-in: Authelia (https://sso.dergeorg.at), public client "drawboard" with PKCE and
+# refresh tokens (offline_access; homelab script authelia-drawboard.sh). Switching to the
+# central Keycloak later: OIDC_ISSUER / OIDC_CLIENT_ID here, OIDC_ISSUER_URI in the backend.
+# NPM proxy host: "Websockets Support" must be on (/api/boards/{id}/collab).
+# =============================================================================
+services:
+  frontend:
+    image: ${APP_IMAGE}
+    restart: unless-stopped
+    ports:
+      - '18090:8080'
+    environment:
+      APP_ENVIRONMENT: dev
+      BACKEND_URL: http://drawboard-backend:8080
+      OIDC_ISSUER: https://sso.dergeorg.at
+      OIDC_CLIENT_ID: drawboard
+      OIDC_SCOPE: openid profile email groups
+      # TODO(monitoring): Faro stays off until the prod Alloy has its faro.receiver
+      # (monitoring MR); then FARO_RECEIVER_URL: http://<alloy host>:12347
+      FARO_RECEIVER_URL: ''
+      # Own origins for files (S4.6) and plugin assets (S3.4), scheme://host[:port], each the
+      # same value as DRAWBOARD_FILES_ORIGIN / DRAWBOARD_PLUGIN_ORIGIN of the backend. Empty =
+      # served from this origin under /files/ and /plugin-assets/.
+      # The plugin origin is this very container under a second name (proxy host -> same port):
+      # nginx tells the hosts apart by Host and serves /plugin-assets/ ONLY there, never on the
+      # app host. Both proxy hosts must pass the original Host header on.
+      FILES_ORIGIN: ''
+      PLUGIN_ORIGIN: https://drawboard-plugins-dev.dergeorg.at
+      # About Drawboard (product site, "Host your own") and the source link every instance offers
+      # its users (AGPL-3.0 section 13); absolute https URLs. These are the image defaults.
+      # ABOUT_URL: '' switches the "Host your own" promotion off; SOURCE_URL must never be empty
+      # (empty = default): a modified version points it at its own source.
+      # ABOUT_URL: https://drawboard.dergeorg.at
+      # SOURCE_URL: https://github.com/DerGeorg/drawboard
+    # S7.8: non-root (nginx-unprivileged), read-only root file system, no capabilities. nginx
+    # renders its template into conf.d at start and keeps temp files in /tmp: small tmpfs mounts,
+    # writable for the non-root nginx user (a plain tmpfs belongs to root, then the template is
+    # not rendered and the health check fails).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [drawboard]
+
+networks:
+  drawboard:
+    name: drawboard-dev
+    external: true

@@ -1,0 +1,23 @@
+@let current = folder();
+<article
+  class="relative flex items-center gap-3 rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) p-3 transition-shadow focus-within:ring-2 focus-within:ring-(--color-st-primary) hover:shadow-lg"
+>
+  <span
+    class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-(--color-st-yellow)/25 text-(--color-st-primary)"
+    aria-hidden="true"
+  >
+    <drawboard-icon name="folder" />
+  </span>
+  <div class="min-w-0 flex-1">
+    <a
+      routerLink="/boards"
+      [queryParams]="{ view: view(), folder: current.id }"
+      class="block truncate font-medium after:absolute after:inset-0 after:content-[''] focus:outline-none"
+    >
+      {{ current.name }}
+    </a>
+    <p class="mt-0.5 text-xs text-(--color-st-grey)">
+      <drawboard-role-badge [role]="current.role" />
+    </p>
+  </div>
+</article>

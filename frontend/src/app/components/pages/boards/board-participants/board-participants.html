@@ -1,0 +1,166 @@
+<div class="float-panel relative flex items-center gap-2 p-1 pl-2">
+  @if (shown().length > 0) {
+    <ul class="hidden items-center -space-x-2 sm:flex" aria-label="People on this board">
+      @for (person of shown(); track person.key) {
+        <li class="relative rounded-full ring-2 ring-(--color-st-surface)">
+          @if (person.peer; as peer) {
+            <button
+              type="button"
+              class="block cursor-pointer rounded-full"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="menu() === peer.clientId"
+              [attr.aria-label]="`Options for ${person.name}`"
+              [class.ring-2]="following() === peer.clientId"
+              [class.ring-offset-1]="following() === peer.clientId"
+              (click)="toggleMenu(peer.clientId)"
+            >
+              <drawboard-avatar
+                size="sm"
+                [name]="person.guest ? `${person.name} (guest)` : person.name"
+                [color]="person.color"
+              />
+            </button>
+          } @else {
+            <drawboard-avatar
+              size="sm"
+              [name]="person.guest ? `${person.name} (guest)` : person.name"
+              [color]="person.color"
+            />
+          }
+          @if (person.guest) {
+            <span
+              class="absolute -right-1 -bottom-1 inline-flex size-3.5 items-center justify-center rounded-full bg-(--color-st-yellow) text-[0.6rem] leading-none font-bold text-(--color-st-on-yellow) ring-1 ring-(--color-st-surface)"
+              aria-hidden="true"
+              data-testid="guest-marker"
+              >G</span
+            >
+          }
+        </li>
+      }
+      @if (overflow() > 0) {
+        <li>
+          <button
+            type="button"
+            class="inline-flex size-7 cursor-pointer items-center justify-center rounded-full bg-(--color-st-white-darker) text-xs font-semibold ring-2 ring-(--color-st-surface)"
+            [attr.title]="overflowNames()"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="menu() === 'more'"
+            aria-label="More people"
+            data-testid="overflow"
+            (click)="toggleMenu('more')"
+          >
+            +{{ overflow() }}
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (canPresent() && peers().length > 0) {
+    <div class="tooltip tooltip-bottom hidden sm:block" data-tip="Bring everyone to me">
+      <button
+        type="button"
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Bring everyone to me"
+        (click)="summonPeers('all')"
+      >
+        <drawboard-icon name="users" />
+      </button>
+    </div>
+  }
+
+  <drawboard-board-connection [state]="state()" />
+
+  @if (guest()) {
+    <drawboard-guest-badge />
+  } @else {
+    <button
+      type="button"
+      class="btn btn-sm st-btn-primary-yellow gap-1.5"
+      aria-label="Share"
+      (click)="openShare()"
+    >
+      <drawboard-icon name="share" />
+      <span class="hidden sm:inline">Share</span>
+    </button>
+  }
+
+  @if (menu() !== null) {
+    <button
+      type="button"
+      class="fixed inset-0 z-10 cursor-default"
+      tabindex="-1"
+      aria-hidden="true"
+      (click)="closeMenu()"
+    ></button>
+    @if (menuPeer(); as peer) {
+      <ul
+        role="menu"
+        class="float-panel absolute top-full right-0 z-20 mt-1 w-60 p-1"
+        [attr.aria-label]="peer.name"
+      >
+        <li class="truncate px-3 py-1.5 text-xs text-(--color-st-grey)" role="presentation">
+          {{ peer.name }}{{ peer.guest ? ' (guest)' : '' }}
+        </li>
+        <li role="presentation">
+          <button
+            type="button"
+            role="menuitem"
+            class="panel-item w-full"
+            [disabled]="peer.viewport === null && following() !== peer.clientId"
+            (click)="followPeer(peer)"
+          >
+            {{ following() === peer.clientId ? 'Stop following' : 'Follow' }}
+          </button>
+        </li>
+        @if (canPresent()) {
+          <li role="presentation">
+            <button
+              type="button"
+              role="menuitem"
+              class="panel-item w-full"
+              (click)="summonPeers([peer.clientId])"
+            >
+              Ask to follow me
+            </button>
+          </li>
+        }
+        @if (!peer.guest) {
+          <li role="presentation">
+            <button
+              type="button"
+              role="menuitem"
+              class="panel-item w-full"
+              (click)="ignored().has(peer.userId) ? unignorePeer(peer) : ignorePeer(peer)"
+            >
+              {{
+                ignored().has(peer.userId) ? 'Allow their summons again' : 'Ignore their summons'
+              }}
+            </button>
+          </li>
+        }
+      </ul>
+    } @else if (menu() === 'more') {
+      <ul
+        role="menu"
+        class="float-panel absolute top-full right-0 z-20 mt-1 w-60 p-1"
+        aria-label="More people"
+      >
+        @for (person of hidden(); track person.key) {
+          @if (person.peer; as peer) {
+            <li role="presentation">
+              <button
+                type="button"
+                role="menuitem"
+                class="panel-item w-full truncate"
+                (click)="toggleMenu(peer.clientId)"
+              >
+                {{ person.name }}{{ person.guest ? ' (guest)' : '' }}
+              </button>
+            </li>
+          }
+        }
+      </ul>
+    }
+  }
+</div>

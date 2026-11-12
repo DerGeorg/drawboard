@@ -1,0 +1,19 @@
+<div
+  class="rounded-xl border-(length:--border-size-xs) border-(--color-st-red) bg-(--color-st-red-transparent) p-4 text-(--color-st-black)"
+  role="alert"
+>
+  <p class="font-medium">Could not load {{ subject() }}.</p>
+  <p class="mt-1 text-sm">{{ reason() }}</p>
+  @if (apiError()?.requestId; as requestId) {
+    <p class="mt-1 text-xs">
+      Request id <code class="st-code-inline">{{ requestId }}</code>
+    </p>
+  }
+  <button
+    type="button"
+    class="btn btn-sm btn-outline st-btn-primary-outline mt-3"
+    (click)="retry.emit()"
+  >
+    Try again
+  </button>
+</div>

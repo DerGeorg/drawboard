@@ -1,0 +1,6 @@
+.git
+.gitignore
+ci/
+*.swp
+*.bak
+*.tmp

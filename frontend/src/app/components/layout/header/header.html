@@ -1,0 +1,45 @@
+<header class="on-dark bg-(--color-st-navy) text-(--color-st-on-accent)">
+  <div class="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 sm:px-6">
+    <a routerLink="/boards" class="zoom flex items-center gap-2" aria-label="Drawboard home">
+      <drawboard-dg-logo [size]="26" />
+      <span class="text-lg font-semibold tracking-tight">Drawboard</span>
+    </a>
+
+    @if (environmentBadge; as environment) {
+      <span class="badge badge-sm st-badge-yellow" data-testid="environment">{{
+        environment
+      }}</span>
+    }
+
+    <nav class="flex items-center gap-1" aria-label="Main navigation">
+      <a routerLink="/boards" routerLinkActive ariaCurrentWhenActive="page" [class]="navLinkClass">
+        My boards
+      </a>
+      @if (auth.user()?.admin) {
+        <a
+          routerLink="/admin/plugins"
+          routerLinkActive
+          ariaCurrentWhenActive="page"
+          [class]="navLinkClass"
+        >
+          Plugins
+        </a>
+      }
+    </nav>
+
+    @if (auth.authenticated()) {
+      <div class="ml-auto flex items-center gap-3">
+        @if (auth.user(); as user) {
+          <span class="text-sm opacity-80" data-testid="current-user">{{ user.displayName }}</span>
+        }
+        <button
+          type="button"
+          class="btn btn-sm btn-outline st-btn-primary-outline"
+          (click)="logout()"
+        >
+          Sign out
+        </button>
+      </div>
+    }
+  </div>
+</header>

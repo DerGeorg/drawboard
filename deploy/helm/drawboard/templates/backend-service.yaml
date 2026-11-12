@@ -1,0 +1,17 @@
+{{- $ctx := dict "ctx" . "component" "backend" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "drawboard.componentName" $ctx }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "drawboard.selectorLabels" $ctx | nindent 4 }}
+  # API and the collaboration WebSocket. The management port 8081 is deliberately not here.
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

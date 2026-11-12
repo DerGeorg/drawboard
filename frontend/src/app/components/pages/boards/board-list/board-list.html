@@ -1,0 +1,75 @@
+<drawboard-library-shell [view]="view()" [(search)]="search" (rootDrop)="dropOnRoot()">
+  @if (canCreate()) {
+    <drawboard-board-create sidebar-action variant="button" [folderId]="newBoardFolder()" />
+  }
+  <drawboard-folder-tree sidebar-folders [active]="view() === 'mine' ? folder() : undefined" />
+
+  @if (view() === 'trash') {
+    <h1 class="mb-5 text-2xl font-bold tracking-tight">{{ heading() }}</h1>
+    <drawboard-trash-list />
+  } @else {
+    @if (folder()) {
+      <a
+        routerLink="/boards"
+        [queryParams]="upQuery()"
+        class="mb-2 inline-block text-sm text-(--color-st-grey) hover:underline"
+        data-testid="up"
+      >
+        ← Up
+      </a>
+    }
+    <h1 class="mb-5 text-2xl font-bold tracking-tight">{{ heading() }}</h1>
+
+    @if (error(); as error) {
+      <drawboard-load-error [error]="error" subject="your boards" (retry)="reload()" />
+    } @else if (ready()) {
+      @if (folders().length > 0) {
+        <ul
+          class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          aria-label="Folders"
+        >
+          @for (item of folders(); track item.id) {
+            <li>
+              <drawboard-folder-card
+                [folder]="item"
+                [view]="view() === 'shared' ? 'shared' : 'mine'"
+              />
+            </li>
+          }
+        </ul>
+      }
+      <ul
+        class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        aria-label="Boards"
+        [attr.aria-busy]="busy()"
+      >
+        @if (canCreate() && search() === '') {
+          <li><drawboard-board-create [folderId]="newBoardFolder()" /></li>
+        }
+        @for (board of visible(); track board.id) {
+          <li>
+            <drawboard-board-card [board]="board" (changed)="reload()" />
+          </li>
+        }
+      </ul>
+      @if (visible().length === 0 && folders().length === 0) {
+        <p class="mt-6 text-center text-(--color-st-grey)" data-testid="empty">
+          @if (search() !== '') {
+            Nothing on this page matches “{{ search() }}”.
+          } @else if (view() === 'shared') {
+            Nothing has been shared with you here yet.
+          } @else if (folder()) {
+            This folder is empty.
+          } @else {
+            You have no boards yet. Create your first one with “New board”.
+          }
+        </p>
+      }
+      @if (pageInfo(); as info) {
+        <drawboard-pager class="mt-6" [page]="info" />
+      }
+    } @else {
+      <p class="text-(--color-st-grey)" aria-live="polite">Loading your boards…</p>
+    }
+  }
+</drawboard-library-shell>

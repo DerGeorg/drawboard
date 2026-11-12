@@ -1,0 +1,48 @@
+@if (available()) {
+  <div class="relative">
+    <button
+      type="button"
+      class="float-panel btn btn-sm gap-2 rounded-full px-3"
+      aria-haspopup="true"
+      [attr.aria-expanded]="menu()"
+      data-testid="open-rounds"
+      (click)="toggle()"
+    >
+      @if (rounds().length > 0) {
+        <span class="size-2 animate-pulse rounded-full bg-teal-600" aria-hidden="true"></span>
+        {{ rounds().length }} open {{ rounds().length === 1 ? 'estimation' : 'estimations' }}
+      } @else {
+        Estimations
+      }
+    </button>
+    @if (menu()) {
+      <ul
+        class="menu float-panel absolute top-full left-1/2 z-20 mt-2 w-64 -translate-x-1/2 p-1"
+        aria-label="Open estimations"
+      >
+        @for (round of rounds(); track round.id) {
+          <li>
+            <button type="button" [disabled]="!onBoard(round)" (click)="pick(round)">
+              <span class="truncate">{{ round.title }}</span>
+              @if (quick(round)) {
+                <span class="badge badge-ghost badge-xs shrink-0">quick round</span>
+              }
+              <span class="text-xs text-(--color-st-grey)">{{ round.facilitatorName }}</span>
+            </button>
+          </li>
+        } @empty {
+          <li class="menu-disabled">
+            <span class="text-sm text-(--color-st-grey)">No open estimations.</span>
+          </li>
+        }
+        @if (canStart()) {
+          <li class="border-t border-(--color-st-white-darker) pt-1">
+            <button type="button" data-testid="start-quick-round" (click)="start()">
+              Start a quick round
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+}

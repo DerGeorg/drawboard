@@ -1,0 +1,25 @@
+@if (card()) {
+  <button
+    type="button"
+    class="flex h-full min-h-44 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-(--color-st-white-darker) text-(--color-st-grey) transition-colors hover:border-(--color-st-yellow) hover:bg-(--color-st-surface) hover:text-(--color-st-primary) focus-visible:ring-2 focus-visible:ring-(--color-st-primary) disabled:opacity-60"
+    [disabled]="busy()"
+    (click)="create()"
+  >
+    <span
+      class="inline-flex size-12 items-center justify-center rounded-full bg-(--color-st-yellow) text-(--color-st-on-yellow)"
+    >
+      <drawboard-icon name="plus" />
+    </span>
+    <span class="font-medium">New board</span>
+  </button>
+} @else {
+  <button
+    type="button"
+    class="btn st-btn-primary-yellow w-full gap-2"
+    [disabled]="busy()"
+    (click)="create()"
+  >
+    <drawboard-icon name="plus" />
+    New board
+  </button>
+}

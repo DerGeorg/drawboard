@@ -1,0 +1,37 @@
+<drawboard-modal [heading]="heading()" [wide]="true" (closed)="close()">
+  @if (isOwner()) {
+    <div role="tablist" class="tabs tabs-border mb-4" aria-label="Sharing">
+      <button
+        type="button"
+        role="tab"
+        id="share-tab-people"
+        class="tab"
+        [class.tab-active]="tab() === 'people'"
+        [attr.aria-selected]="tab() === 'people'"
+        aria-controls="share-panel"
+        (click)="show('people')"
+      >
+        People
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="share-tab-links"
+        class="tab"
+        [class.tab-active]="tab() === 'links'"
+        [attr.aria-selected]="tab() === 'links'"
+        aria-controls="share-panel"
+        (click)="show('links')"
+      >
+        Links
+      </button>
+    </div>
+  }
+  <div id="share-panel" role="tabpanel" [attr.aria-labelledby]="`share-tab-${tab()}`">
+    @if (tab() === 'people' || !isOwner()) {
+      <drawboard-share-people [kind]="kind()" [resourceId]="resourceId()" [canManage]="isOwner()" />
+    } @else {
+      <drawboard-share-links [kind]="kind()" [resourceId]="resourceId()" />
+    }
+  </div>
+</drawboard-modal>

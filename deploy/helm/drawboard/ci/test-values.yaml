@@ -1,0 +1,17 @@
+# Values for `helm lint --strict` and the template checks in CI: the required values only,
+# all of them fake. Defaults otherwise (Gotenberg on, guests off, PVC created).
+publicUrl: https://draw.example.org
+oidc:
+  issuerUri: https://sso.example.org
+  audience: drawboard-api
+ingress:
+  host: draw.example.org
+  tls:
+    - secretName: drawboard-tls
+      hosts: [draw.example.org]
+secrets:
+  existingSecret: drawboard-keys
+postgresql:
+  external:
+    host: postgres.db.svc
+    existingSecret: drawboard-db

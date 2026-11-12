@@ -1,0 +1,28 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Tool versions in contract.env (KEY=value below a '# renovate:' marker), read by scripts/build.sh",
+      "managerFilePatterns": [
+        "/(^|/)contract\\.env$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\s*\\n[A-Z_]+=\"?(?<currentValue>[^\"\\s]+)\"?"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Kotlin follows the Spring Boot BOM: KOTLIN_VERSION must equal kotlin.version of SPRING_BOOT_VERSION (4.1.1 -> 2.3.21) - the jar is compiled with it, the backend runs it with the BOM's kotlin-stdlib. Raise both together by hand.",
+      "matchFileNames": [
+        "contract.env"
+      ],
+      "matchDepNames": [
+        "JetBrains/kotlin"
+      ],
+      "enabled": false
+    }
+  ]
+}

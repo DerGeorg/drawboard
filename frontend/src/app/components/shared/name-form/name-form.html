@@ -1,0 +1,20 @@
+<form [formRoot]="nameForm" class="flex flex-col gap-2">
+  <div>
+    <label [for]="inputId" class="sr-only">{{ label() }}</label>
+    <input
+      #field
+      [id]="inputId"
+      type="text"
+      class="st-input"
+      autocomplete="off"
+      [formField]="nameForm.name"
+      [attr.aria-invalid]="nameForm.name().touched() && nameForm.name().invalid()"
+      [attr.aria-describedby]="`${inputId}-errors`"
+    />
+    <drawboard-field-errors [id]="`${inputId}-errors`" [field]="nameForm.name" />
+  </div>
+  <div class="flex gap-2">
+    <button type="submit" class="btn btn-sm st-btn-primary-yellow">Save</button>
+    <button type="button" class="btn btn-sm btn-ghost" (click)="dismissed.emit()">Cancel</button>
+  </div>
+</form>

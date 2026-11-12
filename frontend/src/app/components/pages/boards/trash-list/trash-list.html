@@ -1,0 +1,67 @@
+@if (trash.error(); as error) {
+  <drawboard-load-error [error]="error" subject="the trash" (retry)="trash.reload()" />
+} @else if (trash.hasValue()) {
+  <p class="mb-4 text-sm text-(--color-st-grey)">
+    Deleted boards and folders stay here for 30 days, then they are deleted for good.
+  </p>
+  @if (entries().length === 0) {
+    <p class="mt-6 text-center text-(--color-st-grey)" data-testid="empty">The trash is empty.</p>
+  } @else {
+    <ul class="flex flex-col gap-2" [attr.aria-busy]="trash.isLoading()">
+      @for (entry of entries(); track entry.key) {
+        <li
+          class="flex flex-wrap items-center gap-3 rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface) p-3"
+        >
+          <span class="text-(--color-st-grey)" aria-hidden="true">
+            <drawboard-icon [name]="entry.kind === 'board' ? 'board' : 'folder'" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate font-medium">{{ entry.title }}</p>
+            <p class="text-xs text-(--color-st-grey)">
+              {{ entry.kind === 'board' ? 'Board' : 'Folder' }} · deleted {{ deleted(entry) }} ·
+              <span data-testid="days-left">{{ daysLeft(entry) }} days left</span>
+            </p>
+          </div>
+          @if (confirming() === entry.key) {
+            <div
+              role="group"
+              [attr.aria-label]="`Delete ${entry.title} forever?`"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <span class="text-sm font-medium">Delete forever? This cannot be undone.</span>
+              <button
+                type="button"
+                class="btn btn-sm st-btn-primary-red"
+                [disabled]="busy()"
+                (click)="purge(entry)"
+              >
+                Yes, delete forever
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" (click)="cancel()">Cancel</button>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-sm btn-outline st-btn-primary-outline"
+              [disabled]="busy()"
+              (click)="restore(entry)"
+            >
+              <drawboard-icon name="restore" />
+              Restore
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost text-(--color-st-red)"
+              [disabled]="busy()"
+              (click)="ask(entry)"
+            >
+              Delete forever
+            </button>
+          }
+        </li>
+      }
+    </ul>
+  }
+} @else {
+  <p class="text-(--color-st-grey)" aria-live="polite">Loading the trash…</p>
+}

@@ -1,0 +1,105 @@
+# Lint rules of the contract. Run: scripts/build.sh lint
+# (= npx @redocly/cli@<REDOCLY_VERSION> lint openapi.yaml). Lint runs on
+# openapi.yaml only; api/api.yaml and common/common.yaml are checked through
+# the references (findings name the right file and line).
+extends:
+  - recommended-strict        # all recommended rules, warnings become errors
+
+rules:
+  info-license: off           # internal API, no license
+  operation-4xx-response: error
+  operation-operationId: error
+  operation-tag-defined: error
+  tag-description: error
+  no-unused-components: error
+
+  # --- Errors ---------------------------------------------------------------
+  # Every 4xx/5xx body is the shared ErrorModel. (filterInParentKeys belongs
+  # INSIDE subject — on the level of `where` it is ignored and the rule then
+  # fires on every 2xx response.)
+  rule/error-responses-use-error-model:
+    subject:
+      type: MediaType
+      property: schema
+    where:
+      - subject:
+          type: Response
+          filterInParentKeys: ['400', '401', '403', '404', '405', '406', '409', '413', '415', '416', '422', '429', '500', '502', '503', '504']
+        assertions:
+          defined: true
+    message: Error responses must use ErrorModel (common/common.yaml#/components/schemas/ErrorModel).
+    assertions:
+      ref: /#\/components\/schemas\/ErrorModel$/
+
+  # ...and it is served as application/problem+json (RFC 9457), nothing else.
+  rule/error-responses-are-problem-json:
+    subject:
+      type: MediaTypesMap
+    where:
+      - subject:
+          type: Response
+          filterInParentKeys: ['400', '401', '403', '404', '405', '406', '409', '413', '415', '416', '422', '429', '500', '502', '503', '504']
+        assertions:
+          defined: true
+    message: Error responses must have exactly the media type application/problem+json.
+    assertions:
+      enum: ['application/problem+json']
+
+  # Error responses are shared: a $ref into common/common.yaml
+  # (components.responses), never written out in api/api.yaml.
+  rule/error-responses-are-shared:
+    subject:
+      type: Response
+      filterInParentKeys: ['400', '401', '403', '404', '405', '406', '409', '413', '415', '416', '422', '429', '500', '502', '503', '504']
+    message: Error responses must be a $ref into common/common.yaml#/components/responses/.
+    assertions:
+      ref: /common\/common\.yaml#\/components\/responses\/[A-Z][A-Za-z0-9]*$/
+
+  # --- No inline schemas ----------------------------------------------------
+  # Every request and response body is a $ref to a named schema in
+  # common/common.yaml (components.schemas). An inline body schema is exactly what openapi-generator
+  # turns into CreateTaskRequest, ListTasks200Response, InlineObject1 & co.
+  rule/bodies-reference-common-schemas:
+    subject:
+      type: MediaType
+      property: schema
+    message: Bodies must be a $ref into common/common.yaml#/components/schemas/<Name> — no inline schemas.
+    assertions:
+      ref: /^(\.\.\/common\/common\.yaml)?#\/components\/schemas\/[A-Z][A-Za-z0-9]*$/
+
+  # Parameters are $refs into common/common.yaml (components.parameters) as well, so their schemas
+  # (always primitive) live in one place.
+  rule/parameters-are-shared:
+    subject:
+      type: Parameter
+    message: Parameters must be a $ref into common/common.yaml#/components/parameters/.
+    assertions:
+      ref: /common\/common\.yaml#\/components\/parameters\/[A-Z][A-Za-z0-9]*$/
+
+  # A parameter never carries an object or an enum (either would become a
+  # generated model with a synthetic name).
+  rule/parameter-schemas-are-primitive:
+    subject:
+      type: Schema
+      property: type
+    where:
+      - subject:
+          type: Parameter
+        assertions:
+          defined: true
+    message: Parameter schemas must be primitive (string, integer, number, boolean).
+    assertions:
+      enum: [string, integer, number, boolean]
+
+  # --- Times ----------------------------------------------------------------
+  # No `format: date`: it would generate java.time.LocalDate, while the
+  # backend uses kotlin.time.Instant everywhere. A calendar day (statistics
+  # "per day") is the instant it starts, `format: date-time`, with the time
+  # zone in the description ("start of the day in Europe/Vienna").
+  rule/no-date-format:
+    subject:
+      type: Schema
+      property: format
+    message: "No `format: date` - use `format: date-time` (kotlin.time.Instant); a day is the instant it starts, time zone in the description."
+    assertions:
+      notPattern: /^date$/

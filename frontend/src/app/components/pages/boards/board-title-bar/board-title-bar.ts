@@ -1,0 +1,250 @@
+import { HttpContext } from '@angular/common/http';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  linkedSignal,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import {
+  FieldTree,
+  FormField,
+  FormRoot,
+  TreeValidationResult,
+  form,
+  maxLength,
+  required,
+} from '@angular/forms/signals';
+import { RouterLink } from '@angular/router';
+import { Board, BoardRole } from '@apps/drawboard-api';
+
+import { FIELD_ERRORS_HANDLED_LOCALLY } from '../../../../services/error-interceptor';
+import { Toasts } from '../../../../services/toasts';
+import { ApiError } from '../../../../util/api-error';
+import { WithSpan } from '../../../../util/tracing';
+import { violationsToFieldErrors } from '../../../../util/violations';
+import { Icon } from '../../../shared/icon/icon';
+import { IconName } from '../../../shared/icon/icons';
+import type { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { AboutDialog } from '../../../shared/about-dialog/about-dialog';
+import { RoleBadge } from '../../../shared/role-badge/role-badge';
+import { VersionHistory } from '../version-history/version-history';
+import { BoardActions } from '../board-actions';
+import { BoardTransfer } from '../board-transfer';
+
+interface TitleDraft {
+  title: string;
+}
+
+interface MenuEntry {
+  id: 'export' | 'link' | 'import' | 'history' | 'about';
+  label: string;
+  icon: IconName;
+}
+
+/**
+ * The pill at the top left: back to the library, the board title (click to rename in place,
+ * optimistic locking through BoardActions.rename) and a "more" menu: export (.drawboard), copy as link,
+ * import into a new board and, for the owner, the version history.
+ */
+@Component({
+  selector: 'drawboard-board-title-bar',
+  imports: [RouterLink, FormField, FormRoot, Icon, RoleBadge, VersionHistory, AboutDialog],
+  templateUrl: './board-title-bar.html',
+  host: { '(keydown.escape)': 'closeMenu()' },
+})
+export class BoardTitleBar {
+  static readonly maxTitleLength = 200;
+
+  private readonly actions = inject(BoardActions);
+  private readonly toasts = inject(Toasts);
+  private readonly transfer = inject(BoardTransfer);
+
+  /** Undefined while the board loads: only the back link shows. */
+  readonly board = input<Board>();
+  /** The live document, for export and "Copy as link". */
+  readonly doc = input<BoardDoc>();
+  /** A guest cannot rename or use the menu. */
+  readonly guest = input(false);
+  /** Where the back arrow leads; null = nowhere (a guest of a single board). */
+  readonly backLink = input<string | null>('/boards');
+  /** The title changed (or a newer version exists): the page reloads the board. */
+  readonly changed = output();
+
+  protected readonly editing = signal(false);
+  protected readonly menuOpen = signal(false);
+  protected readonly historyOpen = signal(false);
+  protected readonly aboutOpen = signal(false);
+  protected readonly importing = signal(false);
+  protected readonly menu = computed<readonly MenuEntry[]>(() => {
+    const entries: MenuEntry[] = [
+      { id: 'export', label: 'Export (.drawboard)', icon: 'export' },
+      { id: 'link', label: 'Copy as link', icon: 'share' },
+      { id: 'import', label: this.importing() ? 'Importing…' : 'Import…', icon: 'import' },
+    ];
+    // only the owner may list and restore versions
+    if (this.board()?.role === BoardRole.OWNER) {
+      entries.push({ id: 'history', label: 'Version history', icon: 'history' });
+    }
+    entries.push({ id: 'about', label: 'About Drawboard', icon: 'info' });
+    return entries;
+  });
+
+  protected readonly canRename = computed(() => {
+    const role = this.board()?.role;
+    return !this.guest() && (role === BoardRole.OWNER || role === BoardRole.EDITOR);
+  });
+
+  /** Editable copy of the title - reset whenever another version of the board arrives. */
+  private readonly draft = linkedSignal<TitleDraft>(() => ({ title: this.board()?.title ?? '' }));
+
+  private readonly titleInput = viewChild<ElementRef<HTMLInputElement>>('titleInput');
+  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+
+  protected readonly titleForm = form(
+    this.draft,
+    (path) => {
+      required(path.title, { message: 'Required.' });
+      maxLength(path.title, BoardTitleBar.maxTitleLength, {
+        message: `At most ${BoardTitleBar.maxTitleLength} characters.`,
+      });
+    },
+    { submission: { action: (field) => this.rename(field) } },
+  );
+
+  constructor() {
+    // the field exists only after the click that asked for it: focus it then (autofocus does
+    // not fire for elements added later)
+    effect(() => {
+      const input = this.titleInput()?.nativeElement;
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  @WithSpan('BoardTitleBar.startRename')
+  protected startRename(): void {
+    if (this.canRename()) {
+      this.draft.set({ title: this.board()?.title ?? '' });
+      this.editing.set(true);
+    }
+  }
+
+  @WithSpan('BoardTitleBar.cancelRename')
+  protected cancelRename(): void {
+    this.editing.set(false);
+  }
+
+  /** Leaving the field saves a changed title and silently drops an unchanged or invalid one. */
+  @WithSpan('BoardTitleBar.blurRename')
+  protected blurRename(formElement: HTMLFormElement): void {
+    if (!this.editing()) {
+      return;
+    }
+    const unchanged = this.draft().title.trim() === this.board()?.title;
+    if (unchanged || this.titleForm().invalid()) {
+      this.editing.set(false);
+    } else {
+      formElement.requestSubmit();
+    }
+  }
+
+  @WithSpan('BoardTitleBar.toggleMenu')
+  protected toggleMenu(): void {
+    this.menuOpen.update((open) => !open);
+  }
+
+  @WithSpan('BoardTitleBar.choose')
+  protected async choose(entry: MenuEntry): Promise<void> {
+    this.menuOpen.set(false);
+    const doc = this.doc();
+    const title = this.board()?.title ?? '';
+    switch (entry.id) {
+      case 'history':
+        this.historyOpen.set(true);
+        break;
+      case 'about':
+        this.aboutOpen.set(true);
+        break;
+      case 'export':
+        if (doc) {
+          this.transfer.exportFile(doc, title);
+        }
+        break;
+      case 'link':
+        if (doc) {
+          await this.transfer.copyLink(doc, title);
+        }
+        break;
+      case 'import':
+        this.fileInput()?.nativeElement.click();
+        break;
+    }
+  }
+
+  /** A file was picked: import it as a new board (opens it when done). */
+  @WithSpan('BoardTitleBar.importPicked')
+  protected async importPicked(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.importing()) {
+      return;
+    }
+    this.importing.set(true);
+    try {
+      await this.transfer.importFile(file);
+    } finally {
+      this.importing.set(false);
+    }
+  }
+
+  @WithSpan('BoardTitleBar.closeHistory')
+  protected closeHistory(): void {
+    this.historyOpen.set(false);
+  }
+
+  @WithSpan('BoardTitleBar.closeAbout')
+  protected closeAbout(): void {
+    this.aboutOpen.set(false);
+  }
+
+  @WithSpan('BoardTitleBar.closeMenu')
+  protected closeMenu(): void {
+    this.menuOpen.set(false);
+  }
+
+  /** The submission action of the title form - the user action "rename the board", a span. */
+  @WithSpan('BoardTitleBar.rename')
+  private async rename(field: FieldTree<TitleDraft>): Promise<TreeValidationResult> {
+    const board = this.board();
+    if (!board) {
+      return undefined;
+    }
+    const context = new HttpContext().set(FIELD_ERRORS_HANDLED_LOCALLY, true);
+    try {
+      // started before the first await: BoardActions' span becomes a child of this one
+      await this.actions.rename(board, field().value().title.trim(), context);
+      this.toasts.success('Board renamed.');
+      this.editing.set(false);
+      this.changed.emit();
+      return undefined;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 409) {
+          // someone else was faster (toast already shown): show the current state
+          this.editing.set(false);
+          this.changed.emit();
+          return undefined;
+        }
+        return violationsToFieldErrors(field, error.violations);
+      }
+      throw error;
+    }
+  }
+}

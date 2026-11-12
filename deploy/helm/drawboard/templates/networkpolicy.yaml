@@ -1,0 +1,230 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $fe := dict "ctx" . "component" "frontend" }}
+{{- $be := dict "ctx" . "component" "backend" }}
+{{- $pg := dict "ctx" . "component" "postgresql" }}
+{{- $gb := dict "ctx" . "component" "gotenberg" }}
+{{- /* Default deny for every pod of this release, then the explicit flows below. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drawboard.fullname" . }}-default-deny
+  labels:
+    {{- include "drawboard.labels" (dict "ctx" . "component" "networkpolicy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "drawboard.instanceLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+---
+# Ingress controller -> frontend:8080. Frontend -> backend:8080, DNS, optional Faro receiver.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drawboard.componentName" $fe }}
+  labels:
+    {{- include "drawboard.labels" $fe | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $fe | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.ingressController.namespaceSelector | nindent 14 }}
+          {{- with $np.ingressController.podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $be | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.dns.namespaceSelector | nindent 14 }}
+          {{- with $np.dns.podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- if .Values.frontend.faro.receiverUrl }}
+    - {{- if $np.faro.cidrs }}
+      to:
+        {{- range $np.faro.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      ports:
+        - port: {{ $np.faro.port }}
+          protocol: TCP
+    {{- end }}
+---
+# Frontend -> backend:8080 (REST + WebSocket). Backend -> PostgreSQL, OIDC provider, DNS, Gotenberg,
+# optional clamd and OTLP.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drawboard.componentName" $be }}
+  labels:
+    {{- include "drawboard.labels" $be | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $be | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  # Port 8081 (management) is not opened: kubelet probes are node-local and not filtered by
+  # NetworkPolicy on the supported CNIs, nobody else needs it.
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $fe | nindent 14 }}
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    {{- if .Values.postgresql.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $pg | nindent 14 }}
+      ports:
+        - port: 5432
+          protocol: TCP
+    {{- else }}
+    - {{- if $np.externalPostgres.cidrs }}
+      to:
+        {{- range $np.externalPostgres.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      ports:
+        - port: {{ .Values.postgresql.external.port }}
+          protocol: TCP
+    {{- end }}
+    - to:
+        {{- range $np.oidc.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - port: {{ $np.oidc.port }}
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.dns.namespaceSelector | nindent 14 }}
+          {{- with $np.dns.podSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- if .Values.gotenberg.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $gb | nindent 14 }}
+      ports:
+        - port: 3000
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.clamav.host }}
+    - {{- if $np.clamav.cidrs }}
+      to:
+        {{- range $np.clamav.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      ports:
+        - port: {{ .Values.clamav.port }}
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.backend.otlp.endpoint }}
+    - {{- if $np.otlp.cidrs }}
+      to:
+        {{- range $np.otlp.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      ports:
+        - port: {{ $np.otlp.port }}
+          protocol: TCP
+    {{- end }}
+{{- if .Values.gotenberg.enabled }}
+---
+# Gotenberg accepts only the backend and talks to nobody: no egress at all, not even DNS (it converts
+# on localhost; a hostile document must not be able to reach the cluster or tunnel out through DNS).
+# This is the Kubernetes counterpart of the compose network with `internal: true`, and stricter: the
+# compose network still lets it reach the backend, here the backend does not accept it either.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drawboard.componentName" $gb }}
+  labels:
+    {{- include "drawboard.labels" $gb | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $gb | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $be | nindent 14 }}
+      ports:
+        - port: 3000
+          protocol: TCP
+  egress: []
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+---
+# PostgreSQL accepts only the backend and talks to nobody.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "drawboard.componentName" $pg }}
+  labels:
+    {{- include "drawboard.labels" $pg | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $pg | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "drawboard.selectorLabels" $be | nindent 14 }}
+      ports:
+        - port: 5432
+          protocol: TCP
+  egress: []
+{{- end }}
+{{- end }}

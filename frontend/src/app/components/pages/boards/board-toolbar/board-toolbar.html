@@ -1,0 +1,277 @@
+<div
+  class="flex flex-col items-center gap-1 float-panel p-1.5"
+  role="toolbar"
+  aria-label="Board tools"
+  aria-orientation="vertical"
+>
+  @for (group of groups(); track group.id) {
+    <div class="relative">
+      <div class="tooltip tooltip-right" [attr.data-tip]="tooltip(group)">
+        <button
+          type="button"
+          data-bar
+          [class]="
+            isActive(group)
+              ? 'btn btn-square btn-sm st-btn-primary-yellow'
+              : 'btn btn-square btn-sm btn-ghost'
+          "
+          [attr.aria-pressed]="isActive(group)"
+          [attr.aria-label]="group.label"
+          [attr.aria-keyshortcuts]="info[toolOf(group)].key"
+          [attr.aria-haspopup]="group.flyout ? 'true' : null"
+          [attr.aria-expanded]="group.flyout ? flyout() === group.flyout : null"
+          (click)="pick(group)"
+        >
+          <drawboard-icon [name]="info[toolOf(group)].icon" />
+        </button>
+      </div>
+
+      @if (group.flyout && flyout() === group.flyout) {
+        <div
+          class="absolute top-0 left-full z-20 ml-3 flex w-max flex-col gap-2 float-panel p-2"
+          role="group"
+          [attr.aria-label]="`${group.label} options`"
+          data-testid="flyout"
+        >
+          @switch (group.flyout) {
+            @case ('sticky') {
+              <div class="grid grid-cols-3 gap-2">
+                @for (c of stickyColors; track c) {
+                  <button
+                    type="button"
+                    [class]="swatchClass(stickyColor() === c, 'rounded-sm shadow-sm')"
+                    [style.background]="c"
+                    [attr.aria-label]="`Sticky colour ${c}`"
+                    [attr.aria-pressed]="stickyColor() === c"
+                    (click)="pickStickyColor(c)"
+                  ></button>
+                }
+              </div>
+            }
+            @case ('shapes') {
+              <div class="flex gap-1">
+                @for (id of shapeTools; track id) {
+                  <button
+                    type="button"
+                    [class]="
+                      shapeTool() === id
+                        ? 'btn btn-square btn-sm st-btn-primary-yellow'
+                        : 'btn btn-square btn-sm btn-ghost'
+                    "
+                    [attr.aria-label]="info[id].label"
+                    [attr.aria-pressed]="tool() === id"
+                    [attr.title]="`${info[id].label} (${info[id].key})`"
+                    (click)="pickShape(id)"
+                  >
+                    <drawboard-icon [name]="info[id].icon" />
+                  </button>
+                }
+              </div>
+              <div class="grid grid-cols-4 gap-2" role="group" aria-label="Fill">
+                @for (c of fillColors; track c) {
+                  <button
+                    type="button"
+                    [class]="
+                      swatchClass(
+                        fillColor() === c,
+                        'rounded-full border border-(--color-st-white-darker)'
+                      )
+                    "
+                    [style.background]="c === 'transparent' ? transparentPattern : c"
+                    [attr.aria-label]="`Fill ${c}`"
+                    [attr.aria-pressed]="fillColor() === c"
+                    (click)="pickFill(c)"
+                  ></button>
+                }
+              </div>
+              <div class="grid grid-cols-3 gap-2" role="group" aria-label="Outline">
+                @for (c of strokeColors; track c) {
+                  <button
+                    type="button"
+                    [class]="swatchClass(penColor() === c, 'rounded-full')"
+                    [style.background]="c"
+                    [attr.aria-label]="`Outline ${c}`"
+                    [attr.aria-pressed]="penColor() === c"
+                    (click)="pickPenColor(c)"
+                  ></button>
+                }
+              </div>
+            }
+            @case ('connector') {
+              <div class="grid grid-cols-3 gap-2">
+                @for (c of strokeColors; track c) {
+                  <button
+                    type="button"
+                    [class]="swatchClass(penColor() === c, 'rounded-full')"
+                    [style.background]="c"
+                    [attr.aria-label]="`Connector colour ${c}`"
+                    [attr.aria-pressed]="penColor() === c"
+                    (click)="pickPenColor(c)"
+                  ></button>
+                }
+              </div>
+            }
+            @case ('pen') {
+              <div class="grid grid-cols-3 gap-2">
+                @for (c of strokeColors; track c) {
+                  <button
+                    type="button"
+                    [class]="swatchClass(penColor() === c, 'rounded-full')"
+                    [style.background]="c"
+                    [attr.aria-label]="`Pen colour ${c}`"
+                    [attr.aria-pressed]="penColor() === c"
+                    (click)="pickPenColor(c)"
+                  ></button>
+                }
+              </div>
+              <div class="flex items-center justify-between gap-1" role="group" aria-label="Width">
+                @for (w of strokeWidths; track w) {
+                  <button
+                    type="button"
+                    [class]="
+                      penSize() === w
+                        ? 'btn btn-square btn-sm st-btn-primary-yellow'
+                        : 'btn btn-square btn-sm btn-ghost'
+                    "
+                    [attr.aria-label]="`Pen width ${w}`"
+                    [attr.aria-pressed]="penSize() === w"
+                    (click)="pickPenSize(w)"
+                  >
+                    <span
+                      class="block rounded-full bg-current"
+                      [style.width.px]="w + 2"
+                      [style.height.px]="w + 2"
+                    ></span>
+                  </button>
+                }
+              </div>
+            }
+          }
+        </div>
+      }
+    </div>
+  }
+
+  @if (!readOnly()) {
+    <div class="tooltip tooltip-right" data-tip="Diagram (Mermaid)">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Diagram"
+        (click)="addDiagram()"
+      >
+        <drawboard-icon name="diagram" />
+      </button>
+    </div>
+    <div class="tooltip tooltip-right" data-tip="Kanban">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Kanban"
+        (click)="addKanban()"
+      >
+        <drawboard-icon name="kanban" />
+      </button>
+    </div>
+    <div class="tooltip tooltip-right" data-tip="Story card">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Story card"
+        (click)="addStory()"
+      >
+        <drawboard-icon name="story" />
+      </button>
+    </div>
+  }
+
+  @if (!readOnly() && pluginBlocks().length > 0) {
+    <div class="relative">
+      <div class="tooltip tooltip-right" data-tip="Plugin blocks">
+        <button
+          type="button"
+          data-bar
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Plugin blocks"
+          aria-haspopup="true"
+          [attr.aria-expanded]="pluginMenu()"
+          (click)="togglePlugins()"
+        >
+          <drawboard-icon name="puzzle" />
+        </button>
+      </div>
+      @if (pluginMenu()) {
+        <ul
+          class="menu absolute top-0 left-full z-20 ml-3 w-56 float-panel p-1"
+          aria-label="Plugin blocks"
+          data-testid="plugin-menu"
+        >
+          @for (option of pluginBlocks(); track option.type) {
+            <li>
+              <button type="button" (click)="addPluginBlock(option)">
+                <span class="truncate">{{ option.label }}</span>
+                <span class="truncate text-xs text-(--color-st-grey)">{{ option.pluginId }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
+  @if (canUpload()) {
+    <div class="tooltip tooltip-right" [attr.data-tip]="`Upload files. ${uploadLimits}`">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Upload files"
+        (click)="filePicker.click()"
+      >
+        <drawboard-icon name="upload" />
+      </button>
+    </div>
+    <input
+      #filePicker
+      type="file"
+      class="hidden"
+      multiple
+      tabindex="-1"
+      aria-hidden="true"
+      data-testid="file-picker"
+      [accept]="accept"
+      (change)="picked(filePicker)"
+    />
+  }
+
+  @if (!readOnly()) {
+    <span class="my-0.5 h-px w-6 bg-(--color-st-white-darker)" aria-hidden="true"></span>
+    <div class="tooltip tooltip-right" data-tip="Undo (Ctrl+Z)">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Undo"
+        [disabled]="!canUndo()"
+        (click)="engine()?.undo()"
+      >
+        <drawboard-icon name="undo" />
+      </button>
+    </div>
+    <div class="tooltip tooltip-right" data-tip="Redo (Ctrl+Shift+Z)">
+      <button
+        type="button"
+        data-bar
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Redo"
+        [disabled]="!canRedo()"
+        (click)="engine()?.redo()"
+      >
+        <drawboard-icon name="redo" />
+      </button>
+    </div>
+  }
+</div>

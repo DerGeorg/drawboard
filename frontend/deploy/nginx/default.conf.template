@@ -1,0 +1,429 @@
+# =============================================================================
+# nginx of the frontend image (CSR app). Rendered at container start by the image's
+# entrypoint (20-envsubst-on-templates.sh -> /etc/nginx/conf.d/default.conf): only ${VARS}
+# that exist in the environment are replaced - the image defines a default for each - and
+# nginx's own $variables stay untouched.
+#
+# Security headers (all server-wide, see "Headers"):
+#   Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, X-Frame-Options,
+#   Permissions-Policy, Cross-Origin-Opener-Policy, Strict-Transport-Security, Cache-Control
+# They are NOT set per location: nginx does not inherit add_header into a location that has
+# its own add_header, so everything that differs per file is a `map` on $uri below.
+# =============================================================================
+
+# Faro is on when a receiver is configured: the browser then posts to /faro/collect.
+map "${FARO_RECEIVER_URL}" $faro_collector_url {
+  ""      "";
+  default "/faro/collect";
+}
+
+# Request id of the answers nginx writes itself: the caller's X-Request-Id if it sent one
+# (curl, scripts), else nginx's own random id.
+map $http_x_request_id $gateway_request_id {
+  ""      $request_id;
+  default $http_x_request_id;
+}
+
+# --- Headers -------------------------------------------------------------------------------
+# Origin (scheme://host[:port]) of the OIDC provider, cut from OIDC_ISSUER. Empty when the
+# issuer is not set - then the CSP simply has no provider source.
+map "${OIDC_ISSUER}" $oidc_origin {
+  "~^(?<origin>https?://[^/]+)" $origin;
+  default                       "";
+}
+
+# Optional origins of their own for files (S4.6, DRAWBOARD_FILES_ORIGIN of the backend) and for
+# plugin assets and frames (S3.4, DRAWBOARD_PLUGIN_ORIGIN). Only a plain scheme://host[:port]
+# gets through (anything else would end up as a CSP source list); empty = the app origin.
+# They go into the CSP and into /config.json, where the app reads them.
+map "${FILES_ORIGIN}" $files_origin {
+  "~^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$" "${FILES_ORIGIN}";
+  default                                     "";
+}
+
+map "${PLUGIN_ORIGIN}" $plugin_origin {
+  "~^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$" "${PLUGIN_ORIGIN}";
+  default                                     "";
+}
+
+# Product site and source link (AGPL-3.0 section 13): ABOUT_URL and SOURCE_URL, absolute https URLs,
+# only in /config.json (never in the CSP: they are plain links). The value ends up inside a JSON
+# string, so only URL characters get through - no quote, backslash, space or `$`. Empty stays
+# empty (the app hides "Host your own" / falls back to the default source); anything else that
+# is not accepted becomes "invalid", which the app treats like a wrong value (its default).
+map "${ABOUT_URL}" $about_url {
+  ""                                                  "";
+  "~^https://[A-Za-z0-9._~:/?#@!&()*+,;=%-]+$"        "${ABOUT_URL}";
+  default                                              "invalid";
+}
+
+map "${SOURCE_URL}" $source_url {
+  ""                                                  "";
+  "~^https://[A-Za-z0-9._~:/?#@!&()*+,;=%-]+$"        "${SOURCE_URL}";
+  default                                              "invalid";
+}
+
+# Plugin origin split (S3.4). The plugin origin is served by THIS container, told apart by the Host
+# header only (the proxy hosts of both names point here). The plugin host serves nothing but
+# /plugin-assets/, and the app host no longer serves /plugin-assets/: a plugin file on the app
+# origin would be a 'self' script for the app's CSP (a gadget), which is why S3.4 exists.
+# With PLUGIN_ORIGIN empty nothing changes: one origin, /plugin-assets/ served as before.
+#  $plugin_authority  host[:port] of PLUGIN_ORIGIN, as a browser sends it in Host (default ports
+#                     are not written in either); empty when the origin is not set or invalid
+#  $host_role         plugin = Host is the plugin origin, app = any other Host, legacy = no
+#                     plugin origin configured. The backreference compares Host with the
+#                     authority (case-insensitive); an empty authority never matches.
+map "${PLUGIN_ORIGIN}" $plugin_authority {
+  "~^https?://(?<authority>[A-Za-z0-9.-]+(:[0-9]{1,5})?)$" $authority;
+  default                                                   "";
+}
+
+# A PLUGIN_ORIGIN that is set but not a valid origin must not fall back to "legacy" (plugin files
+# on the app origin again while the backend points frames elsewhere): role "invalid" refuses
+# every request, /healthz included, so the container turns unhealthy instead of failing open.
+map "${PLUGIN_ORIGIN}" $plugin_origin_state {
+  ""                                          unset;
+  "~^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$" ok;
+  default                                     invalid;
+}
+
+map "$plugin_origin_state:$http_host|$plugin_authority" $host_role {
+  "~^invalid:"                                                        invalid;
+  "~*^ok:(?<host_in_header>[A-Za-z0-9.:-]+)\|\k<host_in_header>$"   plugin;
+  "~^unset:"                                                          legacy;
+  default                                                             app;
+}
+
+# 1 = answer 404 (see `if ($deny_request)` in the server block). $uri is normalised (no //, no
+# ../, no %-escapes), and always starts with a slash.
+map "$host_role$uri" $deny_request {
+  "~^invalid/"                 1;
+  "~^plugin/plugin-assets/"    0;
+  "~^plugin/"                  1;
+  "~^app/plugin-assets(/|$)"   1;
+  default                      0;
+}
+
+# The path the header maps below look at: the real $uri, except for a refused request. Its 404
+# must carry the app's security headers, not the exemption of /files/ and /plugin-assets/ (which
+# lets the backend send its own).
+map $deny_request $header_uri {
+  1       "/denied";
+  default $uri;
+}
+
+# upgrade-insecure-requests only where TLS is in front (dev, prod). On the local image over
+# http://localhost it would turn the calls to Keycloak (http://localhost:18180) into https.
+map "${APP_ENVIRONMENT}" $csp_upgrade {
+  dev     "; upgrade-insecure-requests";
+  prod    "; upgrade-insecure-requests";
+  default "";
+}
+
+# CSP of the app. Notes:
+#  - script-src has no 'unsafe-inline': the bundle is external files. 'wasm-unsafe-eval' is for
+#    WebAssembly (later: the board engine), not for eval().
+#  - style-src 'unsafe-inline': Angular puts component styles into <style> elements at runtime.
+#  - connect-src: the API and the Faro collector are same-origin (/api, /faro/collect), so
+#    'self' covers them, and (CSP3) also the same-origin collaboration WebSocket
+#    wss://<host>/api/boards/{id}/collab - no bare wss:, which would allow every host (security
+#    review M1, S7.5); the provider origin is for discovery and the token endpoint.
+#  - frame-src: the silent sign-in iframe loads the provider's authorization endpoint and is
+#    redirected back to OUR /silent-renew.html - both must be allowed, redirects are checked too.
+#    Plugin frames (S3.2) come from /plugin-assets/ ('self') or from the plugin origin. No
+#    external embeds exist (S5.4: the embed allowlist is empty = off).
+#  - img-src, media-src, connect-src: signed file URLs (images, videos, pdf.js fetching a PDF)
+#    are same-origin, or on the files origin when the deployment has one (S7.5).
+#  - /files/ and /plugin-assets/ get no CSP, X-Frame-Options or Cache-Control from here: the
+#    backend sends its own (S4.5; the generated plugin frame document carries the sandbox CSP
+#    with frame-ancestors, S3.3) and a second, stricter header from nginx would break them.
+#  - form-action 'self': no form is ever posted to the provider (login is a redirect, silent
+#    sign-in an iframe), so the provider origin stays out of it (M4 review SHOULD 4).
+#  - Trusted Types (S3.12, M4 review): every string that reaches a script sink is refused unless
+#    one of the four policies makes it: 'angular' and 'dompurify' are their libraries', 'default'
+#    and 'drawboard' are src/trusted-types.ts (Mermaid's <style> text during a render; the
+#    pdf.js worker URL). No 'allow-duplicates', no 'angular#unsafe-bypass'.
+#  - frame-ancestors 'none': nobody frames the app. Only /silent-renew.html may be framed, by
+#    the app itself ('self'), and gets a policy of its own.
+map $header_uri $content_security_policy {
+  /silent-renew.html "default-src 'none'; script-src 'self'; frame-ancestors 'self'";
+  ~^/(files|plugin-assets)/ "";
+  default              "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: $files_origin; media-src 'self' blob: $files_origin; font-src 'self'; connect-src 'self' $oidc_origin $files_origin; worker-src 'self' blob:; frame-src 'self' $oidc_origin $plugin_origin; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular dompurify drawboard default$csp_upgrade";
+}
+
+# X-Frame-Options DENY everywhere except the one file the app embeds in its own hidden iframe.
+# (Browsers that know CSP use frame-ancestors above; X-Frame-Options is the fallback.)
+map $header_uri $frame_options {
+  /silent-renew.html SAMEORIGIN;
+  ~^/(files|plugin-assets)/ "";
+  default              DENY;
+}
+
+# Cache-Control per file. An empty value sends no header, so /api and /faro keep whatever the
+# upstream says.
+map $header_uri $cache_control {
+  /index.html                                "no-store";
+  /config.json                               "no-store";
+  ~^/(api|faro|files|plugin-assets)/          "";
+  # Hashed bundles (main-AB12CD34.js, styles-…css): cache forever.
+  "~-[A-Za-z0-9_-]{8}\.(?:js|css)$"            "public, max-age=31536000, immutable";
+  default                                      "no-cache";
+}
+
+# File delivery (S4.4): the one token-less route of the backend besides the WebSocket, so it is
+# bounded per address and in total. Behind the reverse proxy the address is the proxy's: the
+# total cap is what holds then.
+limit_conn_zone $binary_remote_addr zone=files_per_address:10m;
+limit_conn_zone $server_name        zone=files_total:1m;
+
+# The access log of /files/ never holds the query string: it carries the URL signature (S7.2).
+# $uri is the path alone; no referrer either (it could be a page URL with a query).
+log_format files_no_query '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
+                          '$status $body_bytes_sent "$http_user_agent"';
+
+server {
+  listen       8080;
+  server_name  _;
+  root         /usr/share/nginx/html;
+  index        index.html;
+  server_tokens off;
+
+  # nginx's mime.types has no .mjs: the pdf.js worker (/pdfjs/pdf.worker.min.mjs) would be sent as
+  # application/octet-stream, which a module worker refuses ("strict MIME type checking").
+  # A `types` block at this level replaces the inherited table, so the stock table is included.
+  include mime.types;
+  types {
+    text/javascript mjs;
+  }
+
+  gzip on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+
+  # Plugin origin split (S3.4, maps above): refused before any location is chosen. The server-level
+  # add_header lines below apply to this answer.
+  if ($deny_request) {
+    return 404;
+  }
+
+  # proxy_pass with variables resolves the upstream per request: nginx starts even when the
+  # backend is not up yet. NGINX_LOCAL_RESOLVERS is the resolver of the container
+  # (/etc/resolv.conf; the image's 15-local-resolvers.envsh).
+  resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+  # server level, so the nested /api/ locations below see it too (a `set` in a location only
+  # runs when exactly that location matched)
+  set $backend "${BACKEND_URL}";
+
+  add_header Content-Security-Policy    $content_security_policy always;
+  add_header X-Content-Type-Options     "nosniff" always;
+  add_header Referrer-Policy            "no-referrer" always;
+  add_header X-Frame-Options            $frame_options always;
+  add_header Permissions-Policy         "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+  add_header Cross-Origin-Opener-Policy "same-origin" always;
+  add_header Strict-Transport-Security  "max-age=31536000; includeSubDomains" always;
+  add_header Cache-Control              $cache_control always;
+  # Never add Access-Control-Allow-Origin: browser and API share one origin, there is no CORS.
+
+  # Runtime config - the ONLY place where dev and prod differ. Same image everywhere.
+  location = /config.json {
+    default_type application/json;
+    return 200 '{"environment":"${APP_ENVIRONMENT}","version":"${APP_VERSION}","apiBaseUrl":"/api","oidcIssuer":"${OIDC_ISSUER}","oidcClientId":"${OIDC_CLIENT_ID}","oidcScope":"${OIDC_SCOPE}","filesOrigin":"$files_origin","pluginOrigin":"$plugin_origin","aboutUrl":"$about_url","sourceUrl":"$source_url","faro":{"collectorUrl":"$faro_collector_url","appName":"${FARO_APP_NAME}","namespace":"${FARO_NAMESPACE}","samplingRate":"${FARO_SAMPLING_RATE}"}}';
+  }
+
+  # Same-origin API. Answers (status, body, X-Request-Id, Location, ETag, WWW-Authenticate)
+  # come back unchanged; request headers only from the allowlist below - the cookies of the web
+  # host never reach the API. No CORS: an Access-Control-* header from upstream is dropped.
+  location ^~ /api/ {
+    proxy_pass $backend;               # variable without URI part -> request URI passed as is
+    proxy_http_version 1.1;
+    proxy_read_timeout 30s;
+    client_max_body_size 1m;
+
+    proxy_pass_request_headers off;    # nothing from the client unless listed here
+    proxy_set_header Host              $proxy_host;
+    proxy_set_header Accept            $http_accept;
+    proxy_set_header Accept-Language   $http_accept_language;
+    proxy_set_header Authorization     $http_authorization;
+    proxy_set_header Content-Type      $content_type;
+    proxy_set_header If-Match          $http_if_match;
+    proxy_set_header If-None-Match     $http_if_none_match;
+    proxy_set_header If-Modified-Since $http_if_modified_since;
+    proxy_set_header traceparent       $http_traceparent;
+    proxy_set_header tracestate        $http_tracestate;
+    proxy_set_header baggage           $http_baggage;
+    proxy_set_header X-Request-Id      $http_x_request_id;   # browsers never send one; scripts may
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $http_host;
+    # A header whose value is empty is not sent at all: absent stays absent.
+
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Credentials;
+    proxy_hide_header Access-Control-Allow-Methods;
+    proxy_hide_header Access-Control-Allow-Headers;
+    proxy_hide_header Access-Control-Expose-Headers;
+
+    # nginx's own errors only (proxy_intercept_errors is off): errors the backend answers
+    # itself pass through unchanged.
+    error_page 502 503 = @bad_gateway;
+    error_page 504 = @gateway_timeout;
+
+    # Compaction snapshot (api/docs/collab-protocol.md): up to 50 MB plus the multipart frame.
+    # Inherits the header allowlist above; only the body limit differs.
+    location ~ ^/api/boards/[^/]+/snapshot$ {
+      proxy_pass $backend;
+      client_max_body_size 51m;
+      proxy_read_timeout 120s;
+      # Stream the body to the backend instead of spooling it: the container's /tmp is a
+      # 16 MB tmpfs (read-only root FS), a buffered 50 MB snapshot would not fit. The backend
+      # caps the part at 50 MB itself.
+      proxy_request_buffering off;
+    }
+
+    # File upload (S4.1): the backend caps a video at 500 MB, everything else at 50 MB, while it
+    # streams the body - nginx only has to let that much through, unbuffered (the container's
+    # /tmp is a 16 MB tmpfs).
+    location ~ ^/api/boards/[^/]+/files$ {
+      proxy_pass $backend;
+      client_max_body_size 500m;
+      proxy_request_buffering off;
+      proxy_read_timeout 300s;
+      proxy_send_timeout 300s;
+    }
+
+    # Plugin install (S3.9): a ZIP of at most 20 MB plus the multipart frame.
+    location = /api/admin/plugins {
+      proxy_pass $backend;
+      client_max_body_size 21m;
+      proxy_request_buffering off;
+      proxy_read_timeout 60s;
+    }
+
+    # Collaboration WebSocket. The one-time ticket travels in Sec-WebSocket-Protocol: the access
+    # log format never contains request headers, keep it that way (S7.2). Origin is passed on
+    # unchanged - the backend compares it with DRAWBOARD_PUBLIC_URL. No Sec-WebSocket-Extensions:
+    # permessage-deflate stays off (S2.5). A location with its own proxy_set_header inherits none,
+    # so the list is complete here.
+    location ~ ^/api/boards/[^/]+/collab$ {
+      proxy_pass $backend;
+      proxy_read_timeout 1h;           # the backend closes idle sessions after 5 minutes itself
+      proxy_send_timeout 1h;
+      proxy_buffering off;
+      proxy_set_header Host                   $proxy_host;
+      proxy_set_header Upgrade                $http_upgrade;
+      proxy_set_header Connection             "upgrade";
+      proxy_set_header Origin                 $http_origin;
+      proxy_set_header Sec-WebSocket-Key      $http_sec_websocket_key;
+      proxy_set_header Sec-WebSocket-Version  $http_sec_websocket_version;
+      proxy_set_header Sec-WebSocket-Protocol $http_sec_websocket_protocol;
+      proxy_set_header traceparent            $http_traceparent;
+      proxy_set_header X-Forwarded-For        $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto      $scheme;
+      proxy_set_header X-Forwarded-Host       $http_host;
+    }
+  }
+
+  # Signed file URLs (S4.4, S4.5, S4.7): GET /files/{id}?v=&exp=&sig= to the backend, which
+  # checks the signature and sends nosniff, the sandbox CSP, Cache-Control, CORP and
+  # Content-Disposition itself. Ranges pass both ways (videos, one range per request). No
+  # token, no cookie, nothing else from the client reaches the backend.
+  location ^~ /files/ {
+    limit_except GET { deny all; }     # GET implies HEAD
+    limit_conn files_per_address 50;
+    limit_conn files_total 400;
+    limit_conn_status 429;
+    access_log /var/log/nginx/access.log files_no_query;
+    # nginx's error lines quote the whole request line, query included: only `crit` and worse
+    # here (an unreachable backend shows up on /api/ anyway)
+    error_log /var/log/nginx/error.log crit;
+
+    proxy_pass $backend;
+    proxy_http_version 1.1;
+    proxy_read_timeout 120s;
+    proxy_buffering off;               # stream videos and large PDFs instead of spooling them
+    proxy_pass_request_headers off;
+    proxy_set_header Host              $proxy_host;
+    proxy_set_header Accept            $http_accept;
+    proxy_set_header Range             $http_range;
+    proxy_set_header If-Range          $http_if_range;
+    proxy_set_header If-None-Match     $http_if_none_match;
+    proxy_set_header If-Modified-Since $http_if_modified_since;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $http_host;
+    # Accept-Ranges, Content-Range and Content-Disposition of the answer pass unchanged
+  }
+
+  # Plugin assets and the generated frame document (S3.5, S3.6). Public, immutable files; the
+  # backend sends Access-Control-Allow-Origin: * here (the sandboxed frame has an opaque origin
+  # and loads its module with CORS and an integrity hash) - the one place where it may.
+  location ^~ /plugin-assets/ {
+    limit_except GET { deny all; }
+    proxy_pass $backend;
+    proxy_http_version 1.1;
+    proxy_read_timeout 30s;
+    proxy_pass_request_headers off;
+    proxy_set_header Host              $proxy_host;
+    proxy_set_header Accept            $http_accept;
+    proxy_set_header If-None-Match     $http_if_none_match;
+    proxy_set_header If-Modified-Since $http_if_modified_since;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $http_host;
+  }
+
+  # (a location with its own add_header drops the server-wide ones: nosniff is repeated)
+  location @bad_gateway {
+    default_type application/problem+json;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Request-Id $gateway_request_id always;
+    return 502 '{"code":"BAD_GATEWAY","status":502,"title":"Bad Gateway","detail":"The backend is not reachable.","instance":"$request_uri","requestId":"$gateway_request_id","timestamp":"$time_iso8601"}';
+  }
+
+  location @gateway_timeout {
+    default_type application/problem+json;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Request-Id $gateway_request_id always;
+    return 504 '{"code":"GATEWAY_TIMEOUT","status":504,"title":"Gateway Timeout","detail":"The backend did not answer in time.","instance":"$request_uri","requestId":"$gateway_request_id","timestamp":"$time_iso8601"}';
+  }
+
+  # Browser telemetry (Grafana Faro) -> Alloy faro.receiver, same origin (no CORS, CSP
+  # connect-src 'self'). /faro/collect -> <receiver>/collect.
+  location ^~ /faro/ {
+    set $faro_receiver "${FARO_RECEIVER_URL}";
+    if ($faro_receiver = "") {
+      return 404;
+    }
+    rewrite ^/faro/(.*)$ /$1 break;
+    proxy_pass $faro_receiver;
+    proxy_http_version 1.1;
+    client_max_body_size 1m;
+    proxy_pass_request_headers off;
+    proxy_set_header Host              $proxy_host;
+    proxy_set_header Content-Type      $content_type;
+    proxy_set_header Content-Encoding  $http_content_encoding;
+    proxy_set_header X-Faro-Session-Id $http_x_faro_session_id;
+    proxy_hide_header Access-Control-Allow-Origin;
+  }
+
+  location = /healthz {
+    default_type application/json;
+    access_log off;
+    return 200 '{"status":"UP"}';
+  }
+
+  # Files only: a path whose last segment has a dot (/.env, /wp-login.php, /main-X.js) is a file
+  # or a 404 - never the single-page app (M4 review SHOULD 6). Routes of the app have no dot.
+  # Regex locations beat plain prefix ones, which is why the proxied prefixes above are `^~`:
+  # /files/report.pdf and /api/.../x.json must still reach the backend. No add_header here, so
+  # the server-wide security headers apply (also to the 404).
+  location ~ /[^/]*\.[^/]*$ {
+    try_files $uri =404;
+  }
+
+  # Everything else - index.html above all - is served with the Cache-Control of the map above.
+  # Unknown paths are routes of the single-page app (internal redirect to /index.html, so
+  # $uri is /index.html and index.html is never cached).
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

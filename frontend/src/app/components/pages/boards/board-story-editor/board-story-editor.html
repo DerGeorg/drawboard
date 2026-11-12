@@ -1,0 +1,133 @@
+<section
+  class="float-panel flex max-h-[calc(100dvh-6rem)] w-[min(24rem,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto p-3"
+  [attr.aria-labelledby]="`${ids}-heading`"
+  data-testid="story-editor"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h2 [id]="`${ids}-heading`" class="text-sm font-semibold">Story card</h2>
+    <button
+      type="button"
+      class="btn btn-square btn-xs btn-ghost"
+      aria-label="Close the story card"
+      (click)="close()"
+    >
+      <drawboard-icon name="close" />
+    </button>
+  </div>
+
+  <div>
+    <label [for]="`${ids}-title`" class="text-xs font-medium">Title</label>
+    <input
+      #titleField
+      [id]="`${ids}-title`"
+      type="text"
+      class="st-input"
+      autocomplete="off"
+      [maxLength]="limits.maxTitle"
+      [readOnly]="readOnly()"
+      [value]="title()"
+      (input)="editTitle(titleField.value)"
+    />
+  </div>
+
+  <div>
+    <label [for]="`${ids}-description`" class="text-xs font-medium">Description</label>
+    <textarea
+      #descriptionField
+      [id]="`${ids}-description`"
+      class="textarea h-28 w-full text-sm"
+      [maxLength]="limits.maxDescription"
+      [readOnly]="readOnly()"
+      [value]="description()"
+      (input)="editDescription(descriptionField.value)"
+    ></textarea>
+  </div>
+
+  <section [attr.aria-labelledby]="`${ids}-criteria`">
+    <h3 [id]="`${ids}-criteria`" class="text-xs font-medium">
+      Acceptance criteria
+      @if (story().criteria.length > 0) {
+        <span class="font-normal text-(--color-st-grey)"
+          >({{ doneCount() }} of {{ story().criteria.length }} done)</span
+        >
+      }
+    </h3>
+    <ul class="mt-1 flex flex-col gap-1">
+      @for (criterion of story().criteria; track criterion.id) {
+        <li class="flex items-center gap-2">
+          <input
+            #done
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            [attr.aria-label]="`Criterion ${$index + 1} done`"
+            [checked]="criterion.done"
+            [disabled]="readOnly()"
+            (change)="toggleCriterion(criterion.id, done.checked)"
+          />
+          <input
+            #text
+            type="text"
+            class="st-input flex-1"
+            autocomplete="off"
+            [attr.aria-label]="`Criterion ${$index + 1}`"
+            [maxLength]="limits.maxCriterion"
+            [readOnly]="readOnly()"
+            [value]="criterion.text"
+            (change)="rewordCriterion(criterion.id, text.value)"
+          />
+          @if (!readOnly()) {
+            <button
+              type="button"
+              class="btn btn-square btn-xs btn-ghost"
+              [attr.aria-label]="`Remove criterion ${$index + 1}`"
+              (click)="removeCriterion(criterion.id)"
+            >
+              <drawboard-icon name="trash" />
+            </button>
+          }
+        </li>
+      }
+    </ul>
+    @if (!readOnly() && !full()) {
+      <form [formRoot]="criterionForm" class="mt-2 flex items-start gap-2">
+        <div class="flex-1">
+          <label [for]="`${ids}-new`" class="sr-only">New acceptance criterion</label>
+          <input
+            [id]="`${ids}-new`"
+            type="text"
+            class="st-input"
+            autocomplete="off"
+            placeholder="Add a criterion"
+            [formField]="criterionForm.text"
+            [attr.aria-describedby]="`${ids}-new-errors`"
+          />
+          <drawboard-field-errors [id]="`${ids}-new-errors`" [field]="criterionForm.text" />
+        </div>
+        <button type="submit" class="btn btn-sm btn-ghost">Add</button>
+      </form>
+    }
+  </section>
+
+  <form [formRoot]="estimateForm" class="flex items-end gap-2">
+    <div class="w-32">
+      <label [for]="`${ids}-estimate`" class="text-xs font-medium">Estimate</label>
+      <input
+        [id]="`${ids}-estimate`"
+        type="text"
+        class="st-input"
+        autocomplete="off"
+        [formField]="estimateForm.value"
+        [attr.aria-describedby]="`${ids}-estimate-errors`"
+      />
+    </div>
+    @if (!readOnly()) {
+      <button type="submit" class="btn btn-sm btn-ghost">Set</button>
+    }
+  </form>
+  <drawboard-field-errors [id]="`${ids}-estimate-errors`" [field]="estimateForm.value" />
+  @if (poker()) {
+    <button type="button" class="btn btn-sm btn-ghost self-start" (click)="openPoker()">
+      Planning poker
+    </button>
+  }
+</section>

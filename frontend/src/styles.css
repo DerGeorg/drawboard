@@ -1,0 +1,871 @@
+/* =============================================================================
+   Global styles: Tailwind 4 + DaisyUI 5 + the dergeorg brand tokens.
+
+   Tailwind first: components style themselves with utilities in their
+   templates (and host classes in the .ts). A component .css exists only where
+   the template would become unreadable - plain CSS reading the theme through
+   var(--color-st-*) / var(--spacing). This app needs none.
+
+   The brand part below is the dergeorg core of the web-frontend skill
+   (references/brands/dergeorg/tokens.css), comments translated. Change values
+   there first, then copy them here - never edit a brand value in one app only.
+   ========================================================================== */
+@import 'tailwindcss';
+@plugin "daisyui";
+
+/* =============================================================================
+   TYPOGRAPHY - system fonts, nothing to download, no layout shift.
+   ========================================================================== */
+@layer base {
+  * {
+    font-family:
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      'Helvetica Neue',
+      Arial,
+      sans-serif;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp,
+  .st-mono {
+    font-family:
+      ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  }
+}
+
+/* =============================================================================
+   ICON FONT - Material Symbols Outlined, only for the components of the kit
+   (components/shared/, page /kit). The subset holds only the icons of the list in
+   the skill's fetch-icon-font.sh (~7 kB; a missing name renders as TEXT, without
+   any build error). Relative URL, so Angular emits it with a hash in the name.
+   ========================================================================== */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/material-symbols-subset.woff2') format('woff2');
+}
+
+@layer base {
+  .material-symbols-outlined,
+  mat-icon {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'liga';
+    font-variation-settings:
+      'FILL' 0,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
+  }
+}
+
+/* =============================================================================
+   COLOURS
+   `@theme` registers the Tailwind utilities (text-yellow, bg-green, ...),
+   `html:root` the --color-st-* variables the components use. Both sets must
+   match. Variables on html:root are always emitted - a token that only lives in
+   @theme and is read through var() (bg-(--x) or a component .css) would be
+   tree-shaken.
+   ========================================================================== */
+
+/* Tailwind only generates utilities whose names appear literally in the source.
+   Components that compose a colour class ('text-' + colour) need this list. */
+@source inline("text-{primary,grey,white,green,red,yellow,black}");
+
+@theme {
+  --color-primary: #1b1f24;
+  --color-grey: #5f656b;
+  --color-white: #f4f5f6;
+  --color-green: #0a7a51;
+  --color-red: #c1292e;
+  --color-yellow: #fbb040;
+  --color-black: #0d0f11;
+}
+
+html:root {
+  /* Opacity of the primary pill: 12 % black on white reads stronger than 12 %
+     white on anthracite, so dark mode uses a higher value. */
+  --alpha-st-badge-primary: 12%;
+
+  /* Anthracite - 16.4:1 on off-white */
+  --color-st-primary: #1b1f24;
+  --color-st-primary-transparent: rgba(27, 31, 36, 0.1);
+  --color-st-primary-rgb: 27, 31, 36;
+
+  /* Slate - 5.35:1 on off-white, allowed as body text */
+  --color-st-grey: #5f656b;
+  --color-st-grey-transparent: rgba(95, 101, 107, 0.1);
+  --color-st-grey-rgb: 95, 101, 107;
+
+  --color-st-white: #f4f5f6;
+  --color-st-white-dark: #e8eaec;
+  --color-st-white-darker: #d5d8dc;
+
+  /* Signal green - 4.97:1 on off-white */
+  --color-st-green-def: #0a7a51;
+  --color-st-green-def-transparent: rgba(10, 122, 81, 0.1);
+  --color-st-green-def-rgb: 10, 122, 81;
+
+  /* Warning red - 5.24:1 on off-white */
+  --color-st-red: #c1292e;
+  --color-st-red-transparent: rgba(193, 41, 46, 0.1);
+  --color-st-red-rgb: 193, 41, 46;
+
+  /* Logo amber - 8.8:1 on anthracite but only 1.8:1 on off-white: amber is
+     NEVER text on a light background (use --color-st-yellow-on-surface). */
+  --color-st-yellow: #fbb040;
+  --color-st-yellow-transparent: rgba(251, 176, 64, 0.1);
+  --color-st-yellow-rgb: 251, 176, 64;
+
+  --color-st-black: #0d0f11;
+
+  /* The two logo colours, for the logo only. */
+  --color-dg-logo-grey: #808080;
+  --color-dg-logo-amber: #fbb03b;
+
+  /* Role tokens - use these instead of raw values and dark mode comes for free:
+       navy               header, footer, hero - stays dark in both modes
+       surface            cards, tiles, inputs
+       card               background of cards
+       on-accent          text on filled coloured areas (buttons, bars)
+       on-yellow          text on amber
+       yellow-on-surface  amber as TEXT on a light background (darkened) */
+  --color-st-navy: #1b1f24;
+  --color-st-surface: #ffffff;
+  --color-st-card: #f4f5f6;
+  --color-st-on-accent: #f4f5f6;
+  --color-st-on-yellow: #0d0f11;
+  --color-st-yellow-on-surface: #8a5a00;
+  /* Green text on its own 20 % tint needs to be darker than on the page (5.16:1). */
+  --color-st-green-on-surface: color-mix(in srgb, var(--color-st-green-def) 85%, black);
+
+  /* The board canvas stays light in both modes: the colors of the drawing (sticky, stroke,
+     shape) are content, stored in the board and the same for every participant, so the paper
+     under them must not change with the viewer's theme. Not redefined for dark mode. */
+  --color-board-paper: #f7f7f5;
+
+  /* Terminal areas stay dark in both modes: a white command line looks wrong. */
+  --color-st-terminal: #16191d;
+  --color-st-terminal-bar: #22272d;
+  --color-st-terminal-text: #e6e9ec;
+
+  --translate-distance-btn: -0.2rem;
+
+  --border-st-radius-xl: 30px;
+  --border-st-radius-md: 12px;
+
+  --border-size-xs: 1px;
+  --border-size-md: 2px;
+  --border-size-xl: 4px;
+
+  --backdrop-filter-st-xs: blur(5px);
+  --backdrop-filter-st-s: blur(10px);
+  --backdrop-filter-st-md: blur(20px);
+  --backdrop-filter-st-xl: blur(30px);
+
+  /* Nothing clickable is smaller than a thumb. */
+  --touch-target-min: 44px;
+}
+
+/* =============================================================================
+   DARK MODE - system setting unless the app chose otherwise, or explicitly via
+   <html data-theme="dark">. The values appear twice: CSS has no "or" between a
+   media query and an attribute selector.
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme='light']) {
+    --color-st-white: #131619;
+    --color-st-white-dark: #1b1f24;
+    --color-st-white-darker: #272c33;
+    --color-st-surface: #1a1e23;
+    --color-st-card: #191d21;
+    --alpha-st-badge-primary: 22%;
+    --color-st-primary: #e6e8ea;
+    --color-st-primary-transparent: rgba(230, 232, 234, 0.12);
+    --color-st-primary-rgb: 230, 232, 234;
+    --color-st-grey: #a8b0b8;
+    --color-st-grey-transparent: rgba(168, 176, 184, 0.12);
+    --color-st-grey-rgb: 168, 176, 184;
+    --color-st-green-def: #2bbd84;
+    --color-st-green-def-transparent: rgba(43, 189, 132, 0.14);
+    --color-st-green-def-rgb: 43, 189, 132;
+    --color-st-red: #f07171;
+    --color-st-red-transparent: rgba(240, 113, 113, 0.14);
+    --color-st-red-rgb: 240, 113, 113;
+    --color-st-black: #e9ecef;
+    --color-st-green-on-surface: var(--color-st-green-def);
+    --color-st-yellow-on-surface: #fbb040;
+    --color-grey: #a8b0b8;
+    --color-green: #2bbd84;
+    --color-red: #f07171;
+    color-scheme: dark;
+  }
+}
+
+html[data-theme='dark'] {
+  --color-st-white: #131619;
+  --color-st-white-dark: #1b1f24;
+  --color-st-white-darker: #272c33;
+  --color-st-surface: #1a1e23;
+  --color-st-card: #191d21;
+  --alpha-st-badge-primary: 22%;
+  --color-st-primary: #e6e8ea;
+  --color-st-primary-transparent: rgba(230, 232, 234, 0.12);
+  --color-st-primary-rgb: 230, 232, 234;
+  --color-st-grey: #a8b0b8;
+  --color-st-grey-transparent: rgba(168, 176, 184, 0.12);
+  --color-st-grey-rgb: 168, 176, 184;
+  --color-st-green-def: #2bbd84;
+  --color-st-green-def-transparent: rgba(43, 189, 132, 0.14);
+  --color-st-green-def-rgb: 43, 189, 132;
+  --color-st-red: #f07171;
+  --color-st-red-transparent: rgba(240, 113, 113, 0.14);
+  --color-st-red-rgb: 240, 113, 113;
+  --color-st-black: #e9ecef;
+  --color-st-green-on-surface: var(--color-st-green-def);
+  --color-st-yellow-on-surface: #fbb040;
+  --color-grey: #a8b0b8;
+  --color-green: #2bbd84;
+  --color-red: #f07171;
+  color-scheme: dark;
+}
+
+/* =============================================================================
+   BUTTONS - deliberately NOT in a layer: unlayered CSS beats every layer, and
+   DaisyUI ships its .btn rules in @layer components after this import. In the
+   same layer DaisyUI would win and every button would turn grey.
+   ========================================================================== */
+.zoom,
+.btn {
+  transition:
+    transform 0.35s ease,
+    color 0.35s ease,
+    background-color 0.35s ease,
+    border-color 0.35s ease;
+  will-change: transform;
+  box-shadow: none;
+}
+
+@media (hover: hover) {
+  .zoom:hover,
+  .btn:hover {
+    transform: scale(1.06);
+  }
+}
+
+.btn,
+button,
+[role='button'] {
+  min-height: var(--touch-target-min);
+}
+
+.st-btn-primary:hover,
+.st-btn-primary-green:hover,
+.st-btn-primary-white:hover {
+  background: var(--color-st-yellow);
+  border: var(--border-size-md) solid var(--color-st-yellow);
+  color: var(--color-st-on-yellow);
+}
+
+.st-btn-primary-yellow:hover {
+  background: var(--color-st-on-accent);
+  border: var(--border-size-md) solid var(--color-st-on-accent);
+  color: var(--color-st-navy);
+}
+
+.st-btn-primary-outline:hover,
+.st-btn-primary-outline-green:hover,
+.st-btn-primary-outline-white:hover,
+.st-btn-primary-outline-yellow:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.st-btn-primary-green {
+  border: var(--border-size-md) solid var(--color-st-green-def);
+  background: var(--color-st-green-def);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+}
+
+.st-btn-primary-outline-green {
+  border: var(--border-size-md) solid var(--color-st-green-def);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+  backdrop-filter: var(--backdrop-filter-st-s);
+}
+
+.st-btn-primary {
+  background: var(--color-st-navy);
+  border: var(--border-size-md) solid var(--color-st-navy);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+}
+
+.st-btn-primary-outline {
+  border: var(--border-size-md) solid var(--color-st-navy);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+  backdrop-filter: var(--backdrop-filter-st-s);
+}
+
+.st-btn-primary-yellow {
+  border: var(--border-size-md) solid var(--color-st-yellow);
+  background: var(--color-st-yellow);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-yellow);
+}
+
+.st-btn-primary-outline-yellow {
+  border: var(--border-size-md) solid var(--color-st-yellow);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+  backdrop-filter: var(--backdrop-filter-st-s);
+}
+
+.st-btn-primary-white {
+  border: var(--border-size-md) solid var(--color-st-on-accent);
+  background: var(--color-st-on-accent);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-navy);
+}
+
+.st-btn-primary-outline-white {
+  border: var(--border-size-md) solid var(--color-st-on-accent);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+  backdrop-filter: var(--backdrop-filter-st-s);
+}
+
+/* Outline buttons carry off-white text - they are made for dark areas. Outside
+   .on-dark the role colour takes over, otherwise they would be invisible. */
+.st-btn-primary-outline {
+  color: var(--color-st-primary);
+}
+
+.st-btn-primary-outline-green {
+  color: var(--color-st-green-def);
+}
+
+.st-btn-primary-outline-yellow {
+  color: var(--color-st-yellow-on-surface);
+}
+
+.on-dark .st-btn-primary-outline,
+.on-dark .st-btn-primary-outline-green,
+.on-dark .st-btn-primary-outline-yellow {
+  color: var(--color-st-on-accent);
+}
+
+/* App addition (not in the brand core yet): a destructive action. Same shape as
+   the other role buttons, warning red. Candidate for the skill's tokens.css. */
+.st-btn-primary-red {
+  border: var(--border-size-md) solid var(--color-st-red);
+  background: var(--color-st-red);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-on-accent);
+}
+
+.st-btn-primary-outline-red {
+  border: var(--border-size-md) solid var(--color-st-red);
+  border-radius: var(--border-st-radius-md);
+  color: var(--color-st-red);
+}
+
+.st-btn-primary-red:hover,
+.st-btn-primary-outline-red:hover {
+  background: var(--color-st-red);
+  border: var(--border-size-md) solid var(--color-st-red);
+  color: var(--color-st-on-accent);
+}
+
+/* =============================================================================
+   BADGES
+   ========================================================================== */
+.st-badge-yellow {
+  background-color: rgba(var(--color-st-yellow-rgb), 20%);
+  border: var(--border-size-xs) solid var(--color-st-yellow);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-yellow-on-surface);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-green {
+  background-color: rgba(var(--color-st-green-def-rgb), 20%);
+  border: var(--border-size-xs) solid var(--color-st-green-def);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-green-on-surface);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-grey {
+  background-color: rgba(var(--color-st-grey-rgb), 20%);
+  border: var(--border-size-xs) solid var(--color-st-grey);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-grey);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-red {
+  background-color: rgba(var(--color-st-red-rgb), 20%);
+  border: var(--border-size-xs) solid var(--color-st-red);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-red);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-primary {
+  background-color: rgba(var(--color-st-primary-rgb), var(--alpha-st-badge-primary));
+  border: var(--border-size-xs) solid var(--color-st-primary);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-primary);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-green-simple {
+  background-color: rgba(var(--color-st-green-def-rgb), 20%);
+  border: var(--border-size-xs) solid rgba(var(--color-st-green-def-rgb), 0);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-green-on-surface);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-yellow-simple {
+  background-color: rgba(var(--color-st-yellow-rgb), 20%);
+  border: var(--border-size-xs) solid rgba(var(--color-st-yellow-rgb), 0);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-yellow-on-surface);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-grey-simple {
+  background-color: rgba(var(--color-st-grey-rgb), 20%);
+  border: var(--border-size-xs) solid rgba(var(--color-st-grey-rgb), 0);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-grey);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+.st-badge-primary-simple {
+  background-color: rgba(var(--color-st-primary-rgb), var(--alpha-st-badge-primary));
+  border: var(--border-size-xs) solid rgba(var(--color-st-primary-rgb), 0);
+  border-radius: var(--border-st-radius-xl);
+  color: var(--color-st-primary);
+  font-weight: bold;
+  backdrop-filter: var(--backdrop-filter-st-md);
+}
+
+/* On dark areas amber itself is the right text colour. */
+.on-dark .st-badge-yellow,
+.on-dark .st-badge-yellow-simple {
+  color: var(--color-st-yellow);
+}
+
+.on-dark .st-badge-green,
+.on-dark .st-badge-green-simple {
+  color: var(--color-st-green-def);
+}
+
+/* The logo grey reaches only 4.1:1 on anthracite; on dark areas a lighter grey
+   keeps both halves of the mark equally strong. */
+.on-dark {
+  --color-dg-logo-grey: #9aa1a8;
+}
+
+/* =============================================================================
+   TEXT AND ICON COLOURS
+   ========================================================================== */
+.text-yellow {
+  color: var(--color-st-yellow-on-surface);
+}
+
+.on-dark .text-yellow,
+.on-dark.text-yellow,
+.on-dark .icon-yellow,
+.on-dark.icon-yellow {
+  color: var(--color-st-yellow);
+}
+
+/* Colour of a <mat-icon>: Angular Material's unlayered CSS beats text-* utilities
+   (skill pitfall A1), so icons take these classes. */
+.icon-green {
+  color: var(--color-st-green-def);
+}
+
+/* Amber as a foreground is the darkened variant on light areas (1.8:1 otherwise). */
+.icon-yellow {
+  color: var(--color-st-yellow-on-surface);
+}
+
+.icon-grey {
+  color: var(--color-st-grey);
+}
+
+.icon-primary {
+  color: var(--color-st-primary);
+}
+
+.icon-red {
+  color: var(--color-st-red);
+}
+
+/* Icon circle of drawboard-list. Set together with DaisyUI's .badge, which brings
+   padding-inline: 0.75rem - without padding: 0 the circle is 1 px wide inside
+   and the icon in it invisible (skill pitfall A7). */
+.st-circle {
+  border-radius: 50%;
+  padding: 0;
+  width: 25px;
+  height: 25px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+}
+
+/* =============================================================================
+   INPUTS
+   ========================================================================== */
+.st-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: var(--border-size-md) solid var(--color-st-white-darker);
+  border-radius: var(--border-st-radius-md);
+  background-color: var(--color-st-surface);
+  color: var(--color-st-black);
+  min-height: var(--touch-target-min);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.st-input:focus {
+  outline: none;
+  border-color: var(--color-st-primary);
+  box-shadow: 0 0 0 3px var(--color-st-primary-transparent);
+}
+
+/* App addition: an input with a validation error. */
+.st-input[aria-invalid='true'] {
+  border-color: var(--color-st-red);
+}
+
+/* Form blocks of the kit (drawboard-form-field, -textarea, -checkbox), from the sami
+   tokens.css; #ffffff replaced by --color-st-surface so they follow dark mode. */
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.st-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-st-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.st-label-icon {
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+.st-textarea {
+  width: 100%;
+  min-height: 9rem;
+  padding: 0.75rem 1rem;
+  border: var(--border-size-md) solid var(--color-st-white-darker);
+  border-radius: var(--border-st-radius-md);
+  background-color: var(--color-st-surface);
+  color: var(--color-st-black);
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.st-textarea:focus {
+  outline: none;
+  border-color: var(--color-st-primary);
+  box-shadow: 0 0 0 3px var(--color-st-primary-transparent);
+}
+
+.st-input::placeholder,
+.st-textarea::placeholder {
+  color: var(--color-st-grey);
+  opacity: 0.6;
+}
+
+.st-input-invalid,
+.st-textarea-invalid {
+  border-color: var(--color-st-red);
+}
+
+.st-input-invalid:focus,
+.st-textarea-invalid:focus {
+  border-color: var(--color-st-red);
+  box-shadow: 0 0 0 3px var(--color-st-red-transparent);
+}
+
+/* Own checkbox instead of DaisyUI's: primary tick, focus ring like the inputs. */
+.st-checkbox {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  background-color: var(--color-st-surface);
+  border: var(--border-size-md) solid var(--color-st-white-darker);
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+  transition:
+    border-color 0.25s ease,
+    background-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.st-checkbox:hover {
+  border-color: var(--color-st-grey);
+}
+
+.st-checkbox:focus-visible {
+  outline: none;
+  border-color: var(--color-st-primary);
+  box-shadow: 0 0 0 3px var(--color-st-primary-transparent);
+}
+
+.st-checkbox:checked {
+  background-color: var(--color-st-primary);
+  border-color: var(--color-st-primary);
+}
+
+/* The tick drawn in CSS - no icon asset. */
+.st-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 0.4rem;
+  top: 0.15rem;
+  width: 0.3rem;
+  height: 0.65rem;
+  border: solid var(--color-st-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.st-checkbox-invalid,
+.st-checkbox-invalid:hover {
+  border-color: var(--color-st-red);
+}
+
+.st-error {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-st-red);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.st-error-icon {
+  font-size: 18px !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+
+/* Honeypot: invisible for people, found and filled by bots. */
+.st-honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.st-code-inline {
+  background-color: var(--color-st-primary-transparent);
+  border-radius: 6px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.9em;
+  color: var(--color-st-primary);
+  word-break: break-all;
+}
+
+/* =============================================================================
+   TERMINAL / CODE (drawboard-code-block)
+   ========================================================================== */
+.st-terminal {
+  background-color: var(--color-st-terminal);
+  border-radius: var(--border-st-radius-md);
+  overflow: hidden;
+  border: var(--border-size-xs) solid rgba(255, 255, 255, 0.08);
+}
+
+.st-terminal-bar {
+  background-color: var(--color-st-terminal-bar);
+  border-bottom: var(--border-size-xs) solid rgba(255, 255, 255, 0.06);
+}
+
+.st-terminal-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.st-terminal-body {
+  color: var(--color-st-terminal-text);
+  font-family:
+    ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.75;
+}
+
+/* The $ marks the input line and must NOT be copied - its own element. */
+.st-prompt {
+  color: var(--color-st-yellow);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.st-kbd {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border: var(--border-size-xs) solid var(--color-st-white-darker);
+  border-bottom-width: var(--border-size-md);
+  border-radius: 6px;
+  background-color: var(--color-st-surface);
+  color: var(--color-st-black);
+  font-size: 0.8em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* =============================================================================
+   MOTION - not for people who do not tolerate it.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Every page fades in briefly instead of appearing hard. */
+main > *:not(router-outlet) {
+  animation: page-enter 0.28s ease-out both;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* =============================================================================
+   FLOATING CHROME - the panels that hover over the canvas (tool column, top pills,
+   zoom control, contextual toolbar, flyouts, menus). One look in one place: a rounded
+   white surface with a soft shadow. It does NOT follow the theme: the canvas paper under it
+   is light in both modes (the drawing's colours are content), so the chrome on top of it is
+   light too - dark panels on light paper looked like holes.
+   ========================================================================== */
+@utility float-panel {
+  border-radius: var(--radius-2xl);
+  background-color: #ffffff;
+  color: #1b1f24;
+  color-scheme: light;
+  border: var(--border-size-xs) solid #e3e5e8;
+  /* the light values of every token that dark mode switches (see the dark blocks above),
+     so text, icons and badges inside a panel are drawn for a light background */
+  --color-st-white: #f4f5f6;
+  --color-st-white-dark: #e8eaec;
+  --color-st-white-darker: #d5d8dc;
+  --color-st-surface: #ffffff;
+  --color-st-card: #f4f5f6;
+  --alpha-st-badge-primary: 12%;
+  --color-st-primary: #1b1f24;
+  --color-st-primary-transparent: rgba(27, 31, 36, 0.1);
+  --color-st-primary-rgb: 27, 31, 36;
+  --color-st-grey: #5f656b;
+  --color-st-grey-transparent: rgba(95, 101, 107, 0.1);
+  --color-st-grey-rgb: 95, 101, 107;
+  --color-st-green-def: #0a7a51;
+  --color-st-green-def-transparent: rgba(10, 122, 81, 0.1);
+  --color-st-green-def-rgb: 10, 122, 81;
+  --color-st-red: #c1292e;
+  --color-st-red-transparent: rgba(193, 41, 46, 0.1);
+  --color-st-red-rgb: 193, 41, 46;
+  --color-st-black: #0d0f11;
+  --color-st-green-on-surface: color-mix(in srgb, var(--color-st-green-def) 85%, black);
+  --color-st-yellow-on-surface: #8a5a00;
+  --color-grey: #5f656b;
+  --color-green: #0a7a51;
+  --color-red: #c1292e;
+  /* DaisyUI's light theme (node_modules/daisyui/theme/light.css): buttons and inputs */
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(98% 0 0);
+  --color-base-300: oklch(95% 0 0);
+  --color-base-content: oklch(21% 0.006 285.885);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 8px 24px -6px rgb(0 0 0 / 0.2);
+}
+
+/* An entry of a floating menu (shared/action-menu): icon and label in a row. */
+@utility panel-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  border-radius: var(--radius-lg);
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  text-align: left;
+  font-size: var(--text-sm);
+  &:hover {
+    background-color: var(--color-st-white-darker);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

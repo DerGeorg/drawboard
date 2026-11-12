@@ -1,0 +1,92 @@
+# The ONE place for versions and coordinates: the JDK, the Gradle plugins build-logic loads as libraries, the
+# libraries the Spring Boot BOM does not manage - and every BOM-managed library as an entry WITHOUT a version, so
+# build files and convention plugins only ever say libs.<name> and never "group:artifact".
+# The BOM itself comes from platform(SpringBootPlugin.BOM_COORDINATES) in build-logic (= the spring-boot version).
+# The application's own version is never here - the pipeline passes -Pversion. Renovate maintains this file.
+#
+# Not in this file, because Gradle cannot read the catalog there: the foojay plugin in settings.gradle.kts and the
+# Gradle version itself (gradle/wrapper/gradle-wrapper.properties).
+
+[versions]
+java = "25"
+spring-boot = "4.1.1"
+kotlin = "2.3.21"                        # must equal <kotlin.version> of the Boot BOM
+# OpenTelemetry instrumentation next to Boot's OTel SDK: pick the release built on the same
+# opentelemetry-api as <opentelemetry.version> in the Boot BOM (Boot 4.1.1 -> 1.62.0 -> 2.28.x).
+opentelemetry-instrumentation = "2.28.1"
+springdoc = "3.1.1"
+archunit = "1.5.1"
+mockk = "1.14.11"
+springmockk = "5.0.1"
+bucket4j = "8.22.0"
+tika = "4.2.0"                         # Apache-2.0: only tika-core (magic-byte detector, no parsers) detects the type of uploads (S4.2)
+bouncycastle = "1.86"                    # Argon2 of Spring Security needs it (link passwords, S1.11)
+# The API contract (drawboard-api repository). This version IS the contract the backend implements.
+drawboard-api = "2.0.0"
+
+[libraries]
+# --- build-logic classpath: the plugins as libraries, so convention plugins apply them without a version ---
+spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlin-allopen = { module = "org.jetbrains.kotlin:kotlin-allopen", version.ref = "kotlin" } # org.jetbrains.kotlin.plugin.spring
+
+# --- not managed by the Boot BOM: with a version ---
+drawboard-api-kotlin = { module = "at.dergeorg.drawboard:drawboard-api-kotlin", version.ref = "drawboard-api" }
+opentelemetry-instrumentation-annotations = { module = "io.opentelemetry.instrumentation:opentelemetry-instrumentation-annotations", version.ref = "opentelemetry-instrumentation" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" } # MIT, Argon2PasswordEncoder
+tika-core = { module = "org.apache.tika:tika-core", version.ref = "tika" } # Apache-2.0, content type detection of uploads
+bucket4j-core = { module = "com.bucket4j:bucket4j_jdk17-core", version.ref = "bucket4j" } # Apache-2.0, rate limits in memory
+springdoc-openapi-webflux-ui = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdoc" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+springmockk = { module = "com.ninja-squad:springmockk", version.ref = "springmockk" }
+
+# --- managed by the Boot BOM: no version here, the BOM decides ---
+# Spring Boot starters and modules
+spring-boot-starter-webflux = { module = "org.springframework.boot:spring-boot-starter-webflux" }
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-security-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-security-oauth2-resource-server" }
+spring-boot-starter-data-r2dbc = { module = "org.springframework.boot:spring-boot-starter-data-r2dbc" }
+spring-boot-starter-opentelemetry = { module = "org.springframework.boot:spring-boot-starter-opentelemetry" }
+spring-boot-starter-aspectj = { module = "org.springframework.boot:spring-boot-starter-aspectj" }
+spring-boot-starter-jackson = { module = "org.springframework.boot:spring-boot-starter-jackson" }
+spring-boot-flyway = { module = "org.springframework.boot:spring-boot-flyway" }
+# Spring Framework, Security, Micrometer, Reactor, AspectJ
+spring-core = { module = "org.springframework:spring-core" }
+spring-aop = { module = "org.springframework:spring-aop" }
+spring-tx = { module = "org.springframework:spring-tx" }
+spring-security-crypto = { module = "org.springframework.security:spring-security-crypto" } # Argon2PasswordEncoder
+spring-security-oauth2-core = { module = "org.springframework.security:spring-security-oauth2-core" }
+micrometer-core = { module = "io.micrometer:micrometer-core" }
+micrometer-observation = { module = "io.micrometer:micrometer-observation" }
+micrometer-tracing = { module = "io.micrometer:micrometer-tracing" }
+micrometer-context-propagation = { module = "io.micrometer:context-propagation" }
+reactor-core = { module = "io.projectreactor:reactor-core" }
+aspectjweaver = { module = "org.aspectj:aspectjweaver" }
+# Kotlin and Jackson
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core" }
+kotlinx-coroutines-reactor = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-reactor" }
+jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin" } # Boot 4 = Jackson 3 (tools.jackson)
+jackson-databind = { module = "tools.jackson.core:jackson-databind" }
+# Database: Flyway over JDBC, the application over R2DBC
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql" }
+postgresql = { module = "org.postgresql:postgresql" }
+r2dbc-postgresql = { module = "org.postgresql:r2dbc-postgresql" }
+r2dbc-proxy = { module = "io.r2dbc:r2dbc-proxy" }
+
+# --- tests (BOM-managed) ---
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5" } # kotlin.test: assertions with a message
+spring-boot-starter-webflux-test = { module = "org.springframework.boot:spring-boot-starter-webflux-test" }
+spring-boot-starter-security-oauth2-resource-server-test = { module = "org.springframework.boot:spring-boot-starter-security-oauth2-resource-server-test" }
+spring-boot-starter-opentelemetry-test = { module = "org.springframework.boot:spring-boot-starter-opentelemetry-test" }
+spring-boot-test = { module = "org.springframework.boot:spring-boot-test" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
+opentelemetry-sdk-testing = { module = "io.opentelemetry:opentelemetry-sdk-testing" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+byte-buddy-agent = { module = "net.bytebuddy:byte-buddy-agent" } # loaded as -javaagent for MockK (JDK 21+)
+nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt" } # signs the real tokens of OidcTokenIntegrationTest

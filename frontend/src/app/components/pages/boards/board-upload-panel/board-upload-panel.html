@@ -1,0 +1,55 @@
+@if (items().length > 0) {
+  <section
+    class="float-panel flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 p-3"
+    aria-label="Uploads"
+    data-testid="uploads"
+  >
+    <div class="flex items-center justify-between gap-2">
+      <h2 class="text-sm font-semibold">{{ busy() ? 'Uploading…' : 'Uploads' }}</h2>
+      @if (!busy()) {
+        <button
+          type="button"
+          class="btn btn-square btn-xs btn-ghost"
+          aria-label="Close the upload list"
+          (click)="clear()"
+        >
+          <drawboard-icon name="close" />
+        </button>
+      }
+    </div>
+    <ul class="flex max-h-48 flex-col gap-2 overflow-y-auto">
+      @for (item of items(); track item.id) {
+        <li class="flex flex-col gap-1 text-sm" [attr.data-status]="item.status">
+          <div class="flex items-center justify-between gap-2">
+            <span class="truncate" [title]="item.name">{{ item.name }}</span>
+            <span class="shrink-0 text-xs text-(--color-st-grey) tabular-nums">{{
+              size(item.size)
+            }}</span>
+          </div>
+          @switch (item.status) {
+            @case ('failed') {
+              <p class="text-xs text-error" role="alert">
+                {{ item.error }}
+                @if (item.requestId) {
+                  <span class="text-(--color-st-grey)">(request {{ item.requestId }})</span>
+                }
+              </p>
+            }
+            @case ('done') {
+              <p class="text-xs text-success">Uploaded</p>
+            }
+            @default {
+              <progress
+                class="progress progress-primary h-1.5 w-full"
+                max="100"
+                [value]="percent(item)"
+                [attr.aria-label]="`Upload of ${item.name}`"
+              ></progress>
+            }
+          }
+        </li>
+      }
+    </ul>
+    <p class="text-xs text-(--color-st-grey)">{{ limits }}</p>
+  </section>
+}

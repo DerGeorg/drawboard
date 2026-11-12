@@ -1,0 +1,118 @@
+<section
+  class="float-panel flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 p-3"
+  [attr.aria-labelledby]="`${ids}-title`"
+  data-testid="kanban-card"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h2 [id]="`${ids}-title`" class="text-sm font-semibold">Card</h2>
+    <button
+      type="button"
+      class="btn btn-square btn-xs btn-ghost"
+      aria-label="Close the card"
+      (click)="close()"
+    >
+      <drawboard-icon name="close" />
+    </button>
+  </div>
+
+  <form [formRoot]="cardForm" class="flex flex-col gap-3">
+    <div>
+      <label [for]="`${ids}-name`" class="text-xs font-medium">Title</label>
+      <input
+        [id]="`${ids}-name`"
+        type="text"
+        class="st-input"
+        autocomplete="off"
+        [formField]="cardForm.title"
+        [attr.aria-describedby]="`${ids}-name-errors`"
+      />
+      <drawboard-field-errors [id]="`${ids}-name-errors`" [field]="cardForm.title" />
+    </div>
+
+    <div>
+      <label [for]="`${ids}-assignee`" class="text-xs font-medium">Assignee</label>
+      @if (guest()) {
+        <p [id]="`${ids}-assignee`" class="text-sm" data-testid="assignee-name">
+          {{ card()?.assignee ?? 'Nobody' }}
+        </p>
+      } @else {
+        <select
+          [id]="`${ids}-assignee`"
+          class="select select-sm w-full"
+          [formField]="cardForm.assignee"
+        >
+          <option value="">Nobody</option>
+          @for (name of names(); track name) {
+            <option [value]="name">{{ name }}</option>
+          }
+        </select>
+        @if (membersFailed()) {
+          <p class="mt-1 text-xs text-(--color-st-grey)">The members could not be loaded.</p>
+        }
+      }
+    </div>
+
+    <div class="flex gap-3">
+      <div class="flex-1">
+        <label [for]="`${ids}-due`" class="text-xs font-medium">Due date</label>
+        <input [id]="`${ids}-due`" type="date" class="st-input" [formField]="cardForm.due" />
+      </div>
+      <div class="w-28">
+        <label [for]="`${ids}-points`" class="text-xs font-medium">Story points</label>
+        <input
+          [id]="`${ids}-points`"
+          type="text"
+          inputmode="numeric"
+          class="st-input"
+          autocomplete="off"
+          [formField]="cardForm.points"
+          [attr.aria-describedby]="`${ids}-points-errors`"
+        />
+        <drawboard-field-errors [id]="`${ids}-points-errors`" [field]="cardForm.points" />
+      </div>
+    </div>
+
+    <fieldset>
+      <legend class="text-xs font-medium">Labels</legend>
+      <div class="mt-1 flex flex-wrap gap-2">
+        @for (label of labels; track label) {
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-full border border-(--color-st-white-darker) px-2 py-0.5 text-xs aria-pressed:ring-2 aria-pressed:ring-(--color-st-primary)"
+            [attr.aria-pressed]="selectedLabels().includes(label)"
+            [disabled]="readOnly()"
+            (click)="toggleLabel(label)"
+          >
+            <span class="block size-3 rounded-full" [style.background]="labelColor(label)"></span>
+            {{ labelNames[label] }}
+          </button>
+        }
+      </div>
+    </fieldset>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <button type="submit" class="btn btn-sm st-btn-primary-yellow" [disabled]="readOnly()">
+        Save
+      </button>
+      <button type="button" class="btn btn-sm btn-ghost" (click)="close()">Cancel</button>
+      <span class="flex-1"></span>
+      <button
+        type="button"
+        class="btn btn-sm btn-ghost"
+        [disabled]="readOnly()"
+        (click)="moveToCanvas()"
+      >
+        Move to canvas
+      </button>
+      <button
+        type="button"
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Delete the card"
+        [disabled]="readOnly()"
+        (click)="remove()"
+      >
+        <drawboard-icon name="trash" />
+      </button>
+    </div>
+  </form>
+</section>

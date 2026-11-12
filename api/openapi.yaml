@@ -1,0 +1,214 @@
+# Root of the drawboard contract. Only metadata, tags, security and the path
+# table live here; every operation is in api/api.yaml, every schema, parameter
+# and response in common/common.yaml (one file each, so IntelliJ can render
+# them). Consumers never read this file directly: the bundle step resolves all
+# file references into ONE document (build/openapi/openapi.yaml), and only that
+# bundle is fed to the generators, oasdiff and Swagger UI.
+#
+# Only the REST API is described here. The real-time collaboration protocol
+# (WebSocket, Yjs updates) is part of this contract as well, but OpenAPI cannot
+# describe it: docs/collab-protocol.md. Its version is the WebSocket
+# subprotocol (drawboard.v1), not the version of this package. The same holds
+# for the plugin manifest and the host <-> plugin MessageChannel protocol:
+# docs/plugin-protocol.md (versioned by its plugin API version).
+openapi: 3.1.0
+info:
+  title: Drawboard API
+  description: |
+    REST API of Drawboard, a self-hosted collaborative whiteboard.
+
+    Errors: every 4xx/5xx response is `application/problem+json` with the body
+    `ErrorModel` (RFC 9457 member names plus application extensions). Clients
+    switch on `code` and MUST tolerate codes they do not know yet — adding an
+    `ErrorCode` is not a breaking change of this API.
+
+    Access to boards and folders is decided by the application's own sharing
+    rules (owner; grants to users and groups, inherited from folders; share
+    links), not by roles in the access token, so any OpenID Connect provider
+    can sign users in. A board or folder the caller may not see answers 404.
+
+    Guests: an anonymous person with a share link of audience GUESTS gets an
+    app-signed guest token from `POST /shares/exchange` (only when the
+    instance enables guests). A guest token is accepted ONLY by these
+    operations (S1.8), each limited to the board or folder of the link and
+    what lies below it: `GET /boards/{boardId}` (getBoard),
+    `GET /boards?folderId=` for a folder link (listBoards),
+    `POST /boards/{boardId}/collab-ticket` (createCollabTicket),
+    `POST /shares/refresh` (refreshGuestSession), and since M3 the file
+    metadata and signed file URLs of such a board (listFiles, getFile,
+    getFileUrls), the enabled plugins (listEnabledPlugins) and reading a
+    plugin's storage on such a board (getPluginStorage). Every other operation
+    answers a guest token with 403 FORBIDDEN. Guests never see member lists,
+    user search results or email addresses. Since M4 guests whose link role
+    is COMMENTER or EDITOR may also call listPokerRounds (state OPEN only),
+    getPokerRound (open rounds; closed ones only when they took part) and
+    castPokerVote; VIEWER-link guests get 403 FORBIDDEN on every planning
+    poker operation, and no guest may create, reveal or cancel a round.
+  # Never maintained by hand: the bundle step of scripts/build.sh stamps the
+  # version it was given in VERSION (the pipeline passes the one
+  # semantic-release computed).
+  version: 0.0.0
+  contact:
+    name: Georg Reisinger
+tags:
+  - name: boards
+    description: |
+      Boards the caller can open, moving boards between folders, and the
+      caller's trash (module `library`, subdomain `boards`).
+  - name: folders
+    description: Folders of a user's space and restoring them from the trash (module `library`, subdomain `folders`).
+  - name: sharing
+    description: |
+      Sharing (module `library`, subdomain `sharing`): members (grants to
+      users and groups) of boards and folders, share links, opening a link
+      (signed in or as a guest), and what others shared with me.
+  - name: users
+    description: The signed-in user and the user search for sharing (module `users`).
+  - name: collab
+    description: |
+      Real-time collaboration on a board's drawing (module `collab`): the ticket
+      that opens the collaboration WebSocket, and the snapshot a client uploads
+      when the server asks it to compact the update log. The WebSocket protocol
+      itself is described in docs/collab-protocol.md of this repository.
+  - name: files
+    description: |
+      Files of a board (module `files`): upload with server-side type
+      detection, metadata, Office-to-PDF conversion state, and short-lived
+      signed URLs for the bytes.
+  - name: file-content
+    description: |
+      Delivery of file bytes through signed URLs (module `files`). Served
+      outside /api (`/files/{fileId}`, operation-level `servers`), without a
+      token: the signature authorises. Own tag so the generated interface
+      (`FileContentApi`) is separate from the /api routes.
+  - name: plugins
+    description: |
+      Plugins (module `plugins`): installing and managing them (instance
+      admins), the list a board host loads, and a plugin's storage on a
+      board. The manifest and the sandbox protocol between host and plugin
+      are described in docs/plugin-protocol.md of this repository.
+  - name: planning
+    description: |
+      Planning poker on story cards (module `planning`, subdomain `rounds`,
+      S7.6): rounds started by an editor, votes kept on the server only
+      (never in the Yjs document), reveal with the result. Live state by
+      polling a round with If-None-Match; the WebSocket protocol is
+      unchanged.
+servers:
+  - url: /api
+    description: Same origin; the frontend reaches the backend through /api.
+# The path table: one $ref per path into api/api.yaml (JSON pointer, "/" as
+# "~1"). `paths: {$ref: ...}` in one line is not valid OpenAPI - do not use it.
+paths:
+  /boards:
+    $ref: 'api/api.yaml#/paths/~1boards'
+  /boards/shared:
+    $ref: 'api/api.yaml#/paths/~1boards~1shared'
+  /boards/{boardId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}'
+  /boards/{boardId}/folder:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1folder'
+  /boards/{boardId}/members:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1members'
+  /boards/{boardId}/members/users/{userId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1members~1users~1{userId}'
+  /boards/{boardId}/members/groups/{group}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1members~1groups~1{group}'
+  /boards/{boardId}/links:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1links'
+  /boards/{boardId}/collab-ticket:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1collab-ticket'
+  /boards/{boardId}/snapshot:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1snapshot'
+  /boards/{boardId}/versions:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1versions'
+  /boards/{boardId}/versions/{versionId}/restore:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1versions~1{versionId}~1restore'
+  /folders:
+    $ref: 'api/api.yaml#/paths/~1folders'
+  /folders/{folderId}:
+    $ref: 'api/api.yaml#/paths/~1folders~1{folderId}'
+  /folders/{folderId}/members:
+    $ref: 'api/api.yaml#/paths/~1folders~1{folderId}~1members'
+  /folders/{folderId}/members/users/{userId}:
+    $ref: 'api/api.yaml#/paths/~1folders~1{folderId}~1members~1users~1{userId}'
+  /folders/{folderId}/members/groups/{group}:
+    $ref: 'api/api.yaml#/paths/~1folders~1{folderId}~1members~1groups~1{group}'
+  /folders/{folderId}/links:
+    $ref: 'api/api.yaml#/paths/~1folders~1{folderId}~1links'
+  /links/{linkId}:
+    $ref: 'api/api.yaml#/paths/~1links~1{linkId}'
+  /shares/exchange:
+    $ref: 'api/api.yaml#/paths/~1shares~1exchange'
+  /shares/refresh:
+    $ref: 'api/api.yaml#/paths/~1shares~1refresh'
+  /trash:
+    $ref: 'api/api.yaml#/paths/~1trash'
+  /trash/boards/{boardId}:
+    $ref: 'api/api.yaml#/paths/~1trash~1boards~1{boardId}'
+  /trash/boards/{boardId}/restore:
+    $ref: 'api/api.yaml#/paths/~1trash~1boards~1{boardId}~1restore'
+  /trash/folders/{folderId}:
+    $ref: 'api/api.yaml#/paths/~1trash~1folders~1{folderId}'
+  /trash/folders/{folderId}/restore:
+    $ref: 'api/api.yaml#/paths/~1trash~1folders~1{folderId}~1restore'
+  /boards/{boardId}/files:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1files'
+  /boards/{boardId}/files/urls:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1files~1urls'
+  /boards/{boardId}/files/{fileId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1files~1{fileId}'
+  /files/{fileId}:
+    $ref: 'api/api.yaml#/paths/~1files~1{fileId}'
+  /admin/plugins:
+    $ref: 'api/api.yaml#/paths/~1admin~1plugins'
+  /admin/plugins/{pluginId}:
+    $ref: 'api/api.yaml#/paths/~1admin~1plugins~1{pluginId}'
+  /plugins:
+    $ref: 'api/api.yaml#/paths/~1plugins'
+  /boards/{boardId}/plugin-storage/{pluginId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1plugin-storage~1{pluginId}'
+  /boards/{boardId}/poker-rounds:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds'
+  /boards/{boardId}/poker-rounds/{roundId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}'
+  /boards/{boardId}/poker-rounds/{roundId}/vote:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}~1vote'
+  /boards/{boardId}/poker-rounds/{roundId}/reveal:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}~1reveal'
+  /boards/{boardId}/poker-rounds/{roundId}/cancel:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}~1cancel'
+  /users/me:
+    $ref: 'api/api.yaml#/paths/~1users~1me'
+  /users/search:
+    $ref: 'api/api.yaml#/paths/~1users~1search'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token of the OpenID Connect provider the deployment is bound to
+        (central Keycloak by default, any standard OIDC provider by
+        configuration). The token only identifies the user; what they may do
+        with a board comes from the application's sharing rules. Guests send
+        the app-signed guest token from `POST /shares/exchange` here as well
+        (issuer `<public URL>/guest`); it opens only the guest allowlist.
+    oidc:
+      type: openIdConnect
+      description: |
+        Login through the OpenID Connect provider (authorization code + PKCE,
+        public client `drawboard-web`). The discovery URL below points to the
+        planned central Keycloak; the build writes the issuer of its
+        configuration (`KEYCLOAK_ISSUER` in contract.env) into it, and a service
+        that serves Swagger UI replaces it with its own issuer when it serves
+        this document, so the login works against any provider.
+      openIdConnectUrl: https://auth.dergeorg.at/realms/dergeorg/.well-known/openid-configuration
+# Every operation needs a token unless it declares its own `security`
+# (exchangeShareToken: anonymous allowed; downloadFile: no token, the signed
+# URL authorises). Two entries = alternatives: a ready
+# bearer token, or a login through the provider.
+security:
+  - bearerAuth: []
+  - oidc: [openid]

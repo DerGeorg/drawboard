@@ -1,0 +1,17 @@
+# Output of scripts/build.sh (bundle, generated code, jar, npm package)
+build/
+
+# Node (npx cache, if someone runs redocly by hand)
+node_modules/
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+.vscode/
+
+# CI (bundle, Maven staging, tool cache of the openapi component)
+.ci/
+reports/
+
+.DS_Store

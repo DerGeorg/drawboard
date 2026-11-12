@@ -1,0 +1,224 @@
+{{- include "drawboard.validate" . }}
+{{- $ctx := dict "ctx" . "component" "backend" }}
+{{- $name := include "drawboard.componentName" $ctx }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "drawboard.labels" $ctx | nindent 4 }}
+spec:
+  # Exactly one replica, not configurable: collaboration tickets, rooms and sequence numbers are
+  # held in memory (architecture 3.1). Scaling out needs the PostgreSQL LISTEN/NOTIFY fan-out first.
+  replicas: 1
+  # Recreate: never two backends at once (in-memory rooms, concurrent Flyway migrations).
+  # A restart closes all sessions (1001); clients reconnect and lose nothing.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "drawboard.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "drawboard.labels" $ctx | nindent 8 }}
+        {{- with .Values.backend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.backend.podAnnotations .Values.secrets.create }}
+      annotations:
+        {{- with .Values.backend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "drawboard.podSecurityContext" (dict "uid" .Values.backend.runAsUser "gid" .Values.backend.runAsGroup) | nindent 8 }}
+      containers:
+        - name: backend
+          image: {{ include "drawboard.image" (dict "ctx" . "image" .Values.backend.image) | quote }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          securityContext:
+            {{- include "drawboard.containerSecurityContext" (dict "uid" .Values.backend.runAsUser "gid" .Values.backend.runAsGroup) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            # Actuator (health, info only). Probes only: never in a Service, never in the Ingress.
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: APP_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            {{- if .Values.timezone }}
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            {{- end }}
+            - name: DB_HOST
+              value: {{ include "drawboard.db.host" . | quote }}
+            - name: DB_PORT
+              value: {{ include "drawboard.db.port" . | quote }}
+            - name: DB_NAME
+              value: {{ include "drawboard.db.name" . | quote }}
+            - name: DB_USER
+              value: {{ include "drawboard.db.user" . | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "drawboard.db.secretName" . }}
+                  key: {{ include "drawboard.db.secretKey" . }}
+            - name: OIDC_ISSUER_URI
+              value: {{ .Values.oidc.issuerUri | quote }}
+            - name: OIDC_AUDIENCE
+              value: {{ .Values.oidc.audience | quote }}
+            {{- if .Values.oidc.jwkSetUri }}
+            - name: OIDC_JWK_SET_URI
+              value: {{ .Values.oidc.jwkSetUri | quote }}
+            {{- end }}
+            - name: OIDC_CLAIM_USERNAME
+              value: {{ .Values.oidc.claimUsername | quote }}
+            - name: OIDC_CLAIM_GROUPS
+              value: {{ .Values.oidc.claimGroups | quote }}
+            - name: DRAWBOARD_ADMIN_GROUP
+              value: {{ .Values.adminGroup | quote }}
+            # The WebSocket handshake accepts exactly this Origin (S2.2).
+            - name: DRAWBOARD_PUBLIC_URL
+              value: {{ .Values.publicUrl | quote }}
+            - name: DRAWBOARD_GUESTS_ENABLED
+              value: {{ .Values.guests.enabled | quote }}
+            {{- with include "drawboard.trustedProxies" . }}
+            # S7.3: the proxies whose X-Forwarded-For counts (pod CIDR of the ingress controller / frontend).
+            - name: DRAWBOARD_TRUSTED_PROXIES
+              value: {{ . | quote }}
+            {{- end }}
+            # Key files (S7.8): mounted from the Secret, read by the application.
+            - name: DRAWBOARD_FILE_URL_KEYS_FILE
+              value: /run/secrets/file_url_keys
+            - name: DRAWBOARD_PLUGIN_PSEUDONYM_KEY_FILE
+              value: /run/secrets/plugin_pseudonym_key
+            {{- if .Values.guests.enabled }}
+            - name: DRAWBOARD_GUEST_SIGNING_KEYS_FILE
+              value: /run/secrets/guest_signing_keys
+            {{- end }}
+            # Files (S4): the volume, and the multipart spool on a disk-backed volume of its own (S2.8).
+            - name: DRAWBOARD_FILES_DIR
+              value: /data/files
+            - name: DRAWBOARD_UPLOAD_SPOOL_DIR
+              value: /spool/uploads
+            {{- if .Values.gotenberg.enabled }}
+            - name: DRAWBOARD_GOTENBERG_URL
+              value: {{ printf "http://%s:3000" (include "drawboard.componentName" (dict "ctx" . "component" "gotenberg")) | quote }}
+            {{- end }}
+            {{- with .Values.files.origin }}
+            - name: DRAWBOARD_FILES_ORIGIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.plugins.origin }}
+            - name: DRAWBOARD_PLUGIN_ORIGIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.clamav.host }}
+            - name: DRAWBOARD_CLAMAV_HOST
+              value: {{ .Values.clamav.host | quote }}
+            - name: DRAWBOARD_CLAMAV_PORT
+              value: {{ .Values.clamav.port | int64 | quote }}
+            - name: DRAWBOARD_CLAMAV_FAIL_CLOSED
+              value: {{ .Values.clamav.failClosed | quote }}
+            {{- if .Values.clamav.maxBytes }}
+            - name: DRAWBOARD_CLAMAV_MAX_BYTES
+              value: {{ .Values.clamav.maxBytes | int64 | quote }}
+            {{- end }}
+            {{- if .Values.clamav.timeoutSeconds }}
+            - name: DRAWBOARD_CLAMAV_TIMEOUT_SECONDS
+              value: {{ .Values.clamav.timeoutSeconds | int64 | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.backend.otlp.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.backend.otlp.endpoint | quote }}
+            {{- end }}
+            - name: MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED
+              value: {{ ternary "true" "false" (not (empty .Values.backend.otlp.endpoint)) | quote }}
+            - name: MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED
+              value: {{ ternary "true" "false" (not (empty .Values.backend.otlp.endpoint)) | quote }}
+            {{- range $k, $v := .Values.backend.collab }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- range $k, $v := .Values.backend.files }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            failureThreshold: {{ .Values.backend.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.backend.probes.startup.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            {{- toYaml .Values.backend.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            {{- toYaml .Values.backend.probes.liveness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: spool
+              mountPath: /spool
+            - name: files
+              mountPath: /data/files
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        # Disk-backed, size-limited, never medium: Memory (S2.8): JVM files ...
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.backend.tmp.sizeLimit }}
+        # ... and the multipart spool of the uploads (README "Uploads": up to 4 GiB at worst).
+        - name: spool
+          emptyDir:
+            sizeLimit: {{ .Values.backend.uploadSpool.sizeLimit }}
+        - name: files
+          {{- if .Values.files.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "drawboard.componentName" (dict "ctx" . "component" "files")) .Values.files.persistence.existingClaim }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.files.persistence.size }}
+          {{- end }}
+        - name: secrets
+          secret:
+            secretName: {{ include "drawboard.secretName" . }}
+            # 0440: with fsGroup the group (the backend gid) reads it; 0400 would lock the pod out.
+            defaultMode: 288
+            items:
+              - key: {{ .Values.secrets.keys.fileUrlKeys }}
+                path: file_url_keys
+              - key: {{ .Values.secrets.keys.pluginPseudonymKey }}
+                path: plugin_pseudonym_key
+              {{- if .Values.guests.enabled }}
+              - key: {{ .Values.secrets.keys.guestSigningKeys }}
+                path: guest_signing_keys
+              {{- end }}
+      {{- include "drawboard.scheduling" .Values.backend | nindent 6 }}

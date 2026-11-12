@@ -1,0 +1,17 @@
+# Only what the image build needs goes into the build context.
+node_modules
+**/node_modules
+dist
+.angular
+coverage
+junit
+test-results
+playwright-report
+e2e
+sourcemaps
+.git
+.gitlab-ci.yml
+.idea
+.vscode
+.DS_Store
+**/._*

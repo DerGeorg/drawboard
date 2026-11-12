@@ -1,0 +1,135 @@
+@if (members.error(); as error) {
+  <drawboard-load-error [error]="error" subject="the members" (retry)="members.reload()" />
+} @else if (members.hasValue()) {
+  <ul class="flex flex-col gap-1" aria-label="People with access" [attr.aria-busy]="busy()">
+    @for (row of rows(); track row.key) {
+      <li class="flex items-center gap-3 rounded-xl px-2 py-1.5">
+        @if (row.kind === 'GROUP') {
+          <span
+            class="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-(--color-st-white-darker)"
+            aria-hidden="true"
+          >
+            <drawboard-icon name="users" />
+          </span>
+        } @else {
+          <drawboard-avatar [name]="row.name" />
+        }
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium">{{ row.name }}</p>
+          <p class="truncate text-xs text-(--color-st-grey)">
+            {{ row.detail }}
+            @if (row.inheritedFrom) {
+              · <span data-testid="inherited">{{ inheritedFromText(row) }}</span>
+            }
+            @if (row.kind === 'LINK_USER') {
+              · opened a link
+            }
+          </p>
+        </div>
+        @if (row.role === 'OWNER') {
+          <drawboard-role-badge role="OWNER" />
+        } @else if (canManage() && !row.inheritedFrom) {
+          <label class="sr-only" [for]="`role-${row.key}`">Role of {{ row.name }}</label>
+          <select
+            [id]="`role-${row.key}`"
+            class="select select-sm w-32"
+            [disabled]="busy()"
+            (change)="changeRole(row, $event)"
+          >
+            @for (role of roles; track role.value) {
+              <option [value]="role.value" [selected]="role.value === row.role">
+                {{ role.label }}
+              </option>
+            }
+          </select>
+          <button
+            type="button"
+            class="btn btn-square btn-sm btn-ghost"
+            [attr.aria-label]="`Remove ${row.name}`"
+            [disabled]="busy()"
+            (click)="remove(row)"
+          >
+            <drawboard-icon name="close" />
+          </button>
+        } @else {
+          <span class="text-sm text-(--color-st-grey)" data-testid="role">{{
+            roleLabel(row.role)
+          }}</span>
+        }
+      </li>
+    }
+  </ul>
+
+  @if (canManage()) {
+    <section class="mt-5" aria-labelledby="share-add-heading">
+      <h3 id="share-add-heading" class="mb-2 text-sm font-semibold">Add people</h3>
+      <div class="flex flex-wrap items-center gap-2">
+        <label for="share-search" class="sr-only">Search people by name</label>
+        <input
+          id="share-search"
+          type="search"
+          class="st-input min-w-48 flex-1"
+          placeholder="Search by name or username"
+          autocomplete="off"
+          [formField]="searchForm.query"
+        />
+        <label for="share-new-role" class="sr-only">Role for new people</label>
+        <select id="share-new-role" class="select w-36" (change)="setNewRole($event)">
+          @for (role of roles; track role.value) {
+            <option [value]="role.value" [selected]="role.value === newRole()">
+              {{ role.label }}
+            </option>
+          }
+        </select>
+      </div>
+      @if (searching()) {
+        <ul class="mt-2 flex flex-col gap-1" aria-label="Search results" aria-live="polite">
+          @for (user of candidates(); track user.id) {
+            <li>
+              <button type="button" class="panel-item" [disabled]="busy()" (click)="addUser(user)">
+                <drawboard-avatar size="sm" [name]="displayName(user)" />
+                <span class="font-medium">{{ displayName(user) }}</span>
+                <span class="text-xs text-(--color-st-grey)">@{{ user.username }}</span>
+              </button>
+            </li>
+          } @empty {
+            @if (!results.isLoading()) {
+              <li class="px-3 py-2 text-sm text-(--color-st-grey)" data-testid="no-results">
+                No one found. People appear here after they signed in once.
+              </li>
+            }
+          }
+        </ul>
+      }
+
+      <h3 class="mt-5 mb-2 text-sm font-semibold">Add a group</h3>
+      <form
+        class="flex flex-wrap items-start gap-2"
+        novalidate
+        (submit)="$event.preventDefault(); addGroup()"
+      >
+        <div class="min-w-48 flex-1">
+          <label for="share-group" class="sr-only">Name of the group</label>
+          <input
+            id="share-group"
+            type="text"
+            class="st-input"
+            placeholder="Name of the group"
+            autocomplete="off"
+            [formField]="groupForm.name"
+            [attr.aria-invalid]="groupForm.name().touched() && groupForm.name().invalid()"
+            aria-describedby="share-group-errors"
+          />
+          <drawboard-field-errors id="share-group-errors" [field]="groupForm.name" />
+        </div>
+        <button type="submit" class="btn st-btn-primary-yellow" [disabled]="busy()">
+          Add group
+        </button>
+      </form>
+    </section>
+  } @else {
+    <p class="mt-4 text-sm text-(--color-st-grey)">Only the owner can change who has access.</p>
+  }
+} @else {
+  <p class="text-(--color-st-grey)" aria-live="polite">Loading the members…</p>
+}

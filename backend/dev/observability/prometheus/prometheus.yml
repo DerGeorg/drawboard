@@ -1,0 +1,53 @@
+# Prometheus v3.13.4 (LTS) – local dev copy of the planned dergeorg config
+# (research D §2.4, option A). Flags in compose.observability.yaml:
+#   --web.enable-remote-write-receiver   Tempo metrics-generator (and Alloys in prod)
+#   --web.enable-otlp-receiver           app metrics via Alloy -> /api/v1/otlp
+#   --enable-feature=exemplar-storage    exemplars -> Tempo links in Grafana
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+storage:
+  tsdb:
+    out_of_order_time_window: 30m
+  exemplars:
+    max_exemplars: 100000
+
+otlp:
+  # keep the default translation (UnderscoreEscapingWithSuffixes):
+  # http.server.requests (unit s) -> http_server_requests_seconds_*
+  promote_resource_attributes:
+    - service.name
+    - service.namespace
+    - service.version
+    - deployment.environment.name
+    - host.name
+  keep_identifying_resource_attributes: true
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: {instance: prometheus, host: local}
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+        labels: {instance: loki, host: local}
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+        labels: {instance: tempo, host: local}
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels: {instance: grafana, host: local}
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+        labels: {instance: alloy, host: local}

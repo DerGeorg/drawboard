@@ -1,0 +1,146 @@
+@let current = folder();
+<li>
+  <div
+    class="group flex items-center rounded-xl pr-1 transition-colors"
+    [class]="
+      dropHover()
+        ? 'bg-(--color-st-yellow)/40'
+        : isActive()
+          ? 'bg-(--color-st-yellow)/25'
+          : 'hover:bg-(--color-st-white-darker)'
+    "
+    [style.padding-left.rem]="0.25 + depth() * 0.875"
+    (dragover)="allowDrop($event)"
+    (dragleave)="dropHover.set(false)"
+    (drop)="drop($event)"
+  >
+    @if (node().children.length > 0) {
+      <button
+        type="button"
+        class="btn btn-square btn-xs btn-ghost"
+        [attr.aria-label]="(expanded() ? 'Collapse ' : 'Expand ') + current.name"
+        [attr.aria-expanded]="expanded()"
+        (click)="toggle()"
+      >
+        <span [class.-rotate-90]="!expanded()" class="inline-flex transition-transform">
+          <drawboard-icon name="chevronDown" />
+        </span>
+      </button>
+    } @else {
+      <span class="inline-block w-6 shrink-0" aria-hidden="true"></span>
+    }
+    <a
+      routerLink="/boards"
+      [queryParams]="{ view: 'mine', folder: current.id }"
+      class="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1.5 text-sm font-medium focus-visible:ring-2 focus-visible:ring-(--color-st-primary)"
+      [class.text-(--color-st-primary)]="isActive()"
+      [attr.aria-current]="isActive() ? 'page' : null"
+    >
+      <drawboard-icon name="folder" />
+      <span class="truncate">{{ current.name }}</span>
+    </a>
+    <drawboard-action-menu [label]="`Actions of folder ${current.name}`">
+      <li role="none">
+        <button type="button" role="menuitem" class="panel-item" (click)="setMode('share')">
+          <drawboard-icon name="share" />
+          Share…
+        </button>
+      </li>
+      <li role="none">
+        <button type="button" role="menuitem" class="panel-item" (click)="setMode('child')">
+          <drawboard-icon name="folderPlus" />
+          New subfolder
+        </button>
+      </li>
+      <li role="none">
+        <button type="button" role="menuitem" class="panel-item" (click)="setMode('rename')">
+          <drawboard-icon name="rename" />
+          Rename
+        </button>
+      </li>
+      <li role="none">
+        <button type="button" role="menuitem" class="panel-item" (click)="setMode('move')">
+          <drawboard-icon name="folder" />
+          Move to…
+        </button>
+      </li>
+      <li role="none">
+        <button
+          type="button"
+          role="menuitem"
+          class="panel-item text-(--color-st-red)"
+          (click)="setMode('delete')"
+        >
+          <drawboard-icon name="trash" />
+          Move to trash
+        </button>
+      </li>
+    </drawboard-action-menu>
+  </div>
+
+  @switch (mode()) {
+    @case ('rename') {
+      <div class="py-1 pr-1" [style.padding-left.rem]="1.75 + depth() * 0.875">
+        <drawboard-name-form
+          label="New name of the folder"
+          [value]="current.name"
+          (save)="rename($event)"
+          (dismissed)="setMode('idle')"
+        />
+      </div>
+    }
+    @case ('child') {
+      <div class="py-1 pr-1" [style.padding-left.rem]="1.75 + depth() * 0.875">
+        <drawboard-name-form
+          label="Name of the new subfolder"
+          (save)="createChild($event)"
+          (dismissed)="setMode('idle')"
+        />
+      </div>
+    }
+    @case ('delete') {
+      <div
+        role="group"
+        [attr.aria-label]="`Move ${current.name} to the trash?`"
+        class="flex flex-col gap-2 py-1 pr-1"
+        [style.padding-left.rem]="1.75 + depth() * 0.875"
+      >
+        <p class="text-sm">Move “{{ current.name }}” and everything in it to the trash?</p>
+        <div class="flex gap-2">
+          <button type="button" class="btn btn-sm st-btn-primary-red" (click)="remove(current)">
+            Yes, move to trash
+          </button>
+          <button type="button" class="btn btn-sm btn-ghost" (click)="setMode('idle')">
+            Cancel
+          </button>
+        </div>
+      </div>
+    }
+    @case ('share') {
+      <drawboard-share-dialog
+        kind="folder"
+        [resourceId]="current.id"
+        [name]="current.name"
+        [role]="current.role"
+        (closed)="setMode('idle')"
+      />
+    }
+    @case ('move') {
+      <drawboard-folder-picker
+        [heading]="`Move “${current.name}” to…`"
+        [current]="current.parentId"
+        [excluded]="excluded()"
+        (picked)="move($event)"
+        (closed)="setMode('idle')"
+      />
+    }
+  }
+
+  @if (expanded() && node().children.length > 0) {
+    <ul class="flex flex-col gap-0.5" [attr.aria-label]="`Subfolders of ${current.name}`">
+      @for (child of node().children; track child.folder.id) {
+        <drawboard-folder-tree-node [node]="child" [active]="active()" [depth]="depth() + 1" />
+      }
+    </ul>
+  }
+</li>

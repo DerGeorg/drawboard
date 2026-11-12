@@ -1,0 +1,28 @@
+@if (board(); as doc) {
+  <drawboard-board-canvas class="absolute inset-0" [board]="doc" [readOnly]="true" />
+
+  <div
+    class="float-panel absolute top-3 left-3 z-10 flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center gap-2 p-2 pl-3"
+    role="status"
+  >
+    <span class="min-w-0 truncate text-sm font-semibold" data-testid="title">{{ title() }}</span>
+    <span class="badge st-badge-yellow" data-testid="banner">Opened from a link, not saved</span>
+    <button
+      type="button"
+      class="btn btn-sm st-btn-primary-yellow"
+      [disabled]="saving()"
+      (click)="saveCopy()"
+    >
+      {{ saving() ? 'Saving…' : 'Save a copy' }}
+    </button>
+    <a routerLink="/boards" class="btn btn-sm btn-ghost">My boards</a>
+  </div>
+} @else {
+  <section class="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-4">
+    <div class="float-panel flex flex-col gap-3 p-6">
+      <h1 class="text-lg font-semibold">This link cannot be opened</h1>
+      <p class="text-sm" role="alert" data-testid="error">{{ error() }}</p>
+      <a routerLink="/boards" class="btn st-btn-primary-yellow">Go to my boards</a>
+    </div>
+  </section>
+}

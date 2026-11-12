@@ -1,0 +1,43 @@
+# =============================================================================
+# Pipeline of the drawboard API contract (ci/components 2.17.0, component openapi
+# in script mode: every job runs scripts/build.sh of this repository - no Gradle)
+#
+#   push to a branch   version, "build.sh lint" + "bundle", "build.sh breaking"
+#                      (against the last tag), "build.sh build" (model check,
+#                      Kotlin jar + sources + POM, Angular package)
+#   push to main       additionally: jar -> Maven, package -> npm (package
+#                      registry of this project, CI_JOB_TOKEN), bundle ->
+#                      generic package openapi/<version>; then tag + release
+#
+# Breaking check: oasdiff-severity.txt and oasdiff-ignore.txt (see README,
+# "Versioning and breaking changes"). A new ErrorCode is not breaking.
+#
+# Backend and frontend read the packages through the group endpoint of
+# apps/drawboard; this project allows that group in its job-token allowlist.
+# =============================================================================
+
+include:
+  - component: $CI_SERVER_FQDN/ci/components/version@2.17.0
+  - component: $CI_SERVER_FQDN/ci/components/openapi@2.17.0
+    inputs:
+      spec: openapi.yaml
+      build-script: scripts/build.sh   # copied unchanged from ci/components examples/contract-build.sh
+      breaking-check: enforce
+  - component: $CI_SERVER_FQDN/ci/components/release@2.17.0
+
+stages: [version, lint, test, build, package, release]
+
+# Which pipelines run (ci/components README, "Pipelines ohne Doppel"):
+#   tag        none - semantic-release creates a tag per release; the tag
+#              pipeline would build and publish the same version again.
+#   open MR    only the merge request pipeline, no second branch pipeline
+#              for the same push.
+#   otherwise  the branch pipeline, also when started by hand.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH

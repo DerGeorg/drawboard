@@ -1,0 +1,111 @@
+# =============================================================================
+# drawboard backend - the pipeline of a Spring Boot service (Gradle multi-module)
+#
+# All logic lives in ci/components. This file only says WHAT to do.
+#
+#   push to a branch   version, lint, unit + integration tests, jar, image, SBOM
+#   push to main       additionally: release (tag + GitLab release)
+#   push to main       deploy:dev to the Portainer stack drawboard-backend-dev (note)
+#   prod               one click on deploy:prod (Portainer stack drawboard-backend, unraid);
+#                      never without asking Georg first
+#
+# The API contract (at.dergeorg.drawboard:drawboard-api-kotlin) comes from the
+# Maven endpoint of the group apps/drawboard (settings.gradle.kts). Gradle
+# authenticates with CI_JOB_TOKEN (header Job-Token); apps/drawboard/api
+# allows this group in its job-token allowlist. The detekt rule set dergeorg
+# comes from the package registry of ci/detekt-rules the same way.
+# =============================================================================
+
+
+include:
+  - component: $CI_SERVER_FQDN/ci/components/version@2.19.0
+
+  # detekt over every module (source-dirs: auto, build-logic excluded) plus the rule set dergeorg
+  - component: $CI_SERVER_FQDN/ci/components/spring-lint@2.19.0
+    inputs:
+      detekt-plugins: "at.dergeorg.ci:detekt-rules:1.1.0"
+
+  # fast tests (src/test) and the integrationTest suite (Testcontainers, PostgreSQL 18) as two jobs
+  - component: $CI_SERVER_FQDN/ci/components/spring-test@2.19.0
+    inputs:
+      job-name: "test:unit"
+      gradle-task: "test"
+  - component: $CI_SERVER_FQDN/ci/components/spring-test@2.19.0
+    inputs:
+      job-name: "test:integration"
+      gradle-task: "integrationTest"
+      testcontainers: true
+
+  # the bootJar of core (modules/core/build/libs/drawboard-backend-<version>.jar), not "the largest jar".
+  # cds stays off: the training run would start Flyway and needs the database.
+  - component: $CI_SERVER_FQDN/ci/components/spring-image@2.19.0
+    inputs:
+      jar: "modules/core"
+  - component: $CI_SERVER_FQDN/ci/components/sbom@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/release@2.19.0
+
+  # Publishing for others (Georg, 2026-11-11): one click on publish:image in a release
+  # pipeline on main copies this release's image unchanged in content to
+  # ghcr.io/dergeorg/drawboard-backend (version + latest). Never without asking Georg.
+  # Credentials: group variables GHCR_USER / GHCR_TOKEN (gitlab-devops scripts/31-drawboard-ghcr.sh).
+  - component: $CI_SERVER_FQDN/ci/components/image-publish@2.19.0
+    inputs:
+      target-image: ghcr.io/dergeorg/drawboard-backend
+      labels: |
+        org.opencontainers.image.title=Drawboard backend
+        org.opencontainers.image.description=Drawboard backend: API and live collaboration of the self-hosted whiteboard
+        org.opencontainers.image.licenses=AGPL-3.0-only
+        org.opencontainers.image.source=https://github.com/DerGeorg/drawboard
+        org.opencontainers.image.vendor=Georg Reisinger
+
+  # Portainer Git stacks of deploy/note/docker-compose.dev.yml and
+  # deploy/unraid/docker-compose.yml on main (gitlab-devops scripts/24-drawboard-stacks.sh).
+  # The jobs only set APP_IMAGE; the Git redeploy uses the group variable STACK_GIT_PASSWORD.
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+    inputs:
+      job-name: "deploy:dev"
+      stack-name: "drawboard-backend-dev"
+      endpoint-id: 3                    # 3 = note
+      environment-name: "dev"
+      environment-url: "https://drawboard-dev.dergeorg.at"
+      when: on_success                  # dev deploys without a click (main only)
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+    inputs:
+      job-name: "deploy:prod"
+      stack-name: "drawboard-backend"
+      endpoint-id: 4                    # 4 = unraid
+      environment-name: "production"
+      environment-url: "https://draw.dergeorg.at"
+      when: manual
+
+stages: [version, lint, test, build, package, release, deploy]
+
+# Which pipelines run (ci/components README, "Pipelines ohne Doppel"):
+#   tag        none - semantic-release creates a tag per release; the tag
+#              pipeline would build everything again and fail at deploy:dev.
+#   open MR    only the merge request pipeline, no second branch pipeline
+#              for the same push.
+#   otherwise  the branch pipeline, also when started by hand.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+# A run with DEPLOY_VERSION set is a pure deploy pipeline: nothing is built,
+# an already verified image is rolled out.
+.only-when-building:
+  rules:
+    - if: $DEPLOY_VERSION
+      when: never
+    - when: on_success
+
+version:          { rules: !reference [.only-when-building, rules] }
+lint:             { rules: !reference [.only-when-building, rules] }
+test:unit:        { rules: !reference [.only-when-building, rules] }
+test:integration: { rules: !reference [.only-when-building, rules] }
+build:jar:        { rules: !reference [.only-when-building, rules] }
+build:image:      { rules: !reference [.only-when-building, rules] }

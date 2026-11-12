@@ -1,0 +1,39 @@
+<footer class="border-t border-(--color-st-white-darker)">
+  <div
+    class="mx-auto flex max-w-5xl flex-wrap justify-between gap-x-6 gap-y-2 px-4 py-4 text-xs text-(--color-st-grey) sm:px-6"
+  >
+    <span>© {{ year }} DerGeorg · Drawboard</span>
+    <p class="flex flex-wrap gap-x-2">
+      <span data-testid="version">Version {{ config.version }} · {{ config.environment }}</span>
+      <span aria-hidden="true">·</span>
+      <a
+        [href]="licenseUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="underline-offset-2 hover:text-(--color-st-black) hover:underline"
+        data-testid="license-link"
+        >AGPL-3.0</a
+      >
+      <span aria-hidden="true">·</span>
+      <a
+        [href]="config.sourceUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="underline-offset-2 hover:text-(--color-st-black) hover:underline"
+        data-testid="source-link"
+        >Source code</a
+      >
+      @if (config.aboutUrl; as aboutUrl) {
+        <span aria-hidden="true">·</span>
+        <a
+          [href]="aboutUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="underline-offset-2 hover:text-(--color-st-black) hover:underline"
+          data-testid="about-link"
+          >Host your own</a
+        >
+      }
+    </p>
+  </div>
+</footer>

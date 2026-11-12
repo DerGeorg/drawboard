@@ -1,0 +1,30 @@
+<button
+  type="button"
+  class="btn btn-square btn-sm btn-ghost"
+  aria-haspopup="menu"
+  [attr.aria-label]="label()"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+>
+  <drawboard-icon name="more" />
+</button>
+@if (open()) {
+  <button
+    type="button"
+    class="fixed inset-0 z-10 cursor-default"
+    tabindex="-1"
+    aria-hidden="true"
+    (click)="close()"
+  ></button>
+  <ul
+    role="menu"
+    class="float-panel absolute right-0 z-20 w-48 p-1"
+    [class.top-full]="placement() === 'below'"
+    [class.mt-1]="placement() === 'below'"
+    [class.bottom-full]="placement() === 'above'"
+    [class.mb-1]="placement() === 'above'"
+    [attr.aria-label]="label()"
+  >
+    <ng-content />
+  </ul>
+}

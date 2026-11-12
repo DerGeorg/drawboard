@@ -1,0 +1,37 @@
+# =============================================================================
+# Profile dev = `./gradlew bootRun` on the Mac against the infrastructure from compose.yaml (see dev/README.md).
+# LOCAL ONLY: the values below are the throwaway values of compose.yaml and the dev realm. Environment variables
+# still win over them.
+# =============================================================================
+
+# Placeholder values used by application.yaml
+DB_PORT: 15432
+DB_PASSWORD: drawboard
+OIDC_ISSUER_URI: http://localhost:18180/realms/drawboard
+OIDC_AUDIENCE: drawboard-api
+DRAWBOARD_ADMIN_GROUP: drawboard-admins
+APP_ENVIRONMENT: dev
+DRAWBOARD_FILES_DIR: ./data/files          # git-ignored
+DRAWBOARD_FILE_URL_KEYS: ZGV2LW9ubHktZmlsZS11cmwta2V5LTAxMjM0NTY3ODlhYmNkZWY=   # throwaway, 32 bytes - never use outside the dev profile
+DRAWBOARD_PLUGIN_PSEUDONYM_KEY: ZGV2LW9ubHktcGx1Z2luLXBzZXVkb255bS1rZXktMDEyMzQ1Njc4OQ==   # throwaway
+DRAWBOARD_PUBLIC_URL: http://localhost:4200   # the Angular dev server; the WebSocket accepts only this Origin
+
+server:
+  port: 18081                               # never 8080 on Georg's Mac
+
+management:
+  server:
+    port: 18082
+  otlp:
+    metrics:
+      export:
+        # Off unless the observability stack runs (compose.observability.yaml). Then start with
+        # OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED=true
+        enabled: false
+        step: 10s
+
+springdoc:
+  api-docs:
+    enabled: true                           # springdoc needs it for Swagger UI; the UI still shows the contract
+  swagger-ui:
+    enabled: true                           # http://localhost:18081/swagger-ui.html

@@ -1,0 +1,194 @@
+@if (board.error(); as error) {
+  <drawboard-load-error class="m-4" [error]="error" subject="the board" (retry)="board.reload()" />
+} @else if (board.hasValue()) {
+  <drawboard-board-canvas
+    class="absolute inset-0"
+    [board]="doc()"
+    [boardId]="boardId()"
+    [readOnly]="readOnly()"
+    [services]="services"
+    [canUpload]="canUpload()"
+    (files)="dropped($event)"
+    (diagram)="addDiagram($event)"
+  />
+} @else {
+  <p class="m-4 pt-14 text-(--color-st-grey)" aria-live="polite">Loading board…</p>
+}
+
+<!-- the chrome: every panel floats over the canvas and takes only the room it needs -->
+<!-- z-20: its menus and dialogs must cover the tool column -->
+<drawboard-board-title-bar
+  class="absolute top-3 left-3 z-20"
+  [board]="loaded()"
+  [doc]="doc()"
+  [guest]="guest() !== null"
+  [backLink]="backLink()"
+  (changed)="board.reload()"
+/>
+
+@if (board.hasValue()) {
+  <drawboard-board-participants
+    class="absolute top-3 right-3 z-10"
+    [peers]="collab.peers()"
+    [selfName]="selfName()"
+    [guest]="guest() !== null"
+    [state]="collab.state()"
+    [following]="follow.following()?.clientId ?? null"
+    [canPresent]="follow.canPresent()"
+    [ignored]="follow.ignored()"
+    (share)="shareOpen.set(true)"
+    (follow)="follow.follow($event)"
+    (stopFollowing)="follow.stop()"
+    (summon)="follow.present($event)"
+    (ignore)="follow.ignore($event)"
+    (unignore)="follow.unignore($event)"
+  />
+  <drawboard-board-follow-bar
+    class="absolute inset-0 z-10"
+    [following]="follow.following()"
+    [presenting]="follow.presenting()"
+    [followers]="follow.followers()"
+    (stop)="follow.stop()"
+    (endPresenting)="follow.endPresenting()"
+    (ignore)="ignorePresenter($event.userId)"
+  />
+  <drawboard-board-poker-rounds
+    class="absolute top-3 left-1/2 z-10 -translate-x-1/2"
+    [engine]="engine()"
+    [readOnly]="readOnly()"
+    (open)="openPoker($event)"
+    (openQuick)="openQuickPoker($event)"
+    (startQuick)="startQuickPoker()"
+  />
+  <drawboard-board-context-toolbar
+    class="pointer-events-none absolute inset-0 z-10"
+    [engine]="engine()"
+  />
+  <drawboard-board-toolbar
+    class="absolute top-1/2 left-3 z-10 -translate-y-1/2"
+    [engine]="engine()"
+    [readOnly]="readOnly()"
+    [canUpload]="canUpload()"
+    (upload)="upload($event)"
+    (diagram)="addDiagram()"
+    (kanban)="addKanban()"
+    (story)="addStory()"
+    [pluginBlocks]="plugins.blockOptions()"
+    (pluginBlock)="addPluginBlock($event)"
+  />
+  <drawboard-board-upload-panel
+    class="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+    [items]="uploads.items()"
+    (cleared)="uploads.clearFinished()"
+  />
+  @if (panel(); as open) {
+    @if (engine(); as panelEngine) {
+      @switch (open.kind) {
+        @case ('diagram') {
+          <drawboard-board-diagram-editor
+            class="absolute top-16 right-3 z-20"
+            [engine]="panelEngine"
+            [blockId]="open.blockId"
+            (closed)="panel.set(undefined)"
+          />
+        }
+        @case ('story') {
+          <drawboard-board-story-editor
+            class="absolute top-16 right-3 z-20"
+            [engine]="panelEngine"
+            [blockId]="open.blockId"
+            [poker]="pokerAvailable()"
+            (estimate)="openPoker(open.blockId)"
+            (closed)="panel.set(undefined)"
+          />
+        }
+        @case ('poker') {
+          <drawboard-board-poker-dialog
+            class="absolute top-16 right-3 z-20"
+            [engine]="panelEngine"
+            mode="card"
+            [blockId]="open.blockId"
+            (closed)="panel.set(undefined)"
+          />
+        }
+        @case ('quick-poker') {
+          @if (open.kind === 'quick-poker') {
+            <drawboard-board-poker-dialog
+              class="absolute top-16 right-3 z-20"
+              [engine]="panelEngine"
+              mode="quick"
+              [roundId]="open.roundId"
+              (closed)="panel.set(undefined)"
+            />
+          }
+        }
+        @case ('card') {
+          @if (open.kind === 'card') {
+            <drawboard-board-kanban-card
+              class="absolute top-16 right-3 z-20"
+              [engine]="panelEngine"
+              [boardId]="boardId()"
+              [blockId]="open.blockId"
+              [cardId]="open.cardId"
+              [guest]="guest() !== null"
+              (closed)="panel.set(undefined)"
+            />
+          }
+        }
+      }
+    }
+  }
+  <drawboard-board-zoom class="absolute right-3 bottom-3 z-10" [engine]="engine()" />
+}
+
+@if (guest() !== null) {
+  <!-- bottom centre: the toolbar column (with undo and redo) is left, the zoom right; guests have no upload panel -->
+  <drawboard-guest-made-with class="absolute bottom-3 left-1/2 z-10 -translate-x-1/2" />
+}
+
+@if (denied()) {
+  <!-- a banner, not only the connection badge: on a phone that badge is just a dot -->
+  <div
+    role="alert"
+    data-testid="access-ended"
+    class="float-panel absolute top-16 left-1/2 z-20 flex w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 flex-col gap-2 p-4"
+  >
+    @if (guest()) {
+      <p class="font-semibold">This link no longer works.</p>
+      <p class="text-sm">
+        It was revoked or has expired. Ask the person who shared it for a new link.
+      </p>
+    } @else {
+      <p class="font-semibold">You no longer have access to this board.</p>
+      <p class="text-sm">Changes you make now are not saved.</p>
+      <a routerLink="/boards" class="st-btn-primary-yellow self-start">Back to my boards</a>
+    }
+  </div>
+}
+
+@if (shareOpen() && loaded(); as shared) {
+  <drawboard-share-dialog
+    kind="board"
+    [resourceId]="shared.id"
+    [name]="shared.title"
+    [role]="shared.role"
+    (closed)="shareOpen.set(false)"
+  />
+}
+
+@if (plugins.linkPrompt(); as prompt) {
+  <drawboard-modal heading="Open a link?" (closed)="answerLink(false)">
+    <p class="text-sm">
+      The plugin <strong>{{ prompt.pluginId }}</strong> wants to open a page on
+      <strong data-testid="link-host">{{ prompt.host }}</strong
+      >.
+    </p>
+    <p class="mt-2 text-xs break-all text-(--color-st-grey)">{{ prompt.url }}</p>
+    <div class="mt-4 flex justify-end gap-2">
+      <button type="button" class="btn btn-ghost btn-sm" (click)="answerLink(false)">Cancel</button>
+      <button type="button" class="st-btn-primary-yellow btn-sm" (click)="answerLink(true)">
+        Open
+      </button>
+    </div>
+  </drawboard-modal>
+}

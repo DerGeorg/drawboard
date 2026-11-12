@@ -1,0 +1,17 @@
+@if (view(); as v) {
+  <!-- a badge from sm up, a coloured dot on a phone where the top bar has no room for words -->
+  <span
+    [class]="`${v.css} max-sm:hidden`"
+    [attr.title]="v.hint"
+    aria-live="polite"
+    data-testid="connection"
+    >{{ v.label }}</span
+  >
+  <span
+    [class]="`size-2.5 self-center rounded-full sm:hidden ${v.dot}`"
+    [attr.title]="`${v.hint} ${v.label}`"
+    role="img"
+    [attr.aria-label]="v.label"
+    data-testid="connection-dot"
+  ></span>
+}

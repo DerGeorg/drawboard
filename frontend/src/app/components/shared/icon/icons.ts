@@ -1,0 +1,64 @@
+/**
+ * Icon paths on a 24x24 grid, drawn as strokes (stroke-width 2, round caps). Inline SVG paths
+ * instead of an icon font or library: nothing to download, and only the icons in use ship.
+ */
+export const ICONS = {
+  select: 'M5 3l14 7-6 2-2 6z',
+  hand: 'M8 13V6a1.5 1.5 0 013 0v5M11 11V4.5a1.5 1.5 0 013 0V11M14 11V6a1.5 1.5 0 013 0v7c0 4-2 7-6 7-3 0-4-2-6-5l-1-2a1.5 1.5 0 012-2l2 2',
+  sticky: 'M4 4h16v10l-6 6H4zM14 20v-6h6',
+  text: 'M5 6V4h14v2M12 4v16M9 20h6',
+  shapes: 'M4 4h7v7H4zM14 17.5a3.5 3.5 0 107 0 3.5 3.5 0 10-7 0M13 4l4 6h-8z',
+  rect: 'M4 5h16v14H4z',
+  ellipse: 'M4 12a8 6 0 1016 0 8 6 0 10-16 0',
+  diamond: 'M12 3l9 9-9 9-9-9z',
+  frame: 'M7 3v18M17 3v18M3 7h18M3 17h18',
+  table: 'M4 4h16v16H4zM4 9h16M4 14.5h16M9.5 9v11M14.5 9v11',
+  rowAdd: 'M4 4h16v8H4zM4 8h16M12 15v6M9 18h6',
+  rowRemove: 'M4 4h16v8H4zM4 8h16M9 18h6',
+  colAdd: 'M4 4h8v16H4zM8 4v16M18 9v6M15 12h6',
+  colRemove: 'M4 4h8v16H4zM8 4v16M15 12h6',
+  unframe: 'M7 3v4H3M17 3v4h4M7 21v-4H3M17 21v-4h4M10 12h4',
+  connector: 'M5 19L19 5M10 5h9v9',
+  pen: 'M4 20l1-4L16 5l3 3L8 19z',
+  eraser: 'M4 16l9-9 6 6-6 6H8zM9 12l6 6',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',
+  redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 000 12h3',
+  zoomIn: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5M8 11h6M11 8v6',
+  zoomOut: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5M8 11h6',
+  fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  back: 'M15 5l-7 7 7 7',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  info: 'M12 2a10 10 0 100 20 10 10 0 000-20zM12 11v6M12 7.5h.01',
+  share: 'M12 3v12M7 8l5-5 5 5M5 14v6h14v-6',
+  close: 'M6 6l12 12M18 6L6 18',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  duplicate: 'M9 9h11v11H9zM5 15V4h11',
+  rename: 'M4 20l1-4L16 5l3 3L8 19zM13 8l3 3',
+  search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',
+  plus: 'M12 5v14M5 12h14',
+  clock: 'M12 4a8 8 0 100 16 8 8 0 000-16zM12 8v4l3 2',
+  board: 'M4 5h16v14H4zM4 10h16M10 10v9',
+  users:
+    'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM2 20c0-3.5 3-6 7-6s7 2.5 7 6M16 4.5a3.5 3.5 0 010 6.5M18 14.5c2.5.7 4 2.6 4 5.5',
+  export: 'M12 15V3M7 8l5-5 5 5M5 14v6h14v-6',
+  import: 'M12 3v12M7 10l5 5 5-5M5 20h14',
+  history: 'M4 12a8 8 0 108-8 8 8 0 00-6 2.7L4 9M4 4v5h5M12 8v4l3 2',
+  folder: 'M3 6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1z',
+  folderPlus:
+    'M3 6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1zM12 11v5M9.5 13.5h5',
+  restore: 'M4 12a8 8 0 108-8 8 8 0 00-6 2.7L4 9M4 4v5h5',
+  chevronDown: 'M6 9l6 6 6-6',
+  menu: 'M4 7h16M4 12h16M4 17h16',
+  logout: 'M10 4H5v16h5M15 8l4 4-4 4M19 12H9',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 15v4a1 1 0 001 1h14a1 1 0 001-1v-4',
+  file: 'M6 3h8l4 4v14H6zM14 3v4h4',
+  diagram: 'M4 4h6v5H4zM14 15h6v5h-6zM7 9v4h10v2',
+  story: 'M6 3h12v18H6zM9 8h6M9 12h6M9 16h3',
+  kanban: 'M4 4h16v16H4zM9.5 4v16M14.5 4v16M6 7h2M11 7h2M16 7h2M6 10h2M11 10h2',
+  puzzle:
+    'M10 4a2 2 0 014 0v2h4v4h-2a2 2 0 000 4h2v4h-4v-2a2 2 0 00-4 0v2H6v-4h2a2 2 0 000-4H6V6h4z',
+  settings:
+    'M12 9a3 3 0 100 6 3 3 0 000-6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
+} as const;
+
+export type IconName = keyof typeof ICONS;

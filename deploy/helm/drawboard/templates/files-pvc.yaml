@@ -1,0 +1,21 @@
+{{- if and .Values.files.persistence.enabled (not .Values.files.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "drawboard.componentName" (dict "ctx" . "component" "files") }}
+  labels:
+    {{- include "drawboard.labels" (dict "ctx" . "component" "files") | nindent 4 }}
+  {{- with .Values.files.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.files.persistence.accessModes | nindent 4 }}
+  {{- with .Values.files.persistence.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.files.persistence.size }}
+{{- end }}

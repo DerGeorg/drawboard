@@ -1,0 +1,147 @@
+# =============================================================================
+# Drawboard frontend - the pipeline of an Angular app (CSR, nginx image)
+#
+# All logic lives in ci/components. This file only says WHAT to do.
+#
+#   push to a branch   version, lint, unit tests, image, SBOM
+#   push to main       additionally: release (tag + GitLab release)
+#   push to main       deploy:dev to the Portainer stack drawboard-frontend-dev (note)
+#   prod               one click on deploy:prod (Portainer stack drawboard-frontend, unraid);
+#                      never without asking Georg first
+#
+# The API client @apps/drawboard-api and the lint rules @ci/eslint-plugin come
+# from the instance-level npm endpoint of the GitLab package registry (.npmrc).
+# npm authenticates with CI_JOB_TOKEN (the components set NPM_TOKEN to it; in the
+# image build it is a BuildKit secret); apps/drawboard/api and ci/eslint-rules
+# allow this project in their job-token allowlists.
+# =============================================================================
+
+include:
+  - component: $CI_SERVER_FQDN/ci/components/version@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-lint@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-test@2.19.0
+    inputs:
+      junit-path: "junit/unit-results.xml"
+  # nginx image (CSR, no @angular/ssr): angular-image renders deploy/nginx/default.conf.template
+  # at container start (runtime config /config.json, same-origin /api and /faro proxies) and
+  # passes NPM_TOKEN to npm ci as a BuildKit secret. The defaults below are baked into the image
+  # as ENV; the compose files in deploy/ override them per environment.
+  - component: $CI_SERVER_FQDN/ci/components/angular-image@2.19.0
+    inputs:
+      runtime-env: |
+        APP_ENVIRONMENT=unset
+        BACKEND_URL=http://drawboard-backend:18081
+        OIDC_ISSUER=
+        OIDC_CLIENT_ID=drawboard-web
+        OIDC_SCOPE=openid profile email
+        FARO_RECEIVER_URL=
+        FARO_APP_NAME=drawboard-frontend
+        FARO_NAMESPACE=drawboard
+        FARO_SAMPLING_RATE=1
+        FILES_ORIGIN=
+        PLUGIN_ORIGIN=
+        ABOUT_URL=https://drawboard.dergeorg.at
+        SOURCE_URL=https://github.com/DerGeorg/drawboard
+  # Playwright against the image built above, a real backend, PostgreSQL and Keycloak with the
+  # realm of the backend repository (same tag as the image). All three Playwright projects run:
+  # chromium (signed in, real backend), sandbox (plugin sandbox, Mermaid/pdf.js under the
+  # production CSP, header check) and mocked (guest allowlist, /api mocked) - the Fable reviews
+  # require the last two in the pipeline before guests and third-party plugins go to production.
+  # The backend runs its dev profile (realm drawboard, throwaway keys of application-dev.yaml);
+  # the values below only move it into the job's stack. Pin backend-image and realm-ref together.
+  - component: $CI_SERVER_FQDN/ci/components/angular-e2e@2.19.0
+    inputs:
+      backend-image: "registry.dergeorg.at/apps/drawboard/backend:1.12.1"
+      realm-project: "apps/drawboard/backend"
+      realm-ref: "v1.12.1"
+      realm-path: "dev/keycloak/drawboard-realm.json"
+      keycloak-realm: "drawboard"
+      backend-health-url: "http://backend:18082/actuator/health/readiness"
+      backend-env: |
+        SPRING_PROFILES_ACTIVE=dev
+        OIDC_ISSUER_URI=http://localhost:18180/realms/drawboard
+        OIDC_JWK_SET_URI=http://keycloak:18180/realms/drawboard/protocol/openid-connect/certs
+        DRAWBOARD_PUBLIC_URL=http://localhost:18090
+        DRAWBOARD_FILES_DIR=/tmp/files
+      frontend-env: |
+        OIDC_ISSUER=http://localhost:18180/realms/drawboard
+  - component: $CI_SERVER_FQDN/ci/components/sbom@2.19.0
+    inputs:
+      source-dirs: "."            # lockfile: the npm packages are bundled into the JS
+  - component: $CI_SERVER_FQDN/ci/components/release@2.19.0
+
+  # Publishing for others (Georg, 2026-11-11): one click on publish:image in a release
+  # pipeline on main copies this release's image unchanged in content to
+  # ghcr.io/dergeorg/drawboard-frontend (version + latest). Never without asking Georg.
+  # Credentials: group variables GHCR_USER / GHCR_TOKEN (gitlab-devops scripts/31-drawboard-ghcr.sh).
+  - component: $CI_SERVER_FQDN/ci/components/image-publish@2.19.0
+    inputs:
+      target-image: ghcr.io/dergeorg/drawboard-frontend
+      labels: |
+        org.opencontainers.image.title=Drawboard frontend
+        org.opencontainers.image.description=Drawboard frontend: web app (nginx) of the self-hosted whiteboard
+        org.opencontainers.image.licenses=AGPL-3.0-only
+        org.opencontainers.image.source=https://github.com/DerGeorg/drawboard
+        org.opencontainers.image.vendor=Georg Reisinger
+
+  # Portainer Git stacks of deploy/compose.dev.yaml and deploy/compose.prod.yaml on main
+  # (gitlab-devops scripts/24-drawboard-stacks.sh). The jobs only set APP_IMAGE; the Git
+  # redeploy uses the group variable STACK_GIT_PASSWORD.
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+    inputs:
+      job-name: "deploy:dev"
+      stack-name: "drawboard-frontend-dev"
+      endpoint-id: 3                    # 3 = note
+      environment-name: "dev"
+      environment-url: "https://drawboard-dev.dergeorg.at"
+      when: on_success                  # dev deploys without a click (main only)
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+    inputs:
+      job-name: "deploy:prod"
+      stack-name: "drawboard-frontend"
+      endpoint-id: 4                    # 4 = unraid
+      environment-name: "production"
+      environment-url: "https://draw.dergeorg.at"
+      when: manual
+
+stages: [version, lint, test, package, e2e, release, deploy]
+
+# Which pipelines run (ci/components README, "Pipelines ohne Doppel"):
+#   tag        none - semantic-release creates a tag per release; the tag
+#              pipeline would build everything again and fail at deploy:dev.
+#   open MR    only the merge request pipeline, no second branch pipeline
+#              for the same push.
+#   otherwise  the branch pipeline, also when started by hand.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+# A run with DEPLOY_VERSION set is a pure deploy pipeline: nothing is built,
+# an already verified image is rolled out.
+.only-when-building:
+  rules:
+    - if: $DEPLOY_VERSION
+      when: never
+    - when: on_success
+
+version: { rules: !reference [.only-when-building, rules] }
+lint:    { rules: !reference [.only-when-building, rules] }
+
+test:
+  rules: !reference [.only-when-building, rules]
+  # coverage figure from Vitest's summary ("Statements   : 96.86% ( 772/797 )"); the
+  # thresholds themselves are enforced by ng test (angular.json coverageThresholds)
+  coverage: '/Statements\s*:\s*([\d.]+)%/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/drawboard-frontend/cobertura-coverage.xml
+
+build:image: { rules: !reference [.only-when-building, rules] }
+e2e:         { rules: !reference [.only-when-building, rules] }

@@ -1,0 +1,204 @@
+@if (placement(); as place) {
+  <div
+    class="float-panel pointer-events-auto absolute flex -translate-x-1/2 items-center gap-0.5 p-1"
+    [style.left]="left()"
+    [style.top.px]="place.y"
+    role="toolbar"
+    aria-label="Selection"
+    data-testid="context-toolbar"
+  >
+    @if (has('color')) {
+      <ng-container
+        [ngTemplateOutlet]="trigger"
+        [ngTemplateOutletContext]="{
+          field: 'color',
+          label: kind() === 'text' ? 'Text colour' : 'Colour',
+        }"
+      />
+    }
+    @if (has('fill')) {
+      <ng-container
+        [ngTemplateOutlet]="trigger"
+        [ngTemplateOutletContext]="{ field: 'fill', label: 'Fill' }"
+      />
+    }
+    @if (has('stroke')) {
+      <ng-container
+        [ngTemplateOutlet]="trigger"
+        [ngTemplateOutletContext]="{ field: 'stroke', label: 'Stroke' }"
+      />
+    }
+    @if (has('strokeWidth')) {
+      <div class="relative">
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost gap-1.5 px-2"
+          aria-label="Width"
+          aria-haspopup="true"
+          [attr.aria-expanded]="menu() === 'strokeWidth'"
+          (click)="toggle('strokeWidth')"
+        >
+          <span
+            class="block w-4 rounded-full bg-current"
+            [style.height.px]="current('strokeWidth')"
+          ></span>
+        </button>
+        @if (menu() === 'strokeWidth') {
+          <div
+            class="float-panel absolute top-full left-0 z-10 mt-2 flex gap-1 p-1.5"
+            role="group"
+            aria-label="Width options"
+          >
+            @for (w of widths; track w) {
+              <button
+                type="button"
+                [class]="
+                  current('strokeWidth') === w
+                    ? 'btn btn-square btn-sm st-btn-primary-yellow'
+                    : 'btn btn-square btn-sm btn-ghost'
+                "
+                [attr.aria-label]="`Width ${w}`"
+                [attr.aria-pressed]="current('strokeWidth') === w"
+                (click)="set('strokeWidth', w)"
+              >
+                {{ w }}
+              </button>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    @if (info().color !== undefined || has('fill') || has('stroke') || has('strokeWidth')) {
+      <span class="mx-0.5 h-5 w-px bg-(--color-st-white-darker)" aria-hidden="true"></span>
+    }
+    @if (table(); as t) {
+      <div
+        class="tooltip tooltip-top"
+        [attr.data-tip]="t.row === undefined ? 'Add row' : 'Add row below'"
+      >
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Add row"
+          (click)="tableEdit('addRow')"
+        >
+          <drawboard-icon name="rowAdd" />
+        </button>
+      </div>
+      <div
+        class="tooltip tooltip-top"
+        [attr.data-tip]="t.col === undefined ? 'Add column' : 'Add column to the right'"
+      >
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Add column"
+          (click)="tableEdit('addColumn')"
+        >
+          <drawboard-icon name="colAdd" />
+        </button>
+      </div>
+      <div
+        class="tooltip tooltip-top"
+        [attr.data-tip]="t.row === undefined ? 'Remove last row' : 'Remove row'"
+      >
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Remove row"
+          [disabled]="!canRemoveRow(t)"
+          (click)="tableEdit('removeRow')"
+        >
+          <drawboard-icon name="rowRemove" />
+        </button>
+      </div>
+      <div
+        class="tooltip tooltip-top"
+        [attr.data-tip]="t.col === undefined ? 'Remove last column' : 'Remove column'"
+      >
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Remove column"
+          [disabled]="t.cols <= 1"
+          (click)="tableEdit('removeColumn')"
+        >
+          <drawboard-icon name="colRemove" />
+        </button>
+      </div>
+      <span class="mx-0.5 h-5 w-px bg-(--color-st-white-darker)" aria-hidden="true"></span>
+    }
+    @if (hasFrame()) {
+      <div class="tooltip tooltip-top" data-tip="Remove frame, keep contents">
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Remove frame, keep contents"
+          (click)="removeFrame()"
+        >
+          <drawboard-icon name="unframe" />
+        </button>
+      </div>
+    }
+    <div class="tooltip tooltip-top" data-tip="Duplicate (Ctrl+D)">
+      <button
+        type="button"
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Duplicate"
+        (click)="duplicate()"
+      >
+        <drawboard-icon name="duplicate" />
+      </button>
+    </div>
+    <div class="tooltip tooltip-top" data-tip="Delete (Del)">
+      <button
+        type="button"
+        class="btn btn-square btn-sm btn-ghost"
+        aria-label="Delete"
+        (click)="remove()"
+      >
+        <drawboard-icon name="trash" />
+      </button>
+    </div>
+  </div>
+}
+
+<ng-template #trigger let-field="field" let-label="label">
+  <div class="relative">
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost gap-1.5 px-2"
+      [attr.aria-label]="label"
+      aria-haspopup="true"
+      [attr.aria-expanded]="menu() === field"
+      (click)="toggle(field)"
+    >
+      <span
+        class="block size-5 rounded-full border border-(--color-st-white-darker)"
+        [style.background]="swatch(current(field))"
+      ></span>
+    </button>
+    @if (menu() === field) {
+      <div
+        class="float-panel absolute top-full left-0 z-10 mt-2 grid w-max grid-cols-4 gap-2 p-2"
+        role="group"
+        [attr.aria-label]="`${label} options`"
+      >
+        @for (
+          c of field === 'color' ? colors() : field === 'fill' ? fillColors : strokeColors;
+          track c
+        ) {
+          <button
+            type="button"
+            [class]="swatchClass(current(field) === c)"
+            [style.background]="swatch(c)"
+            [attr.aria-label]="`${label} ${c}`"
+            [attr.aria-pressed]="current(field) === c"
+            (click)="set(field, c)"
+          ></button>
+        }
+      </div>
+    }
+  </div>
+</ng-template>

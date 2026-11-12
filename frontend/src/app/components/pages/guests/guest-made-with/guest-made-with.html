@@ -1,0 +1,27 @@
+<p
+  class="flex items-center gap-x-1.5 rounded-full border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface)/90 px-3 py-1 text-xs text-(--color-st-grey)"
+>
+  <button
+    type="button"
+    class="underline-offset-2 hover:text-(--color-st-black) hover:underline"
+    data-testid="made-with"
+    (click)="aboutOpen.set(true)"
+  >
+    Made with Drawboard
+  </button>
+  @if (aboutUrl) {
+    <span aria-hidden="true">·</span>
+    <a
+      [href]="aboutUrl"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="underline-offset-2 hover:text-(--color-st-black) hover:underline"
+      data-testid="host-your-own"
+      >Host your own</a
+    >
+  }
+</p>
+
+@if (aboutOpen()) {
+  <drawboard-about-dialog (closed)="aboutOpen.set(false)" />
+}

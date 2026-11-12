@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "id": "org.example.counter",
+  "name": "Counter",
+  "version": "1.0.0",
+  "description": "A number on the board that editors count up and down. Sample plugin of the Drawboard plugin SDK.",
+  "entry": "index.js",
+  "minHostVersion": "1.0.0",
+  "blockTypes": [
+    {
+      "type": "org.example.counter.counter",
+      "label": "Counter",
+      "defaultWidth": 200,
+      "defaultHeight": 140
+    }
+  ],
+  "capabilities": [{ "name": "block.props" }, { "name": "storage" }, { "name": "ui.toast" }]
+}

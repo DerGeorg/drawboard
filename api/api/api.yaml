@@ -1,0 +1,2401 @@
+# All operations of the Drawboard API: ONE file, so IntelliJ's OpenAPI preview can
+# render it. Referenced path by path from ../openapi.yaml (the path table).
+# Rules (enforced by redocly.yaml and scripts/check-generated-models.mjs):
+#   * no inline schemas and no own `components` here: every body is a $ref
+#     into ../common/common.yaml#/components/schemas/
+#   * every parameter is a $ref into ../common/common.yaml#/components/parameters/
+#   * every 4xx/5xx is a $ref into ../common/common.yaml#/components/responses/
+#     (application/problem+json, ErrorModel)
+# 406 is listed wherever the operation answers with a body (the client's Accept
+# header excludes application/json), 415 wherever it reads one.
+# One comment block per resource (tag, backend module, subdomain); the paths
+# of a resource stay together.
+#
+# Access: every operation needs a token unless it declares otherwise. Which
+# boards and folders a user may see or change is decided by the sharing rules
+# of module `library` (owner, editor, commenter, viewer; grants to users and
+# groups, inherited from folders; share links); a board or folder the caller
+# may not see answers 404, so its existence is not revealed.
+#
+# Guests (anonymous callers with a guest token from exchangeShareToken, S1.8)
+# may call ONLY: getBoard, listBoards with `folderId` (the folder of their
+# link), createCollabTicket, refreshGuestSession, listFiles, getFile,
+# getFileUrls, getPluginStorage and listEnabledPlugins - each limited to the
+# board or folder of their link and what lies below it. Every other operation
+# answers a guest token with 403 FORBIDDEN. Enforced by the backend's route
+# table; the operation descriptions repeat it. Since M4 (security review
+# 2026-11-10) also listPokerRounds (state OPEN only), getPokerRound and
+# castPokerVote - only for guests whose link role is COMMENTER or EDITOR;
+# VIEWER-link guests get 403 on every poker operation.
+openapi: 3.1.0
+info:
+  title: Drawboard API - operations
+  # Never stamped: only the bundle of ../openapi.yaml carries the version.
+  version: 0.0.0
+paths:
+  # ==========================================================================
+  # boards - backend module `library`, subdomain `boards`
+  # ==========================================================================
+  /boards:
+    get:
+      operationId: listBoards
+      summary: List the boards of a folder
+      description: |
+        One page of boards, most recently changed first. Without `folderId`:
+        the boards in the root of the caller's own space (before folders
+        existed this was every own board; boards created without a folder
+        still are there). With `folderId`: the boards directly in that folder,
+        which the caller owns or has at least the role `VIEWER` on (directly
+        or inherited); otherwise 404 `LIBRARY_FOLDER_NOT_FOUND`. Boards in the
+        trash are never listed. `role` is the caller's effective role.
+
+        Guests: allowed with the `folderId` of their folder link or a folder
+        below it (S1.8); without `folderId` 403 `FORBIDDEN`.
+      tags: [boards]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/BoardFolderFilter'
+        - $ref: '../common/common.yaml#/components/parameters/PageNumber'
+        - $ref: '../common/common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of boards.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardPage'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createBoard
+      summary: Create a board
+      description: |
+        Creates an empty board owned by the signed-in user, in the root of
+        their space or in `folderId` (a folder they own, else 404
+        `LIBRARY_FOLDER_NOT_FOUND`). The server assigns the id (UUIDv7).
+        Importing a `.drawboard` file or a data URL is this call plus the
+        normal collaboration traffic; it needs no API of its own. Not for
+        guests.
+      tags: [boards]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewBoard'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              description: URL of the new board.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Board'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: getBoard
+      summary: Get a board
+      description: |
+        The board's metadata. Needs at least the role `VIEWER` on the board
+        (own, granted, inherited from a folder, or through a link). A board in
+        the trash answers 404 `LIBRARY_BOARD_NOT_FOUND`.
+
+        Guests: allowed for the board of their board link, or a board in or
+        below the folder of their folder link (S1.8).
+      tags: [boards]
+      responses:
+        '200':
+          description: The board.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Board'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    put:
+      operationId: updateBoard
+      summary: Rename a board
+      description: |
+        Replaces the changeable metadata of a board (its title). Optimistic
+        locking: `version` is the version the client read last; if the board
+        was changed in between, nothing is changed and the answer is 409
+        `CONFLICT`. Needs the role `EDITOR` or `OWNER`. Moving the board into
+        another folder is moveBoard. Not for guests.
+      tags: [boards]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/BoardUpdate'
+      responses:
+        '200':
+          description: The updated board (with its new version).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Board'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: deleteBoard
+      summary: Move a board to the trash
+      description: |
+        Moves the board to the owner's trash (soft delete, S7.7). Until M2
+        this deleted the board at once; the wire format is unchanged, the
+        board can now be restored with restoreBoard for 30 days and is purged
+        for good afterwards (or at once with purgeBoard). While in the trash
+        the board answers 404 on every board operation, its grants and links
+        do not work (they work again after a restore), and open collaboration
+        sessions are closed (close code 4404). Only the `OWNER` may do this.
+      tags: [boards]
+      responses:
+        '204':
+          description: Moved to the trash.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/folder:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    put:
+      operationId: moveBoard
+      summary: Move a board into another folder
+      description: |
+        Moves the board into another folder of the owner's space, or into the
+        root (`folderId: null`). Grants inherited from the old folder stop
+        applying, those of the new folder apply from now on (open
+        collaboration sessions are re-evaluated). Optimistic locking with
+        `version` as in updateBoard (409 `CONFLICT`). A target folder the
+        owner does not own or that is in the trash answers 404
+        `LIBRARY_FOLDER_NOT_FOUND`. Only the `OWNER` may do this.
+      tags: [boards]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/BoardMove'
+      responses:
+        '200':
+          description: The moved board (with its new version).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Board'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # --- trash (boards and folders of the caller; module library) --------------
+  /trash:
+    get:
+      operationId: listTrash
+      summary: List my trash
+      description: |
+        The caller's deleted boards and folders with `deletedAt`. Kept 30
+        days after deletion, then purged automatically (S7.7). Not for guests.
+      tags: [boards]
+      responses:
+        '200':
+          description: The trash.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Trash'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /trash/boards/{boardId}/restore:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    post:
+      operationId: restoreBoard
+      summary: Restore a board from the trash
+      description: |
+        Moves the board out of the trash, back into its folder - or into the
+        root of the space when that folder is in the trash itself or gone.
+        Its grants and links work again (links that expired meanwhile stay
+        expired). A board that is not in the caller's trash answers 404
+        `LIBRARY_BOARD_NOT_FOUND`. Only the `OWNER`.
+      tags: [boards]
+      responses:
+        '200':
+          description: The restored board.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Board'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /trash/boards/{boardId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    delete:
+      operationId: purgeBoard
+      summary: Delete a board from the trash for good
+      description: |
+        Deletes a board that is in the trash now instead of after 30 days:
+        drawing, update log, versions, grants and links (S7.7), and its
+        planning poker rounds with their votes. Cannot be
+        undone. A board that is not in the caller's trash answers 404
+        `LIBRARY_BOARD_NOT_FOUND`. Only the `OWNER`.
+      tags: [boards]
+      responses:
+        '204':
+          description: Deleted for good.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # folders - backend module `library`, subdomain `folders`
+  # ==========================================================================
+  /folders:
+    get:
+      operationId: listFolders
+      summary: List folders
+      description: |
+        Without `parentId`: every folder the caller owns, flat (the client
+        builds the tree from `parentId`). With `parentId`: the direct
+        subfolders of that folder, which the caller owns or has at least the
+        role `VIEWER` on (else 404 `LIBRARY_FOLDER_NOT_FOUND`) - for browsing
+        a folder shared with the caller. Folders in the trash are never
+        listed. Not for guests.
+      tags: [folders]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/ParentFolderFilter'
+      responses:
+        '200':
+          description: The folders.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/FolderList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createFolder
+      summary: Create a folder
+      description: |
+        Creates a folder in the caller's own space, in the root or in
+        `parentId` (a folder they own, else 404 `LIBRARY_FOLDER_NOT_FOUND`).
+        The server assigns the id (UUIDv7). Not for guests.
+      tags: [folders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewFolder'
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location:
+              description: URL of the new folder.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Folder'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /folders/{folderId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+    get:
+      operationId: getFolder
+      summary: Get a folder
+      description: |
+        The folder's metadata. Needs at least the role `VIEWER` on the folder
+        (own, granted, inherited, or through a link the caller opened while
+        signed in). A folder in the trash answers 404
+        `LIBRARY_FOLDER_NOT_FOUND`. Not for guests.
+      tags: [folders]
+      responses:
+        '200':
+          description: The folder.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Folder'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    put:
+      operationId: updateFolder
+      summary: Rename or move a folder
+      description: |
+        Replaces name and parent of a folder (rename, move within the owner's
+        space). Moving it into itself or a folder below it answers 409
+        `LIBRARY_FOLDER_CYCLE`; a parent the owner does not own or that is in
+        the trash 404 `LIBRARY_FOLDER_NOT_FOUND`. Optimistic locking with
+        `version` (409 `CONFLICT`). Moving changes which inherited grants
+        apply below the folder. Only the `OWNER` (403 `FORBIDDEN` for other
+        roles).
+      tags: [folders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/FolderUpdate'
+      responses:
+        '200':
+          description: The updated folder (with its new version).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Folder'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: deleteFolder
+      summary: Move a folder to the trash
+      description: |
+        Moves the folder with everything below it (subfolders and boards) to
+        the owner's trash, as one entry (soft delete, S7.7). Restorable for 30
+        days with restoreFolder. While in the trash, its boards answer 404
+        and open collaboration sessions on them are closed (4404). Only the
+        `OWNER` (403 `FORBIDDEN` for other roles).
+      tags: [folders]
+      responses:
+        '204':
+          description: Moved to the trash.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /trash/folders/{folderId}/restore:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+    post:
+      operationId: restoreFolder
+      summary: Restore a folder from the trash
+      description: |
+        Moves the folder with its content out of the trash, back under its
+        parent - or into the root of the space when the parent is in the
+        trash itself or gone. A folder that is not in the caller's trash
+        answers 404 `LIBRARY_FOLDER_NOT_FOUND`. Only the `OWNER`.
+      tags: [folders]
+      responses:
+        '200':
+          description: The restored folder.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Folder'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /trash/folders/{folderId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+    delete:
+      operationId: purgeFolder
+      summary: Delete a folder from the trash for good
+      description: |
+        Deletes a folder in the trash with everything below it now instead
+        of after 30 days (boards as in purgeBoard). Cannot be undone. A folder
+        that is not in the caller's trash answers 404
+        `LIBRARY_FOLDER_NOT_FOUND`. Only the `OWNER`.
+      tags: [folders]
+      responses:
+        '204':
+          description: Deleted for good.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # sharing - backend module `library`, subdomain `sharing`
+  # Members (grants to users and groups) and share links, for boards and
+  # folders. OpenAPI has no generics, so both resources have their own paths.
+  # Only the OWNER manages members and links; a folder's grants apply to
+  # everything below it, and the strongest role a caller has wins.
+  # ==========================================================================
+  /boards/shared:
+    get:
+      operationId: listSharedWithMe
+      summary: List what others shared with me
+      description: |
+        Boards and folders other users shared with the caller directly:
+        user grants, grants to one of the groups of the caller's current
+        access token (S6.5), and links the caller opened while signed in.
+        Boards in a shared folder are listed with listBoards and `folderId`.
+        Items in the trash are not listed. Not for guests.
+      tags: [sharing]
+      responses:
+        '200':
+          description: Shared with the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/SharedWithMe'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # --- members of a board ---------------------------------------------------
+  /boards/{boardId}/members:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listBoardMembers
+      summary: List the members of a board
+      description: |
+        The owner and every grant on the board, including those inherited from
+        folders above it (`inheritedFrom`). Display names and usernames only,
+        no email addresses (S6.9). Needs at least the role `VIEWER`; never for
+        guests (S1.10).
+      tags: [sharing]
+      responses:
+        '200':
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/MemberList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/members/users/{userId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/UserId'
+    put:
+      operationId: setBoardUserMember
+      summary: Grant a user a role on a board
+      description: |
+        Creates the user's direct grant on the board or changes its role (a
+        remembered link grant of that user becomes a direct grant). A user
+        who never signed in answers 404 `LIBRARY_USER_NOT_FOUND`; the owner
+        cannot be a member (400 `VALIDATION_FAILED` on `userId`). Open
+        collaboration sessions of the user are re-evaluated at once (S2.3).
+        Only the `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/MemberUpdate'
+      responses:
+        '200':
+          description: The grant as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Member'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: removeBoardUserMember
+      summary: Remove a user's grant on a board
+      description: |
+        Removes the user's direct or remembered link grant on the board
+        (grants inherited from a folder are removed on that folder).
+        Idempotent: 204 also when there was none. The user's open
+        collaboration sessions are re-evaluated at once. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '204':
+          description: Removed (or there was nothing to remove).
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/members/groups/{group}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/GroupName'
+    put:
+      operationId: setBoardGroupMember
+      summary: Grant a group a role on a board
+      description: |
+        Creates the group's grant on the board or changes its role. The
+        server does not know the provider's groups in advance, so any name
+        matching the pattern is accepted; the grant applies to whoever's
+        current access token carries the group (S6.5). Only the `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/MemberUpdate'
+      responses:
+        '200':
+          description: The grant as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Member'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: removeBoardGroupMember
+      summary: Remove a group's grant on a board
+      description: Removes the group's grant on the board. Idempotent. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '204':
+          description: Removed (or there was nothing to remove).
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # --- members of a folder --------------------------------------------------
+  /folders/{folderId}/members:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+    get:
+      operationId: listFolderMembers
+      summary: List the members of a folder
+      description: |
+        The owner and every grant on the folder, including those inherited
+        from folders above it (`inheritedFrom`). Grants on a folder apply to
+        every folder and board below it. No email addresses (S6.9). Needs at
+        least the role `VIEWER`; never for guests (S1.10).
+      tags: [sharing]
+      responses:
+        '200':
+          description: The members.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/MemberList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /folders/{folderId}/members/users/{userId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+      - $ref: '../common/common.yaml#/components/parameters/UserId'
+    put:
+      operationId: setFolderUserMember
+      summary: Grant a user a role on a folder
+      description: |
+        Creates the user's direct grant on the folder or changes its role; it
+        applies to everything below the folder. A user who never signed in
+        answers 404 `LIBRARY_USER_NOT_FOUND`; the owner cannot be a member
+        (400 `VALIDATION_FAILED` on `userId`). Only the `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/MemberUpdate'
+      responses:
+        '200':
+          description: The grant as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Member'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: removeFolderUserMember
+      summary: Remove a user's grant on a folder
+      description: |
+        Removes the user's direct or remembered link grant on the folder.
+        Idempotent. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '204':
+          description: Removed (or there was nothing to remove).
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /folders/{folderId}/members/groups/{group}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+      - $ref: '../common/common.yaml#/components/parameters/GroupName'
+    put:
+      operationId: setFolderGroupMember
+      summary: Grant a group a role on a folder
+      description: |
+        Creates the group's grant on the folder or changes its role; it
+        applies to everything below the folder and to whoever's current
+        access token carries the group (S6.5). Only the `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/MemberUpdate'
+      responses:
+        '200':
+          description: The grant as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Member'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: removeFolderGroupMember
+      summary: Remove a group's grant on a folder
+      description: Removes the group's grant on the folder. Idempotent. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '204':
+          description: Removed (or there was nothing to remove).
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # --- share links ----------------------------------------------------------
+  /boards/{boardId}/links:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listBoardShareLinks
+      summary: List the share links of a board
+      description: Every link of the board, revoked and expired ones included. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '200':
+          description: The links (without tokens).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ShareLinkList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createBoardShareLink
+      summary: Create a share link for a board
+      description: |
+        Creates a link with a fresh 256-bit token (S1.1). The answer carries
+        the link's URL with the token; it is the ONLY place the token ever
+        appears - the server keeps just its hash. A link with audience
+        `GUESTS` on an instance with guests disabled answers 403 `FORBIDDEN`.
+        Only the `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewShareLink'
+      responses:
+        '201':
+          description: Created; the URL is shown only now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/CreatedShareLink'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /folders/{folderId}/links:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FolderId'
+    get:
+      operationId: listFolderShareLinks
+      summary: List the share links of a folder
+      description: Every link of the folder, revoked and expired ones included. Only the `OWNER`.
+      tags: [sharing]
+      responses:
+        '200':
+          description: The links (without tokens).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ShareLinkList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createFolderShareLink
+      summary: Create a share link for a folder
+      description: |
+        As createBoardShareLink, for a folder: the link opens the folder and
+        everything below it. The token appears ONLY in this answer. Only the
+        `OWNER`.
+      tags: [sharing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewShareLink'
+      responses:
+        '201':
+          description: Created; the URL is shown only now.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/CreatedShareLink'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /links/{linkId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/LinkId'
+    delete:
+      operationId: revokeShareLink
+      summary: Revoke a share link
+      description: |
+        Revokes the link for good (S1.13): it never works again, guest
+        requests with tokens from it fail within 30 seconds, and open
+        collaboration sessions opened through it are closed (4403). Grants
+        that signed-in users remembered through the link stay until the owner
+        removes them. Guest participants of the link and their votes are
+        removed from every `OPEN` planning poker round at once (which raises
+        the round's `version`). Idempotent for an already revoked link. A link of
+        another owner answers 404 `LIBRARY_SHARE_NOT_FOUND`. Only the `OWNER`
+        of the board or folder.
+      tags: [sharing]
+      responses:
+        '204':
+          description: Revoked.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # --- exchange and guest sessions (S1) ----------------------------------------
+  /shares/exchange:
+    post:
+      operationId: exchangeShareToken
+      summary: Open a share link
+      description: |
+        Exchanges the token from a link's URL fragment (`/s#<token>`, S1.2).
+        Callable without a token (anonymous) or signed in.
+
+        * Signed in: answers `ShareAccess` without `guestSession`; the link's
+          role is remembered for the user (it appears in listSharedWithMe and
+          as a `LINK_USER` member) as long as the link is not revoked.
+        * Anonymous on a `GUESTS` link: answers `ShareAccess` with
+          `guestSession` - an app-signed guest token for 15 minutes (S1.3,
+          S1.4). `guestName` is required then.
+        * Anonymous on a `SIGNED_IN` link, or guests disabled on this
+          instance: 401 `LIBRARY_SHARE_LOGIN_REQUIRED` - sign in, then call
+          again.
+        * Called with a guest token: 403 `FORBIDDEN` (not on the guest
+          allowlist); a guest opening another link drops its guest token
+          first.
+
+        Unknown, revoked and expired tokens all answer 404
+        `LIBRARY_SHARE_NOT_FOUND` with the same body (S1.12). A password
+        protected link without `password` answers 403
+        `LIBRARY_SHARE_PASSWORD_REQUIRED`, with a wrong one 403
+        `LIBRARY_SHARE_PASSWORD_INVALID`. Rate limits (S1.11, S1.12): 10
+        invalid tokens per minute and IP; 5 password failures per minute per
+        link and IP, 20 per hour per link; then 429 `TOO_MANY_REQUESTS` with
+        `Retry-After`. The body is never logged (S7.2).
+      tags: [sharing]
+      security:
+        - {}
+        - bearerAuth: []
+        - oidc: [openid]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/ShareExchange'
+      responses:
+        '200':
+          description: What the link opens, with the caller's role (and the guest session for guests).
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/ShareAccess'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /shares/refresh:
+    post:
+      operationId: refreshGuestSession
+      summary: Renew a guest session
+      description: |
+        Issues a new guest token for the guest session in the `Authorization`
+        header (S1.4). Needs a valid guest token and the token of the link it
+        came from; the link is checked again (revoked or expired -> 404
+        `LIBRARY_SHARE_NOT_FOUND`, same body as on exchange), the new token
+        expires at most 15 minutes from now and never after the link. 12
+        hours after the first exchange the session cannot be renewed any more
+        (401 `UNAUTHORIZED`): exchange the link again. Guests only; a
+        signed-in user's token answers 403 `FORBIDDEN`. Rate-limited like
+        exchangeShareToken (429). The body is never logged.
+      tags: [sharing]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/ShareRefresh'
+      responses:
+        '200':
+          description: The renewed guest session.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/GuestSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # collab - backend module `collab` (WebSocket protocol: docs/collab-protocol.md)
+  # ==========================================================================
+  /boards/{boardId}/collab-ticket:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    post:
+      operationId: createCollabTicket
+      summary: Get a ticket for the collaboration WebSocket
+      description: |
+        Issues a one-time ticket that opens the collaboration WebSocket of the
+        board (browsers cannot send an Authorization header on a WebSocket).
+        The ticket is 256 bit random, valid for 30 seconds, usable once, and
+        bound to the caller, the board and the expiry of the access
+        token it was issued with: the WebSocket session ends at the latest when
+        that token expires (close code 4401), and the client fetches a new
+        ticket and reconnects.
+
+        The client opens `url` with the subprotocols `drawboard.v1` and
+        `ticket.<ticket>` (header `Sec-WebSocket-Protocol`), never in the query
+        string. Needs at least the role `VIEWER`; the role is resolved again when
+        the WebSocket opens. At most 60 tickets per user and minute (429
+        `TOO_MANY_REQUESTS`).
+
+        Guests: allowed for the board of their link or a board in or below
+        the folder of their folder link (S1.8); the session then ends with
+        the guest token (renew it with refreshGuestSession, then fetch a new
+        ticket).
+      tags: [collab]
+      responses:
+        '200':
+          description: The ticket.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/CollabTicket'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/snapshot:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    put:
+      operationId: uploadBoardSnapshot
+      summary: Upload a snapshot of the drawing (compaction)
+      description: |
+        Answer to the WebSocket message `COMPACT(upToSeq)`: the client the
+        server picked uploads the whole drawing as one Yjs update
+        (`Y.encodeStateAsUpdate(doc)`) that contains at least every update up
+        to and including sequence number `upToSeq`. The server cannot read or
+        validate the drawing; it keeps the last 5 snapshots (or those of the
+        last 7 days) together with the update log, so an owner can go back to
+        an earlier version (listBoardVersions, restoreBoardVersion).
+
+        Accepted only from the user the server asked, for exactly this
+        `upToSeq`, while the request is open (2 minutes); otherwise 409
+        `COLLAB_SNAPSHOT_NOT_REQUESTED`. Needs the role `EDITOR` or `OWNER`
+        and a signed-in user (never a guest). The server checks the open
+        request before it reads the body. At most 50 MB, and the board's kept
+        snapshots together at most 500 MB (413 `PAYLOAD_TOO_LARGE`); at most
+        10 uploads per user and minute (429 `TOO_MANY_REQUESTS`). Snapshots
+        never travel over the WebSocket.
+      tags: [collab]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/UpToSeq'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/BoardSnapshotUpload'
+      responses:
+        '204':
+          description: Stored; the server drops the update log up to `upToSeq` once it is no longer needed.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '413':
+          $ref: '../common/common.yaml#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/versions:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listBoardVersions
+      summary: List the kept versions of a board
+      description: |
+        The snapshots the server keeps for the board (S2.8), newest first.
+        Only the `OWNER`; not for guests.
+      tags: [collab]
+      responses:
+        '200':
+          description: The versions.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardVersionList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/versions/{versionId}/restore:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/VersionId'
+    post:
+      operationId: restoreBoardVersion
+      summary: Restore a version of a board
+      description: |
+        Replaces the board's drawing by the version: the server closes every
+        open collaboration session of the board with close code 4410
+        ("document replaced"); clients discard their local document and
+        pending queue and join again, receiving the restored state (see
+        docs/collab-protocol.md). Edits not yet acknowledged are lost - that
+        is the point of a restore. The other kept versions stay listed until
+        they expire as usual. An unknown version answers 404
+        `COLLAB_VERSION_NOT_FOUND`. Only the `OWNER`; audited (S7.1).
+      tags: [collab]
+      responses:
+        '204':
+          description: Restored.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # files - backend module `files` (S4)
+  # A file belongs to exactly one board; access = board access. The bytes are
+  # served outside /api by GET /files/{fileId} through signed URLs.
+  # ==========================================================================
+  /boards/{boardId}/files:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listFiles
+      summary: List the files of a board
+      description: |
+        Every file of the board (at most 500), newest first. Needs at least
+        the role `VIEWER`; a board in the trash answers 404
+        `LIBRARY_BOARD_NOT_FOUND`.
+
+        Guests: allowed for the board of their link or a board in or below
+        the folder of their folder link (S1.8, file metadata of that board);
+        `createdBy` is left out for them.
+      tags: [files]
+      responses:
+        '200':
+          description: The files.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardFileList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: uploadFile
+      summary: Upload a file to a board
+      description: |
+        Stores a file for the board (S4.1). Needs the role `EDITOR` or
+        `OWNER` and a signed-in user - never a guest (403 `FORBIDDEN`, S1.9).
+
+        * Type: detected by the server from the content (S4.2), never taken
+          from the client. Allowed: PNG, JPEG, GIF, WebP (IMAGE), MP4, WebM
+          (VIDEO), PDF, Office Open XML and OpenDocument text, spreadsheet
+          and presentation (DOCUMENT). SVG is rejected (S4.3). Anything else,
+          or an extension of the part's file name that does not match the
+          detected type: 415 `FILES_TYPE_NOT_ALLOWED`.
+        * Size: the body is streamed with a hard cap regardless of
+          `Content-Length` - 50 MB, 500 MB for VIDEO (configurable); above it
+          413 `PAYLOAD_TOO_LARGE` (`params.limit`). An upload that would
+          exceed the quota of the user or the board: 413
+          `FILES_QUOTA_EXCEEDED` (`params.scope`, `params.limit`). A board
+          holds at most 500 files; the 501st answers 413
+          `FILES_QUOTA_EXCEEDED` with `params.scope` BOARD. Nothing is stored
+          in any of these cases.
+        * Rate limits (S7.3): 30 uploads per user and minute plus a byte
+          budget per user (configurable); Office documents additionally 10
+          conversions per user and minute (S4.10). Above: 429
+          `TOO_MANY_REQUESTS` with `Retry-After`.
+        * IMAGE: a thumbnail is made on upload (S4.8); `width` and `height`
+          are set.
+        * DOCUMENT: answered at once with `conversion: PENDING`; the PDF is
+          made asynchronously (Gotenberg, S4.10). Poll getFile until
+          `conversion` is DONE or FAILED (there is no push in M3); then
+          fetch new URLs with getFileUrls.
+
+        Audited (S7.1: file uploaded, converted). Files follow their board
+        into the trash and are deleted with it for good (S4.13).
+      tags: [files]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/FileUpload'
+      responses:
+        '201':
+          description: Stored.
+          headers:
+            Location:
+              description: URL of the new file (getFile).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardFile'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '413':
+          $ref: '../common/common.yaml#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/files/urls:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: getFileUrls
+      summary: Get signed URLs for files of a board
+      description: |
+        Signed, short-lived URLs (at most 1 hour) for up to 100 files of the
+        board, after the board access check (S4.4); the format is described
+        at `FileUrl`. Ids that are not files of this board are left out of
+        the answer. Needs at least the role `VIEWER`. The URLs are secrets:
+        never log them or store them in the board.
+
+        Guests: allowed for the board of their link or a board in or below
+        the folder of their folder link (S1.8).
+      tags: [files]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/FileIds'
+      responses:
+        '200':
+          description: The URLs.
+          headers:
+            Cache-Control:
+              description: Always `no-store` - the answer contains signed URLs.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/FileUrlList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/files/{fileId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/FileId'
+    get:
+      operationId: getFile
+      summary: Get a file's metadata
+      description: |
+        The metadata of one file of the board; clients poll it while a
+        DOCUMENT's `conversion` is PENDING (every few seconds, with backoff).
+        Needs at least the role `VIEWER`. A file that is not on this board
+        answers 404 `FILES_FILE_NOT_FOUND`.
+
+        Guests: allowed for the board of their link or a board in or below
+        the folder of their folder link (S1.8); `createdBy` is left out for
+        them.
+      tags: [files]
+      responses:
+        '200':
+          description: The file.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardFile'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: deleteFile
+      summary: Delete a file
+      description: |
+        Deletes the file with all its variants for good; URLs issued for it
+        stop working (404 `FILES_FILE_NOT_FOUND`). Blocks that still
+        reference it show a "file removed" placeholder. Deleting a block does
+        not delete its file (undo and version restore may bring the block
+        back). Needs the role `EDITOR` or `OWNER`, signed in (never a guest).
+        Audited (S7.1).
+      tags: [files]
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  # --- file delivery: outside /api, authorised by the signature -------------
+  /files/{fileId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/FileId'
+    get:
+      operationId: downloadFile
+      summary: Download a file variant through a signed URL
+      description: |
+        Serves the bytes of one variant of a file. **Not under /api**: the
+        path is `/files/{fileId}` on the app origin (or the files origin,
+        S4.6), served by the backend behind the same proxy - hence the
+        operation-level `servers` entry. No token: the signature authorises
+        (`security: []`). Clients never build this URL; they use the URLs
+        from getFileUrls as they are (`<img src>`, `<video src>`, pdf.js).
+
+        GET only; `permitAll` in the route table (no token is read).
+        Verification comes first: `exp` must not be in the past and not
+        more than the maximum lifetime (1 hour) plus 60 s in the future;
+        the signature is recomputed with every key of
+        `DRAWBOARD_FILE_URL_KEYS` (each at least 32 random bytes; the first
+        signs, all verify) and compared in constant time. A URL with a
+        wrong signature, an `exp` out of that window, a variant that was not
+        signed or a retired key answers 403 `FILES_URL_INVALID`, always with
+        the same body and without `WWW-Authenticate`. A valid URL of a file deleted since then, or of a variant that
+        does not exist, answers 404 `FILES_FILE_NOT_FOUND`. Malformed or
+        missing parameters answer 400.
+
+        Range requests (S4.7): one range per request; `Accept-Ranges: bytes`.
+        Headers on every answer (S4.5): `X-Content-Type-Options: nosniff`,
+        `Content-Security-Policy: default-src 'none'; sandbox`,
+        `Cache-Control: private, max-age=3600`,
+        `Cross-Origin-Resource-Policy`, `Content-Disposition` (attachment
+        for everything but images and videos). `Content-Type` is the
+        detected media type of the variant (`image/jpeg` or `image/png` for
+        `thumbnail`, `application/pdf` for `pdf`). No 406: the stored type
+        is served whatever `Accept` says (browsers send `image/*` or `*/*`).
+        The query string is never logged (S7.2).
+      tags: [file-content]
+      servers:
+        - url: /
+          description: Same origin as the app, outside /api.
+      security: []
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/FileVariant'
+        - $ref: '../common/common.yaml#/components/parameters/FileUrlExpiry'
+        - $ref: '../common/common.yaml#/components/parameters/FileUrlSignature'
+        - $ref: '../common/common.yaml#/components/parameters/ByteRange'
+      responses:
+        '200':
+          description: The whole variant.
+          headers:
+            Content-Disposition:
+              $ref: '../common/common.yaml#/components/headers/FileContentDisposition'
+            X-Content-Type-Options:
+              $ref: '../common/common.yaml#/components/headers/FileContentTypeOptions'
+            Content-Security-Policy:
+              $ref: '../common/common.yaml#/components/headers/FileContentSecurityPolicy'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/FileCacheControl'
+            Cross-Origin-Resource-Policy:
+              $ref: '../common/common.yaml#/components/headers/FileCrossOriginResourcePolicy'
+            Accept-Ranges:
+              $ref: '../common/common.yaml#/components/headers/FileAcceptRanges'
+            Content-Length:
+              $ref: '../common/common.yaml#/components/headers/FileContentLength'
+          content:
+            '*/*':
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/FileContent'
+        '206':
+          description: The requested range.
+          headers:
+            Content-Range:
+              $ref: '../common/common.yaml#/components/headers/FileContentRange'
+            Content-Disposition:
+              $ref: '../common/common.yaml#/components/headers/FileContentDisposition'
+            X-Content-Type-Options:
+              $ref: '../common/common.yaml#/components/headers/FileContentTypeOptions'
+            Content-Security-Policy:
+              $ref: '../common/common.yaml#/components/headers/FileContentSecurityPolicy'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/FileCacheControl'
+            Cross-Origin-Resource-Policy:
+              $ref: '../common/common.yaml#/components/headers/FileCrossOriginResourcePolicy'
+            Accept-Ranges:
+              $ref: '../common/common.yaml#/components/headers/FileAcceptRanges'
+            Content-Length:
+              $ref: '../common/common.yaml#/components/headers/FileContentLength'
+          content:
+            '*/*':
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/FileContent'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '416':
+          $ref: '../common/common.yaml#/components/responses/RangeNotSatisfiable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # plugins - backend module `plugins` (S3; manifest and sandbox protocol:
+  # docs/plugin-protocol.md)
+  # Management under /admin/plugins: instance admins only (CurrentUser.admin,
+  # S6.6), everyone else 403 FORBIDDEN. Plugin assets (/plugin-assets/...) are
+  # static files outside /api, described at Plugin.assetBase.
+  # ==========================================================================
+  /admin/plugins:
+    get:
+      operationId: listPlugins
+      summary: List the installed plugins
+      description: |
+        Every installed plugin, enabled or not, with requested and granted
+        capabilities. Instance admins only (`CurrentUser.admin`); everyone
+        else and guests 403 `FORBIDDEN`.
+      tags: [plugins]
+      responses:
+        '200':
+          description: The plugins.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PluginList'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: installPlugin
+      summary: Install or upgrade a plugin by upload
+      description: |
+        Installs a plugin from a ZIP (S3.9; manifest and layout:
+        docs/plugin-protocol.md). Instance admins only, else 403
+        `FORBIDDEN`. In M3 upload is the only way to install.
+
+        Checks, in this order: at most 20 MB (413 `PAYLOAD_TOO_LARGE`); a ZIP
+        with at most 200 entries, at most 50 MB unpacked (counted while
+        unpacking, not from the headers), no `..` segments, absolute paths,
+        links or duplicate names, only the file types the plugin protocol
+        allows (no HTML, no SVG, no WebAssembly), `drawboard-plugin.json` at the root and
+        the `entry` file present (400 `PLUGINS_ARCHIVE_INVALID`,
+        `params.reason`); the manifest against its schema - id pattern,
+        semver, every block type inside the id's namespace, known
+        capabilities, `minHostVersion` supported by this instance (400
+        `PLUGINS_MANIFEST_INVALID` with `violations`).
+
+        * New `id`: installed DISABLED with no capability granted.
+        * Installed `id`, higher `version`: upgrade. The files go to a new
+          `assetBase`; the plugin keeps its `enabled` state and those grants
+          the new version still requests (name and value equal); capabilities
+          it newly requests stay ungranted until the admin grants them.
+        * Installed `id`, same or lower `version`: 409
+          `PLUGINS_VERSION_EXISTS`.
+
+        The server computes `bundleSha384`, the asset path and the entry's
+        `integrity` (S3.6). Audited with hash and installer (S7.1).
+        Rate-limited per admin (S7.3, 429 `TOO_MANY_REQUESTS`).
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/PluginUpload'
+      responses:
+        '201':
+          description: Installed or upgraded.
+          headers:
+            Location:
+              description: URL of the plugin (getPlugin).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Plugin'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '413':
+          $ref: '../common/common.yaml#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /admin/plugins/{pluginId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/PluginId'
+    get:
+      operationId: getPlugin
+      summary: Get an installed plugin
+      description: |
+        One installed plugin. Instance admins only, else 403 `FORBIDDEN`;
+        unknown id 404 `PLUGINS_PLUGIN_NOT_FOUND`.
+      tags: [plugins]
+      responses:
+        '200':
+          description: The plugin.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Plugin'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    put:
+      operationId: updatePlugin
+      summary: Enable, disable or grant capabilities
+      description: |
+        Sets `enabled` and the complete set of granted capabilities. Every
+        grant must equal a capability the installed version requests (400
+        `PLUGINS_CAPABILITY_NOT_REQUESTED`); a stale `revision` (another
+        admin changed it, or it was upgraded meanwhile) answers 409
+        `CONFLICT`. Disabling removes all its frames from open boards at
+        once (S3.10); its blocks stay as placeholders with their data. A
+        changed grant takes effect when a board loads the plugin again.
+        Instance admins only, else 403 `FORBIDDEN`. Audited (S7.1: enabled,
+        disabled, grants).
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/PluginUpdate'
+      responses:
+        '200':
+          description: The changed plugin.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/Plugin'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: removePlugin
+      summary: Remove a plugin
+      description: |
+        Removes the plugin, its assets and its `storage` data on every
+        board. Blocks of its types stay in the boards and render as
+        placeholders with their data kept (S3.10); installing the plugin
+        again brings them back. Instance admins only, else 403 `FORBIDDEN`.
+        Audited (S7.1).
+      tags: [plugins]
+      responses:
+        '204':
+          description: Removed.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /plugins:
+    get:
+      operationId: listEnabledPlugins
+      summary: List the plugins a board loads
+      description: |
+        The enabled plugins with what the board host needs to load them
+        sandboxed: asset path, entry module, its integrity hash, block types,
+        granted capabilities and the caller's pseudonymous id per plugin -
+        no installer information. Every signed-in user.
+
+        Guests: allowed (the board host of a guest needs it to render plugin
+        blocks); `userPseudonym` is then derived from the guest's id.
+      tags: [plugins]
+      responses:
+        '200':
+          description: The enabled plugins.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EnabledPluginList'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/plugin-storage/{pluginId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/PluginId'
+    get:
+      operationId: getPluginStorage
+      summary: Read a plugin's storage on a board
+      description: |
+        The `storage` object of the plugin on this board (S3.8); `{}` with
+        `version` 0 when nothing was stored yet. Called by the board host
+        when the plugin's frame sends `storage.get` over its MessageChannel
+        (docs/plugin-protocol.md) - never by the plugin frame itself, which
+        has no token. Needs at least the role `VIEWER`; the plugin must be
+        enabled (else 404 `PLUGINS_PLUGIN_NOT_FOUND`) and have `storage`
+        granted (else 403 `FORBIDDEN`).
+
+        Guests: allowed for the board of their link or a board in or below
+        the folder of their folder link (read only).
+      tags: [plugins]
+      responses:
+        '200':
+          description: The stored object.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PluginStorage'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    put:
+      operationId: putPluginStorage
+      summary: Write a plugin's storage on a board
+      description: |
+        Replaces the plugin's `storage` object on this board; called by the
+        board host for `storage.set`. Needs the role `EDITOR` or `OWNER`,
+        signed in (never a guest). At most 1 MB of JSON (413
+        `PAYLOAD_TOO_LARGE`); a stale `version` answers 409 `CONFLICT` - read
+        again, merge, write again. The plugin must be enabled (404
+        `PLUGINS_PLUGIN_NOT_FOUND`) and have `storage` granted (403
+        `FORBIDDEN`). The data is deleted with the board and when the
+        plugin is removed.
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/PluginStorageUpdate'
+      responses:
+        '200':
+          description: The stored object with its new version.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PluginStorage'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '413':
+          $ref: '../common/common.yaml#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # planning - backend module `planning`, subdomain `rounds` (S7.6)
+  # Planning poker on a story card: rounds and votes live ONLY on the server,
+  # never in the Yjs document (every client of the board could read them
+  # there). The server never writes the document either: after the reveal the
+  # facilitator's client writes the estimate into the story card. Live state
+  # without a change of the WebSocket protocol: clients poll getPokerRound
+  # with If-None-Match. A quick round (no `storyBlockId`) belongs to no card:
+  # its result is only shown and written nowhere.
+  # Guests (S1.8, security review 2026-11-10): guests whose link role is
+  # COMMENTER or EDITOR may call listPokerRounds (state OPEN only),
+  # getPokerRound and castPokerVote, on the board of their link or boards
+  # below their folder link. VIEWER-link guests: 403 FORBIDDEN on every poker
+  # operation. createPokerRound, revealPokerRound, cancelPokerRound: never
+  # guests. A guest participant is identified by the guest session's `sub`.
+  # ==========================================================================
+  /boards/{boardId}/poker-rounds:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listPokerRounds
+      summary: List the planning poker rounds of a board
+      description: |
+        The rounds of the board in one state (default `OPEN`), newest first,
+        at most 50. A client calls it when a board or a story card's
+        estimation dialog opens; it does not poll it (poll getPokerRound of
+        the one round instead). Needs at least the role `VIEWER`; a board in
+        the trash answers 404 `LIBRARY_BOARD_NOT_FOUND`. At most 30 calls per
+        user and board and minute (429 `TOO_MANY_REQUESTS`).
+
+        Guests (S1.8): allowed for guests whose link role is `COMMENTER` or
+        `EDITOR`, on the board of their link or a board in or below the
+        folder of their folder link, and only with `state=OPEN` (any other
+        `state` answers 403 `FORBIDDEN`). VIEWER-link guests: 403 `FORBIDDEN`.
+        `facilitatorId` is left out for guests. Guest limits are also keyed
+        by share: at most 300 calls per share and board and minute.
+      tags: [planning]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/PokerRoundStateFilter'
+      responses:
+        '200':
+          description: The rounds.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PokerRoundList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createPokerRound
+      summary: Start a planning poker round (on a story card or quick)
+      description: |
+        Starts an estimation round for the story card `storyBlockId` with a
+        deck, or - without `storyBlockId` - a quick round that belongs to no
+        card (its result is only shown, never written into the document).
+        The caller becomes the round's facilitator. Needs the role
+        `EDITOR` or `OWNER` and a signed-in user (`COMMENTER`/`VIEWER`: 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests never: 403 `FORBIDDEN`).
+
+        The server cannot read the Yjs document, so it does not check that
+        the block exists or is a story card; it only keeps the id. At most
+        one `OPEN` round per story card (409 `PLANNING_ROUND_ALREADY_OPEN`,
+        `params.roundId` = the open one); this rule does not apply to quick
+        rounds, several of which may be open at once. At most 10 `OPEN`
+        rounds per board, quick rounds and rounds on cards together (409
+        `PLANNING_ROUND_LIMIT_REACHED`). The title is rejected
+        with control or format characters (Unicode Cc/Cf, 400
+        `VALIDATION_FAILED`), as are deck values (see `PokerDeck`). At most
+        10 rounds per user and minute (429 `TOO_MANY_REQUESTS`). Audited
+        (S7.1: round created, with board, round, story block - none for a
+        quick round - and facilitator).
+
+        Lifetime: a board keeps at most 500 closed (`REVEALED` or
+        `CANCELLED`) rounds; when a create would exceed that, the server
+        first prunes the oldest `CANCELLED`, then the oldest `REVEALED`
+        rounds with their votes. Rounds follow the board into the trash
+        (404 while there) and are deleted with their votes when the board is
+        deleted for good (purgeBoard, purgeFolder or the automatic purge
+        after 30 days, S7.7).
+
+        How the others learn about the round (client convention, no
+        protocol change): the facilitator's client writes the round id into
+        the story card's props (`pokerRoundId`, an id only - never a vote);
+        clients that see it offer the estimation dialog and poll
+        getPokerRound while it is open. Any editor can write that prop, so a
+        client binds the dialog to a card only when the fetched round's
+        `storyBlockId` equals that card's block id; otherwise it ignores
+        `pokerRoundId`. A quick round has no `storyBlockId` and therefore
+        never binds to a card; clients find it through listPokerRounds.
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewPokerRound'
+      responses:
+        '201':
+          description: Started.
+          headers:
+            Location:
+              description: URL of the new round (getPokerRound).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PokerRound'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/poker-rounds/{roundId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/PokerRoundId'
+    get:
+      operationId: getPokerRound
+      summary: Get a planning poker round (poll with If-None-Match)
+      description: |
+        The round as the caller sees it: participants with whether they
+        voted (never their values while `OPEN`), the caller's own vote
+        (`myVote`), and after the reveal the result. A round of another board
+        answers 404 `PLANNING_ROUND_NOT_FOUND`. Needs at least the role
+        `VIEWER`.
+
+        Joining: the first getPokerRound by a signed-in `COMMENTER` or higher
+        on an `OPEN` round adds them to `participants` with `voted: false`,
+        which raises `version`. Viewers see the round without being listed.
+        Guests are never added by getPokerRound; a guest joins only by
+        castPokerVote. getPokerRound never fails because a round is full
+        (200 participants): the caller then sees the round without being
+        added.
+
+        Live state (no WebSocket message for poker, docs/collab-protocol.md is
+        unchanged): while the estimation dialog is open, the client polls
+        this operation every 2 seconds, sending the `ETag` of its last answer
+        in `If-None-Match`. Unchanged round -> 304 without a body (send the
+        same `If-None-Match` next time); changed -> 200 with the new `ETag`.
+        The ETag is the weak validator `W/"<version>"` (weak because the body
+        depends on the caller: `myVote`); `version` rises on a join, a
+        participant's first vote, reveal and cancel - a changed vote does
+        not raise it, so the client keeps its own vote from the 204 of
+        castPokerVote. `If-None-Match: *` counts as no match (200). The
+        client stops polling when the dialog
+        closes or the round is no longer `OPEN` (a `REVEALED` or `CANCELLED`
+        round never changes again). Answers carry `Cache-Control: no-store`,
+        so the browser passes 304 through to the script instead of
+        revalidating on its own. Angular: call the generated
+        `PlanningService.getPokerRound` with `observe: 'response'` to read
+        the `ETag` header; `HttpClient` reports a 304 as an
+        `HttpErrorResponse` with `status` 304, which the client treats as
+        "unchanged". 200 and 304 carry `Vary: Authorization`. At most 60
+        calls per user and round and minute (429 `TOO_MANY_REQUESTS` with
+        `Retry-After`; a 304 counts as well). Clients run one poller per
+        round per tab and back off on 429 (wait `Retry-After`).
+
+        Guests (S1.8): allowed for guests whose link role is `COMMENTER` or
+        `EDITOR`, for rounds on the board of their link or a board in or
+        below the folder of their folder link: `OPEN` rounds always;
+        `REVEALED` and `CANCELLED` rounds only when their guest session (its
+        `sub`) is a participant of that round, otherwise 404
+        `PLANNING_ROUND_NOT_FOUND`. VIEWER-link guests: 403 `FORBIDDEN`.
+        `facilitatorId` is left out for guests. Guest limits are also keyed
+        by share: at most 300 calls per share and round and minute.
+      tags: [planning]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The round.
+          headers:
+            ETag:
+              $ref: '../common/common.yaml#/components/headers/PokerRoundETag'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/NoStoreCacheControl'
+            Vary:
+              $ref: '../common/common.yaml#/components/headers/VaryAuthorization'
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PokerRound'
+        '304':
+          description: Not modified since the ETag in `If-None-Match`; no body.
+          headers:
+            ETag:
+              $ref: '../common/common.yaml#/components/headers/PokerRoundETag'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/NoStoreCacheControl'
+            Vary:
+              $ref: '../common/common.yaml#/components/headers/VaryAuthorization'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/poker-rounds/{roundId}/vote:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/PokerRoundId'
+    put:
+      operationId: castPokerVote
+      summary: Cast or change my vote in a round
+      description: |
+        Sets the caller's vote (and joins the round if they had not yet).
+        The value must be one of the round's deck (400
+        `PLANNING_VALUE_INVALID`, `params.value` absent - the value is not
+        echoed). Changing the vote is allowed while the round is `OPEN`;
+        after the reveal or cancel 409 `PLANNING_ROUND_CLOSED`. A joining or
+        first vote raises `version`; a changed vote or the same value again
+        does not. The value is stored on the server only; nobody sees it
+        before the reveal, not even the facilitator. Votes are not audited.
+
+        Capacity: at most 200 participants per round, of them at most 50
+        guests, and at most 20 guests per share link; a caller who is not
+        yet a participant of a full round gets 409 `PLANNING_ROUND_FULL`
+        (`params.roundId`, `params.limit` = the cap that was hit).
+
+        Who may vote: signed-in members with the role `COMMENTER`, `EDITOR`
+        or `OWNER` (`VIEWER`: 403 `LIBRARY_BOARD_ACCESS_DENIED`). At most 30
+        votes per user and round and minute (429 `TOO_MANY_REQUESTS`).
+
+        Guests (S1.8): allowed for guests whose link role is `COMMENTER` or
+        `EDITOR`, on the board of their link or a board in or below the
+        folder of their folder link; VIEWER-link guests 403 `FORBIDDEN`. A
+        guest joins only through this call, listed under their guest name
+        with `guest: true` and identified by the guest session's `sub` (a
+        guest that exchanges the link again is a new participant). Guest
+        limits are also keyed by share: at most 100 votes per share and
+        round and minute. Revoking a link removes its guest participants and
+        their votes from every `OPEN` round at once and raises `version`.
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/PokerVote'
+      responses:
+        '204':
+          description: Vote stored.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/poker-rounds/{roundId}/reveal:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/PokerRoundId'
+    post:
+      operationId: revealPokerRound
+      summary: Reveal the votes of a round
+      description: |
+        Closes the round for good and reveals every vote with the computed
+        `result` (state `REVEALED`; final - a revealed round cannot be
+        reopened, start a new round to estimate again). Allowed with zero
+        votes (empty result). Only the facilitator while they still have the
+        role `EDITOR` or `OWNER`, or the board's `OWNER` (else 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`). A round that
+        is not `OPEN` answers 409 `PLANNING_ROUND_CLOSED`.
+
+        Writing the estimate (S7.6): the server never touches the Yjs
+        document. After a successful reveal the facilitator's client - or
+        the owner's, when the owner revealed - writes the chosen estimate
+        (by default `result.suggestion`; the dialog may let the facilitator
+        pick another deck value) into the story card's `estimate` and
+        clears its `pokerRoundId`, as an ordinary document update of an
+        editor. If that client goes away first, any editor can write the
+        estimate later from the revealed round. A quick round (no
+        `storyBlockId`) writes nothing: its result is only shown.
+
+        Audited (S7.1: round revealed, with board, round, story block, actor
+        and the number of votes, members and guests separately - never the
+        individual votes).
+      tags: [planning]
+      responses:
+        '200':
+          description: The revealed round with `result`.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PokerRound'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/poker-rounds/{roundId}/cancel:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/PokerRoundId'
+    post:
+      operationId: cancelPokerRound
+      summary: Cancel a round without revealing it
+      description: |
+        Ends the round as `CANCELLED`; its votes are deleted at once and
+        never revealed. Final. Same callers as revealPokerRound (facilitator
+        with `EDITOR`/`OWNER`, or the board's `OWNER`); a round that is not
+        `OPEN` answers 409 `PLANNING_ROUND_CLOSED`. The canceller's client
+        clears the story card's `pokerRoundId` (nothing for a quick round). Audited (S7.1: round
+        cancelled).
+      tags: [planning]
+      responses:
+        '200':
+          description: The cancelled round.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/PokerRound'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # users - backend module `users`
+  # ==========================================================================
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Get the signed-in user
+      description: |
+        The user the access token belongs to. Also creates or refreshes the
+        stored user profile from the token's claims (which claims carry the
+        username, display name, email and groups is configured per deployment).
+        Not for guests.
+      tags: [users]
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/CurrentUser'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /users/search:
+    get:
+      operationId: searchUsers
+      summary: Find users to share with
+      description: |
+        Users whose username or display name starts with `q`
+        (case-insensitive), at most 20, for picking a member (S6.9). Only
+        users who signed in at least once exist. Username and display name
+        only, never email addresses. Signed-in users only, never guests (403
+        `FORBIDDEN`). At most 30 searches per user and minute (429
+        `TOO_MANY_REQUESTS`). When the instance turned user search off, the
+        list is always empty.
+      tags: [users]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/UserSearchQuery'
+      responses:
+        '200':
+          description: The hits.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/UserSummaryList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'

@@ -1,0 +1,181 @@
+# =============================================================================
+# Drawboard with Docker Compose - one host, behind your reverse proxy
+#
+#   cp .env.example .env        then fill in PUBLIC_URL, OIDC_*, DB_PASSWORD
+#   ./generate-keys.sh          the three key files under ./keys (once)
+#   docker compose up -d
+#
+# Services: frontend (nginx, the only one with a port), backend (Spring Boot), PostgreSQL,
+# Gotenberg (Office -> PDF, no network access). Data: the volumes db-data and files - back them up.
+# Trying it out on your machine without an identity provider: README.md, "Local trial".
+# Same hardening as the Helm chart: read-only root file systems, no capabilities, non-root.
+# =============================================================================
+name: drawboard
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: drawboard
+      POSTGRES_USER: drawboard
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawboard -d drawboard"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Once per start: the files volume belongs to the backend's user (uid 10001). Docker creates a new
+  # named volume owned by root, and the backend runs without root and without capabilities.
+  files-owner:
+    image: busybox:1.37
+    command: ["sh", "-c", "chown 10001 /data/files && chmod 700 /data/files"]
+    volumes:
+      - files:/data/files
+    network_mode: none
+    restart: "no"
+
+  backend:
+    image: ghcr.io/dergeorg/drawboard-backend:${DRAWBOARD_BACKEND_VERSION:-1.16.0}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      files-owner:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - tmp:/tmp
+      - files:/data/files
+    secrets: [file_url_keys, plugin_pseudonym_key, guest_signing_keys]
+    environment:
+      APP_ENVIRONMENT: prod
+      TZ: ${TZ:-UTC}
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: drawboard
+      DB_USER: drawboard
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      # Sign-in: any OpenID Connect provider (README, "Identity provider")
+      OIDC_ISSUER_URI: ${OIDC_ISSUER_URI:?set OIDC_ISSUER_URI in .env}
+      OIDC_JWK_SET_URI: ${OIDC_JWK_SET_URI:-}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-drawboard-api}
+      OIDC_CLAIM_USERNAME: ${OIDC_CLAIM_USERNAME:-preferred_username}
+      OIDC_CLAIM_GROUPS: ${OIDC_CLAIM_GROUPS:-groups}
+      DRAWBOARD_ADMIN_GROUP: ${ADMIN_GROUP:-}
+      DRAWBOARD_PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}
+      # Whose X-Forwarded-For the backend believes: the frontend's network plus your reverse proxy
+      DRAWBOARD_TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.30.37.0/24}
+      DRAWBOARD_GUESTS_ENABLED: ${GUESTS_ENABLED:-false}
+      DRAWBOARD_GUEST_SIGNING_KEYS_FILE: /run/secrets/guest_signing_keys
+      DRAWBOARD_FILE_URL_KEYS_FILE: /run/secrets/file_url_keys
+      DRAWBOARD_PLUGIN_PSEUDONYM_KEY_FILE: /run/secrets/plugin_pseudonym_key
+      DRAWBOARD_FILES_DIR: /data/files
+      DRAWBOARD_UPLOAD_SPOOL_DIR: /tmp/spool
+      DRAWBOARD_GOTENBERG_URL: http://gotenberg:3000
+      DRAWBOARD_PLUGIN_ORIGIN: ${PLUGIN_ORIGIN:-}
+      MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "false"
+      MANAGEMENT_TRACING_EXPORT_OTLP_ENABLED: "false"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081 &&
+          printf "GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 &&
+          grep -q "\"status\":\"UP\"" <&3'
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks: [default, web, conversion]
+
+  frontend:
+    image: ghcr.io/dergeorg/drawboard-frontend:${DRAWBOARD_FRONTEND_VERSION:-1.22.0}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # 127.0.0.1: only your reverse proxy on this host reaches it. Another host: HTTP_BIND=0.0.0.0
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    environment:
+      APP_ENVIRONMENT: prod
+      BACKEND_URL: http://backend:8080
+      OIDC_ISSUER: ${OIDC_ISSUER_URI:?set OIDC_ISSUER_URI in .env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-drawboard}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email groups}
+      PLUGIN_ORIGIN: ${PLUGIN_ORIGIN:-}
+      FILES_ORIGIN: ""
+      FARO_RECEIVER_URL: ""
+      FARO_SAMPLING_RATE: "1"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [web]
+
+  gotenberg:
+    image: gotenberg/gotenberg:8.40.0
+    restart: unless-stopped
+    user: "1001:1001"
+    command:
+      - gotenberg
+      - --chromium-disable-routes=true
+      - --pdfengines-disable-routes=true
+      - --webhook-disable=true
+      - --api-timeout=60s
+      - --api-disable-health-check-logging=true
+      - --libreoffice-restart-after=20
+    read_only: true
+    tmpfs:
+      - /tmp:size=768m,mode=1777
+      - /home/gotenberg:size=128m,uid=1001,gid=1001
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [conversion]
+
+networks:
+  # backend <-> frontend; a fixed subnet so TRUSTED_PROXIES can name it. Change it in .env if it
+  # overlaps a network on your host (docker network inspect).
+  web:
+    ipam:
+      config:
+        - subnet: ${WEB_SUBNET:-172.30.37.0/24}
+  # backend <-> Gotenberg only, no route out (a document cannot make Gotenberg fetch anything)
+  conversion:
+    internal: true
+
+volumes:
+  db-data:
+  files:
+  tmp:
+
+secrets:
+  file_url_keys:
+    file: ./keys/file_url_keys
+  plugin_pseudonym_key:
+    file: ./keys/plugin_pseudonym_key
+  guest_signing_keys:
+    file: ./keys/guest_signing_keys

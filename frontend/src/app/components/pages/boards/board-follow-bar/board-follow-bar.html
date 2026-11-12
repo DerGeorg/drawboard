@@ -1,0 +1,46 @@
+@if (following(); as f) {
+  <div
+    class="absolute inset-0 border-4"
+    data-testid="follow-frame"
+    [style.border-color]="color()"
+    aria-hidden="true"
+  ></div>
+  <div
+    role="status"
+    data-testid="follow-status"
+    class="float-panel pointer-events-auto absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 p-1 pl-3 text-sm"
+  >
+    <span class="size-2.5 shrink-0 rounded-full" [style.background-color]="color()"></span>
+    @if (f.mode === 'summoned') {
+      <span class="truncate"
+        ><strong>{{ f.name }}</strong> is presenting - you're following</span
+      >
+    } @else {
+      <span class="truncate"
+        >Following <strong>{{ f.name }}</strong></span
+      >
+    }
+    <button type="button" class="btn btn-sm btn-ghost" (click)="stopFollowing()">Stop</button>
+    @if (f.mode === 'summoned') {
+      <button type="button" class="btn btn-sm btn-ghost" (click)="ignorePresenter(f)">
+        Ignore
+      </button>
+    }
+  </div>
+} @else if (presenting()) {
+  <div
+    role="status"
+    data-testid="presenting-status"
+    class="float-panel pointer-events-auto absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-2 p-1 pl-3 text-sm"
+  >
+    <span class="truncate">
+      You are presenting -
+      @if (followers().length === 0) {
+        nobody follows yet
+      } @else {
+        {{ followers().length }} following: {{ followerNames() }}
+      }
+    </span>
+    <button type="button" class="btn btn-sm st-btn-primary-yellow" (click)="end()">End</button>
+  </div>
+}

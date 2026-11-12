@@ -1,0 +1,117 @@
+<section class="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 py-10">
+  <div class="flex items-center gap-2">
+    <drawboard-dg-logo [size]="28" />
+    <span class="text-xl font-semibold tracking-tight">Drawboard</span>
+  </div>
+
+  <div class="float-panel flex flex-col gap-4 p-6" aria-live="polite">
+    @if (endedText(); as ended) {
+      <p role="alert" data-testid="ended">{{ ended }}</p>
+    }
+
+    @switch (view().kind) {
+      @case ('working') {
+        <p data-testid="working">Opening the link…</p>
+      }
+      @case ('noLink') {
+        <h1 class="text-lg font-semibold">Open a share link</h1>
+        <p class="text-sm">
+          Open the link someone shared with you to join a board. If you just signed in, open the
+          link again.
+        </p>
+        @if (signedIn()) {
+          <a routerLink="/boards" class="btn st-btn-primary-yellow">Go to my boards</a>
+        }
+      }
+      @case ('invalid') {
+        <h1 class="text-lg font-semibold">This link does not work</h1>
+        <p class="text-sm" data-testid="invalid">
+          The link is invalid or expired. Ask the person who shared it for a new link.
+        </p>
+      }
+      @case ('password') {
+        <h1 class="text-lg font-semibold">This link is protected</h1>
+        <form class="flex flex-col gap-3" novalidate (submit)="submitPassword($event)">
+          <div>
+            <label for="join-password" class="mb-1 block text-sm font-semibold">Password</label>
+            <input
+              id="join-password"
+              type="password"
+              class="st-input"
+              autocomplete="off"
+              [formField]="passwordForm.password"
+              aria-describedby="join-password-errors"
+            />
+            <drawboard-field-errors id="join-password-errors" [field]="passwordForm.password" />
+          </div>
+          @if (passwordWrong()) {
+            <p class="text-sm text-(--color-st-red)" role="alert" data-testid="wrong-password">
+              The password is wrong.
+            </p>
+          }
+          <button type="submit" class="btn st-btn-primary-yellow">Open</button>
+        </form>
+      }
+      @case ('name') {
+        <h1 class="text-lg font-semibold">Join as a guest</h1>
+        <p class="text-sm">Other people on the board will see this name, marked as a guest.</p>
+        <form class="flex flex-col gap-3" novalidate (submit)="submitName($event)">
+          <div>
+            <label for="join-name" class="mb-1 block text-sm font-semibold">Your name</label>
+            <input
+              id="join-name"
+              type="text"
+              class="st-input"
+              autocomplete="nickname"
+              [formField]="nameForm.name"
+              aria-describedby="join-name-errors"
+            />
+            <drawboard-field-errors id="join-name-errors" [field]="nameForm.name" />
+          </div>
+          @if (nameRejected()) {
+            <p class="text-sm text-(--color-st-red)" role="alert" data-testid="name-rejected">
+              That name cannot be used. Please choose another one.
+            </p>
+          }
+          <button type="submit" class="btn st-btn-primary-yellow">Join</button>
+        </form>
+      }
+      @case ('login') {
+        <h1 class="text-lg font-semibold">Sign in to open this link</h1>
+        <p class="text-sm" data-testid="login">
+          This link is for people with an account. Sign in, then open the link again: the secret in
+          the link is not kept while you sign in, to keep it safe.
+        </p>
+        <button type="button" class="btn st-btn-primary-yellow" (click)="signIn()">Sign in</button>
+      }
+      @case ('rateLimited') {
+        <h1 class="text-lg font-semibold">Too many attempts</h1>
+        <p class="text-sm" data-testid="rate-limited">
+          Please wait
+          @if (waitSeconds(); as seconds) {
+            {{ seconds }} seconds
+          } @else {
+            a moment
+          }
+          and try again.
+        </p>
+        <button type="button" class="btn btn-outline st-btn-primary-outline" (click)="retry()">
+          Try again
+        </button>
+      }
+      @case ('failed') {
+        <h1 class="text-lg font-semibold">The link could not be opened</h1>
+        <p class="text-sm" role="alert" data-testid="failed">
+          Something went wrong. Please open the link again.
+          @if (failedRequestId(); as requestId) {
+            <span class="mt-1 block text-xs text-(--color-st-grey)"
+              >Request id: {{ requestId }}</span
+            >
+          }
+        </p>
+      }
+    }
+  </div>
+
+  <drawboard-guest-made-with class="self-center" />
+</section>

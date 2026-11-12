@@ -1,0 +1,58 @@
+Drawboard backend {{ default .Chart.AppVersion .Values.backend.image.tag }}, frontend {{ default .Chart.AppVersion .Values.frontend.image.tag }} (chart {{ .Chart.Version }}) installed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+URL:        {{ .Values.publicUrl }}
+Backend:    {{ include "drawboard.componentName" (dict "ctx" . "component" "backend") }}:8080 (1 replica, API + WebSocket; management port 8081 for probes only)
+Frontend:   {{ include "drawboard.componentName" (dict "ctx" . "component" "frontend") }}:8080
+Files:      {{ if .Values.files.persistence.enabled }}PVC {{ default (include "drawboard.componentName" (dict "ctx" . "component" "files")) .Values.files.persistence.existingClaim }}{{ else }}emptyDir (NOT persistent){{ end }}
+Gotenberg:  {{ if .Values.gotenberg.enabled }}{{ include "drawboard.componentName" (dict "ctx" . "component" "gotenberg") }}:3000 (backend only, no egress){{ else }}off (Office documents are stored with conversion FAILED){{ end }}
+Malware scan: {{ if .Values.clamav.host }}clamd {{ .Values.clamav.host }}:{{ .Values.clamav.port }}, fail {{ ternary "closed" "open" .Values.clamav.failClosed }}{{ else }}off{{ end }}
+Database:   {{ if .Values.postgresql.enabled }}built-in PostgreSQL (StatefulSet {{ include "drawboard.componentName" (dict "ctx" . "component" "postgresql") }}, PVC {{ .Values.postgresql.persistence.size }}){{ else }}external, {{ .Values.postgresql.external.host }}:{{ .Values.postgresql.external.port }}{{ end }}
+
+Check the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "drawboard.componentName" (dict "ctx" . "component" "backend") }} deploy/{{ include "drawboard.componentName" (dict "ctx" . "component" "frontend") }}
+{{- if .Values.postgresql.enabled }}
+  kubectl -n {{ .Release.Namespace }} rollout status sts/{{ include "drawboard.componentName" (dict "ctx" . "component" "postgresql") }}
+{{- end }}
+
+Register the SPA client at your OIDC provider with the EXACT values:
+  redirect URI:             {{ trimSuffix "/" .Values.publicUrl }}/auth/callback
+  post-logout redirect URI: {{ trimSuffix "/" .Values.publicUrl }}/
+  silent renew (if no refresh tokens): {{ trimSuffix "/" .Values.publicUrl }}/silent-renew.html
+  client id: {{ .Values.frontend.oidc.clientId }}, public client, code flow + PKCE (S256)
+  access tokens: signed JWT (RS256/ES256/PS256) with aud = {{ .Values.oidc.audience }}
+{{- if not .Values.trustedProxies }}
+
+WARNING: trustedProxies is empty. Every client looks like the frontend pod: rate limits and the audit
+trail count all users as one. Set it to the pod CIDR(s) of the ingress controller and the frontend.
+{{- end }}
+{{- if not .Values.files.persistence.enabled }}
+
+WARNING: files.persistence.enabled=false. Uploaded files are lost when the pod is rescheduled.
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+WARNING: ingress.enabled=false. Expose the frontend Service yourself; the proxy in front must allow
+request bodies of 500 MB on /api/boards/*/files (21m on /api/admin/plugins, 51m on snapshots) and WebSocket
+idle timeouts above 30 s (S2.8, S7.9).
+{{- else }}
+{{- if not .Values.ingress.tls }}
+
+WARNING: no ingress.tls configured. OIDC and the WebSocket origin check need a trustworthy https origin.
+{{- end }}
+{{- if not .Values.ingress.nginx.enabled }}
+
+NOTE: ingress.nginx.enabled=false: configure on your controller yourself per-path request body limits
+(500m on /api/boards/*/files, 21m on /api/admin/plugins, 51m on /api/boards/*/snapshot, request
+buffering off) and WebSocket timeouts of 3600 s (S2.8 is a MUST).
+{{- end }}
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: networkPolicy.enabled=false. S7.9 requires NetworkPolicies for production.
+{{- end }}
+{{- if .Values.guests.enabled }}
+
+WARNING: guests.enabled=true. Only with the conditions of the chart README, "Before enabling
+guest links", done (trusted proxies verified, signing key as a Secret file, TLS and headers
+verified, tested backups).
+{{- end }}

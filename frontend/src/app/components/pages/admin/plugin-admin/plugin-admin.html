@@ -1,0 +1,65 @@
+<div class="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-6">
+  <header class="flex items-center gap-2">
+    <a routerLink="/boards" class="btn btn-square btn-sm btn-ghost" aria-label="Back to my boards">
+      <drawboard-icon name="back" />
+    </a>
+    <h1 class="text-xl font-semibold">Plugins</h1>
+  </header>
+
+  <section class="float-panel flex flex-col gap-2 p-4" aria-labelledby="install-title">
+    <h2 id="install-title" class="text-base font-semibold">Install or upgrade</h2>
+    <p class="text-sm text-(--color-st-grey)">
+      Upload the plugin as a ZIP of at most {{ limit }} with <code>drawboard-plugin.json</code> at
+      its root. New plugins are installed disabled and without any capability. Plugins always run in
+      a sandbox; only grant what you understand.
+    </p>
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        #picker
+        type="file"
+        accept=".zip,application/zip"
+        class="file-input file-input-sm"
+        aria-label="Plugin ZIP"
+        [disabled]="installing()"
+        (change)="install(picker)"
+      />
+      @if (installing()) {
+        <span class="loading loading-spinner loading-sm" aria-label="Installing"></span>
+      }
+    </div>
+    @if (failure(); as f) {
+      <div role="alert" class="text-sm text-error" data-testid="install-error">
+        <p>{{ f.message }}</p>
+        @if (f.violations.length > 0) {
+          <ul class="mt-1 list-disc pl-5">
+            @for (v of f.violations; track $index) {
+              <li>
+                <code>{{ v.field }}</code
+                >: {{ v.message }}
+              </li>
+            }
+          </ul>
+        }
+        @if (f.requestId) {
+          <p class="mt-1 text-xs text-(--color-st-grey)">Request id {{ f.requestId }}</p>
+        }
+      </div>
+    }
+  </section>
+
+  @if (plugins.error(); as error) {
+    <drawboard-load-error [error]="error" subject="the plugins" (retry)="plugins.reload()" />
+  } @else if (plugins.hasValue()) {
+    @for (plugin of plugins.value().items; track plugin.id) {
+      <drawboard-plugin-card
+        [plugin]="plugin"
+        (changed)="changed($event)"
+        (removed)="removed($event)"
+      />
+    } @empty {
+      <p class="text-sm text-(--color-st-grey)">No plugins are installed.</p>
+    }
+  } @else {
+    <p class="text-sm text-(--color-st-grey)" aria-live="polite">Loading plugins…</p>
+  }
+</div>

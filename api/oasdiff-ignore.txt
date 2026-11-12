@@ -1,0 +1,2 @@
+# Formally breaking findings that change no behaviour. Format: "<METHOD> <path>"
+# plus the text oasdiff prints. Remove the lines once a release contains them.

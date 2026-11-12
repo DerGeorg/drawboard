@@ -1,0 +1,127 @@
+<!-- leaves room for the participants panel on the right; a guest's is wider (badge + leave) -->
+<div
+  class="float-panel relative flex items-center gap-1 p-1 sm:max-w-md"
+  [class.max-w-[calc(100vw-6.5rem)]]="!guest()"
+  [class.max-w-[calc(100vw-11rem)]]="guest()"
+>
+  @if (backLink(); as target) {
+    <div
+      class="tooltip tooltip-bottom"
+      [attr.data-tip]="guest() ? 'Back to the folder' : 'Back to my boards'"
+    >
+      <a
+        [routerLink]="target"
+        class="btn btn-square btn-sm btn-ghost"
+        [attr.aria-label]="guest() ? 'Back to the folder' : 'Back to my boards'"
+        data-testid="back"
+      >
+        <drawboard-icon name="back" />
+      </a>
+    </div>
+  }
+
+  @if (board(); as current) {
+    @if (backLink()) {
+      <span class="h-5 w-px shrink-0 bg-(--color-st-white-darker)" aria-hidden="true"></span>
+    }
+
+    @if (editing()) {
+      <form #formElement [formRoot]="titleForm" class="min-w-0 flex-1" aria-label="Rename board">
+        <label for="board-title-input" class="sr-only">Title of the board</label>
+        <input
+          id="board-title-input"
+          type="text"
+          class="input input-sm w-full min-w-40 font-semibold"
+          autocomplete="off"
+          #titleInput
+          [formField]="titleForm.title"
+          [attr.aria-invalid]="titleForm.title().touched() && titleForm.title().invalid()"
+          (blur)="blurRename(formElement)"
+          (keydown.escape)="cancelRename(); $event.stopPropagation()"
+        />
+      </form>
+    } @else if (canRename()) {
+      <h1 class="flex min-w-0 flex-1">
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost min-w-0 flex-1 justify-start px-2 font-semibold"
+          title="Click to rename"
+          data-testid="title"
+          (click)="startRename()"
+        >
+          <span class="truncate">{{ current.title }}</span>
+        </button>
+      </h1>
+    } @else {
+      <h1 class="min-w-0 flex-1 truncate px-2 text-sm font-semibold" data-testid="title">
+        {{ current.title }}
+      </h1>
+    }
+
+    <drawboard-role-badge class="hidden sm:inline-flex" [role]="current.role" />
+
+    @if (!guest()) {
+      <div class="tooltip tooltip-bottom" data-tip="More">
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="More"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="menuOpen()"
+          (click)="toggleMenu()"
+        >
+          <drawboard-icon name="more" />
+        </button>
+      </div>
+
+      @if (menuOpen()) {
+        <button
+          type="button"
+          class="fixed inset-0 z-10 cursor-default"
+          tabindex="-1"
+          aria-hidden="true"
+          (click)="closeMenu()"
+        ></button>
+        <ul
+          class="float-panel absolute top-full right-0 z-20 mt-2 w-56 p-1"
+          role="menu"
+          aria-label="Board menu"
+          data-testid="menu"
+        >
+          @for (entry of menu(); track entry.id) {
+            <li role="none">
+              <button
+                type="button"
+                role="menuitem"
+                class="panel-item"
+                [disabled]="entry.id === 'import' && importing()"
+                (click)="choose(entry)"
+              >
+                <drawboard-icon [name]="entry.icon" />
+                {{ entry.label }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    }
+  }
+</div>
+
+@if (historyOpen() && board(); as current) {
+  <drawboard-version-history [boardId]="current.id" (closed)="closeHistory()" />
+}
+
+@if (aboutOpen()) {
+  <drawboard-about-dialog (closed)="closeAbout()" />
+}
+
+<input
+  #fileInput
+  type="file"
+  class="hidden"
+  accept=".drawboard,.json,application/json,application/zip"
+  aria-label="Board file to import"
+  tabindex="-1"
+  (change)="importPicked($event)"
+/>

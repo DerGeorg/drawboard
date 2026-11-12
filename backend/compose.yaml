@@ -1,0 +1,95 @@
+# =============================================================================
+# drawboard backend – local development infrastructure (LOCAL ONLY)
+#
+#   postgres               PostgreSQL 18, database "drawboard", one user for
+#                          everything; the per-module schemas are created by the
+#                          app's Flyway migrations, not here.
+#   keycloak               Keycloak 26.7.4 in dev mode, realm "drawboard"
+#   keycloak-config-cli    one-shot: applies dev/keycloak/drawboard-realm.json
+#                          (idempotent, runs on every "up")
+#
+# Observability (Alloy, Tempo, Loki, Prometheus, Grafana) is optional:
+#   docker compose -f compose.yaml -f compose.observability.yaml up -d
+#
+# Host ports: 15432 postgres, 18180 keycloak, 19000 keycloak management.
+# Nothing here uses port 8080 (also not inside the containers).
+# All credentials in this file and in dev/ are throwaway local test values.
+# See dev/README.md.
+# =============================================================================
+name: drawboard
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: drawboard
+      POSTGRES_USER: drawboard
+      POSTGRES_PASSWORD: drawboard          # local dev value
+    ports:
+      - "15432:5432"
+    volumes:
+      # Postgres 18 images keep PGDATA in /var/lib/postgresql/18/docker
+      # -> mount the parent directory (a mount on .../data is refused by 18+).
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drawboard -d drawboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    command: ["start-dev"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin    # local dev value (KC 26 names)
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin    # local dev value
+      # Keycloak listens on 18180 inside the container as well: no 8080 anywhere,
+      # and http://keycloak:18180 (containers) and http://localhost:18180 (Mac)
+      # differ only in the host name.
+      KC_HTTP_PORT: "18180"
+      # Fixed public URL -> the token's "iss" is http://localhost:18180/realms/drawboard
+      # no matter whether the Mac or a container asked for the token.
+      KC_HOSTNAME: http://localhost:18180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_MANAGEMENT_PORT: "9000"
+    ports:
+      - "18180:18180"
+      - "19000:9000"                        # /health/ready, /metrics
+    healthcheck:
+      # the image has no curl/wget -> plain bash /dev/tcp
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": *"UP"' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  keycloak-config-cli:
+    # 6.5.1 is the latest release (2026-05-22) and is built against Keycloak
+    # 26.5.5; a 26.7 build is pending upstream (adorsys/keycloak-config-cli#1668).
+    # Verified locally against 26.7.4 with this realm file (see dev/README.md).
+    image: adorsys/keycloak-config-cli:6.5.1-26
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_URL: http://keycloak:18180
+      KEYCLOAK_USER: admin
+      KEYCLOAK_PASSWORD: admin
+      KEYCLOAK_AVAILABILITYCHECK_ENABLED: "true"
+      KEYCLOAK_AVAILABILITYCHECK_TIMEOUT: 120s
+      IMPORT_FILES_LOCATIONS: /config/*.json
+      IMPORT_VARSUBSTITUTION_ENABLED: "false"
+      # defaults kept: managed = full + remote state -> things config-cli created
+      # and that were later removed from the file are removed from Keycloak too
+    volumes:
+      - ./dev/keycloak:/config:ro
+    restart: "no"
+
+volumes:
+  postgres-data:

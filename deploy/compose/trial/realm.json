@@ -1,0 +1,158 @@
+{
+  "realm": "drawboard",
+  "displayName": "Drawboard (local trial)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 300,
+  "clientScopes": [
+    {
+      "name": "groups",
+      "description": "Group names (without path) in the claim 'groups'",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "drawboard-users"
+    },
+    {
+      "name": "drawboard-admins"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "drawboard",
+      "name": "Drawboard web app (public client, PKCE)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "groups"
+      ],
+      "redirectUris": [
+        "http://localhost:8080/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8080/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-drawboard-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "drawboard-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "drawboard-api",
+      "name": "Drawboard API (audience of the access tokens)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false
+    }
+  ],
+  "users": [
+    {
+      "username": "anna",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "anna@example.test",
+      "firstName": "Anna",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "anna",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/drawboard-admins"
+      ]
+    },
+    {
+      "username": "ben",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "ben@example.test",
+      "firstName": "Ben",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ben",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/drawboard-users"
+      ]
+    },
+    {
+      "username": "chris",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "chris@example.test",
+      "firstName": "Chris",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "chris",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/drawboard-users"
+      ]
+    }
+  ]
+}
