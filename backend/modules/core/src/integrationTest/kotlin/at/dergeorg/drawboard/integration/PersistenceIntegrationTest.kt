@@ -3,7 +3,7 @@ package at.dergeorg.drawboard.integration
 import at.dergeorg.drawboard.library.domain.access.model.Caller
 import at.dergeorg.drawboard.library.domain.boards.provides.BoardsUseCase
 import at.dergeorg.drawboard.library.domain.boards.provides.CreateBoardCommand
-import at.dergeorg.drawboard.library.domain.boards.provides.RenameBoardCommand
+import at.dergeorg.drawboard.library.domain.boards.provides.UpdateBoardCommand
 import at.dergeorg.drawboard.shared.auditing.AuditFilter
 import at.dergeorg.drawboard.shared.auditing.AuditLog
 import at.dergeorg.drawboard.shared.error.DomainException
@@ -57,14 +57,14 @@ class PersistenceIntegrationTest(
     @Nested
     inner class Locks {
 
-        /** renameBoard checks the version in `save()` (UPDATE … WHERE version = ?): of parallel renames only one wins. */
+        /** updateBoard checks the version in `save()` (UPDATE … WHERE version = ?): of parallel renames only one wins. */
         @Test
         fun `when renaming in parallel on the same version then exactly one wins and the others get CONFLICT`() = runTest {
             val board = boards.createBoard(CreateBoardCommand(OWNER, "Rename me in parallel")).board
 
             val results = List(PARALLEL) { i ->
                 async(Dispatchers.IO) {
-                    runCatching { boards.renameBoard(RenameBoardCommand(Caller.User(OWNER), board.id, "Winner $i", board.version)) }
+                    runCatching { boards.updateBoard(UpdateBoardCommand(Caller.User(OWNER), board.id, "Winner $i", board.version)) }
                 }
             }.awaitAll()
 
@@ -158,7 +158,7 @@ class PersistenceIntegrationTest(
         val SCHEMAS = listOf("auditing", "library", "users")
 
         /** The newest migration per schema where it is not V1. */
-        val LATEST_MIGRATION = mapOf("library" to "4")
+        val LATEST_MIGRATION = mapOf("library" to "5")
         val OWNER: Uuid = Uuid.random()
     }
 }

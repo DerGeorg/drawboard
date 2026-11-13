@@ -54,6 +54,7 @@ class BoardsControllerTest(private val client: WebTestClient) {
         ownerId = OWNER,
         folderId = null,
         role = BoardRole.OWNER,
+        template = false,
         createdAt = FIXED_NOW,
         updatedAt = FIXED_NOW,
         version = 0,
@@ -94,6 +95,41 @@ class BoardsControllerTest(private val client: WebTestClient) {
                 "the error body is problem json anyway",
             )
             assertContains(result.responseBody.orEmpty(), "\"code\":\"NOT_ACCEPTABLE\"", message = "error code in the body")
+        }
+    }
+
+    @Nested
+    inner class ListTemplates {
+
+        @Test
+        fun `when GET templates given no paging parameters then 200 with the first page of 20 is returned`() {
+            val info = PageInfo(number = 0, size = 20, totalElements = 1, totalPages = 1)
+            val page = BoardPage(items = listOf(board.copy(template = true)), page = info)
+            coEvery { boards.listTemplates(0, 20) } returns page
+
+            val result = client.get().uri("/api/templates").exchange().expectBody<BoardPage>().returnResult()
+
+            assertEquals(HttpStatus.OK, result.status, "status of GET /api/templates")
+            assertEquals(page, result.responseBody, "page in the body")
+        }
+
+        @Test
+        fun `when GET templates given a page size of 101 then 400 VALIDATION_FAILED names the parameter`() {
+            val result = client.get().uri("/api/templates?size=101").exchange().expectBody<ErrorModel>().returnResult()
+
+            assertEquals(HttpStatus.BAD_REQUEST, result.status, "status for an invalid page size")
+            assertEquals(listOf("size"), result.responseBody?.violations?.map { it.field }, "invalid fields")
+            coVerify(exactly = 0) { boards.listTemplates(any(), any()) }
+        }
+
+        @Test
+        fun `when GET templates given a guest FORBIDDEN from the library then 403 FORBIDDEN`() {
+            coEvery { boards.listTemplates(any(), any()) } throws DomainException(DomainErrorCode.FORBIDDEN)
+
+            val result = client.get().uri("/api/templates").exchange().expectBody<ErrorModel>().returnResult()
+
+            assertEquals(HttpStatus.FORBIDDEN, result.status, "status")
+            assertEquals(ErrorCode.FORBIDDEN, result.responseBody?.code, "error code")
         }
     }
 

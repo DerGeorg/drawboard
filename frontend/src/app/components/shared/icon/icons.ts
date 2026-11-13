@@ -20,6 +20,7 @@ export const ICONS = {
   unframe: 'M7 3v4H3M17 3v4h4M7 21v-4H3M17 21v-4h4M10 12h4',
   connector: 'M5 19L19 5M10 5h9v9',
   pen: 'M4 20l1-4L16 5l3 3L8 19z',
+  emoji: 'M12 3a9 9 0 100 18 9 9 0 000-18zM8.5 14a4 4 0 007 0M9 9.5h.01M15 9.5h.01',
   eraser: 'M4 16l9-9 6 6-6 6H8zM9 12l6 6',
   undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',
   redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 000 12h3',
@@ -55,6 +56,7 @@ export const ICONS = {
   diagram: 'M4 4h6v5H4zM14 15h6v5h-6zM7 9v4h10v2',
   story: 'M6 3h12v18H6zM9 8h6M9 12h6M9 16h3',
   kanban: 'M4 4h16v16H4zM9.5 4v16M14.5 4v16M6 7h2M11 7h2M16 7h2M6 10h2M11 10h2',
+  template: 'M4 4h7v7H4zM14 4h6v7h-6zM4 14h16v6H4z',
   puzzle:
     'M10 4a2 2 0 014 0v2h4v4h-2a2 2 0 000 4h2v4h-4v-2a2 2 0 00-4 0v2H6v-4h2a2 2 0 000-4H6V6h4z',
   settings:

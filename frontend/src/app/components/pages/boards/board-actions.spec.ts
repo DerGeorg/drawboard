@@ -1,10 +1,11 @@
 import { HttpContext } from '@angular/common/http';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { BoardRole } from '@apps/drawboard-api';
 
 import { Toasts } from '../../../services/toasts';
 import { signedInAsAlice } from '../../../test/fake-auth';
-import { aBoard, aProblem } from '../../../test/fixtures';
+import { SPRINT_BOARD_ID, aBoard, aProblem } from '../../../test/fixtures';
 import {
   expectRequest,
   problemResponse,
@@ -155,6 +156,59 @@ describe('BoardActions', () => {
       expect(spans.byName('BoardActions.rename').attributes, 'span attributes').toEqual({
         'board.id': board.id,
       });
+    });
+  });
+
+  describe('templates', () => {
+    it('when a template is created then the flag goes into the request', async () => {
+      const result = actions.create('Retro', undefined, undefined, true);
+      await settle();
+
+      const request = expectRequest('POST', '/api/boards', 'create board');
+      expect(request.request.body, 'request body').toEqual({ title: 'Retro', template: true });
+      request.flush(aBoard({ template: true }));
+      await result;
+    });
+
+    it('when the template flag is switched then title, flag and version are sent', async () => {
+      const board = aBoard({ version: 3 });
+      const result = actions.setTemplate(board, true);
+      await settle();
+
+      const request = expectRequest('PUT', `/api/boards/${board.id}`, 'update board');
+      expect(request.request.body, 'request body').toEqual({
+        title: 'Sprint planning',
+        template: true,
+        version: 3,
+      });
+      request.flush(aBoard({ template: true, version: 4 }));
+
+      expect((await result)?.template, 'changed board').toBe(true);
+    });
+
+    it('when the backend refuses the switch then undefined is returned', async () => {
+      const result = actions.setTemplate(aBoard({ role: BoardRole.EDITOR }), true);
+      await settle();
+
+      expectRequest('PUT', `/api/boards/${SPRINT_BOARD_ID}`).flush(
+        aProblem({ code: 'LIBRARY_BOARD_ACCESS_DENIED', status: 403 }),
+        problemResponse(403, 'Forbidden'),
+      );
+
+      expect(await result, 'result').toBeUndefined();
+    });
+
+    it('when the switch is made then the span carries the board id only', async () => {
+      const spans = recordSpans();
+      const result = actions.setTemplate(aBoard(), false);
+      await settle();
+      expectRequest('PUT', `/api/boards/${SPRINT_BOARD_ID}`).flush(aBoard());
+      await result;
+
+      expect(spans.byName('BoardActions.setTemplate').attributes, 'span attributes').toEqual({
+        'board.id': SPRINT_BOARD_ID,
+      });
+      spans.stop();
     });
   });
 

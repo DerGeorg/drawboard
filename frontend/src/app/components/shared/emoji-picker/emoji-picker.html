@@ -1,0 +1,82 @@
+<div class="flex w-80 max-w-full flex-col gap-2" data-testid="emoji-picker">
+  <input
+    #search
+    type="search"
+    class="input input-sm w-full"
+    placeholder="Search emojis"
+    aria-label="Search emojis"
+    autocomplete="off"
+    spellcheck="false"
+    [attr.aria-controls]="`${id}-grid`"
+    [value]="query()"
+    (input)="setQuery(search.value)"
+    (keydown)="searchKey($event)"
+  />
+
+  <div class="flex justify-between" role="tablist" aria-label="Emoji groups">
+    @for (t of tabs; track t.key) {
+      <button
+        type="button"
+        role="tab"
+        class="btn btn-square btn-ghost btn-xs text-base"
+        [class.btn-active]="!searching() && tab() === t.key"
+        [attr.data-tab]="t.key"
+        [attr.aria-selected]="!searching() && tab() === t.key"
+        [attr.aria-label]="t.label"
+        [attr.title]="t.label"
+        [attr.aria-controls]="`${id}-grid`"
+        [tabindex]="!searching() && tab() === t.key ? 0 : -1"
+        (click)="selectTab(t.key)"
+        (keydown)="tabKey($event, $index)"
+      >
+        {{ t.icon }}
+      </button>
+    }
+  </div>
+
+  <div [id]="`${id}-grid`" role="tabpanel" [attr.aria-label]="heading()">
+    @if (emojis.error()) {
+      <div class="flex h-60 flex-col items-center justify-center gap-2 text-sm" role="alert">
+        <p>The emojis could not be loaded.</p>
+        <button type="button" class="btn btn-sm" (click)="emojis.reload()">Try again</button>
+      </div>
+    } @else if (emojis.isLoading()) {
+      <p class="flex h-60 items-center justify-center text-sm text-(--color-st-grey)" role="status">
+        Loading emojis…
+      </p>
+    } @else {
+      <p class="mb-1 text-xs font-semibold text-(--color-st-grey)">{{ heading() }}</p>
+      <div
+        #grid
+        class="grid h-52 grid-cols-8 content-start gap-0.5 overflow-y-auto"
+        role="group"
+        [attr.aria-label]="heading()"
+        (keydown)="gridKey($event)"
+      >
+        @for (e of visible(); track e.char) {
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-sm size-9 text-xl"
+            [attr.data-index]="$index"
+            [attr.aria-label]="e.name"
+            [attr.title]="e.name"
+            [tabindex]="$index === active() ? 0 : -1"
+            (click)="pick(e)"
+            (focus)="active.set($index)"
+          >
+            {{ e.char }}
+          </button>
+        } @empty {
+          <p class="col-span-8 p-3 text-center text-sm text-(--color-st-grey)">
+            @if (searching()) {
+              No emoji found.
+            } @else {
+              Nothing here yet. Emojis you pick show up here.
+            }
+          </p>
+        }
+      </div>
+      <p class="sr-only" aria-live="polite">{{ visible().length }} emojis</p>
+    }
+  </div>
+</div>

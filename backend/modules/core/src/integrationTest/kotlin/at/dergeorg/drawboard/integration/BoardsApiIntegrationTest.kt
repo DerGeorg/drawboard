@@ -12,6 +12,7 @@ import at.dergeorg.drawboard.contract.model.PageInfo
 import at.dergeorg.drawboard.library.domain.boards.model.BoardCreated
 import at.dergeorg.drawboard.library.domain.boards.model.BoardDeleted
 import at.dergeorg.drawboard.library.domain.boards.model.BoardRenamed
+import at.dergeorg.drawboard.library.domain.boards.model.BoardTemplateChanged
 import at.dergeorg.drawboard.shared.auditing.AuditAction
 import at.dergeorg.drawboard.shared.auditing.AuditFilter
 import at.dergeorg.drawboard.shared.auditing.AuditLog
@@ -311,6 +312,58 @@ class BoardsApiIntegrationTest(private val client: WebTestClient, private val au
 
             assertEquals(HttpStatus.BAD_REQUEST, result.status, "status for a blank title")
             assertEquals(ErrorCode.VALIDATION_FAILED, result.responseBody?.code, "error code")
+        }
+    }
+
+    @Nested
+    inner class Templates {
+
+        private fun createTemplate(title: String): Board = checkNotNull(
+            client.signedInAs(alice).post().uri("/api/boards").bodyValue(NewBoard(title, template = true)).exchange()
+                .expectBody<Board>().returnResult().responseBody,
+        ) { "creating template '$title' failed" }
+
+        private fun setTemplate(board: Board, template: Boolean?, user: TokenUser = alice) =
+            client.signedInAs(user).put().uri("/api/boards/{id}", board.id)
+                .bodyValue(BoardUpdate(title = board.title, version = board.version, template = template)).exchange()
+
+        @Test
+        fun `when POST boards given template true then the board is stored as a template, and by default it is not`() {
+            val template = createTemplate("A template")
+            val plain = createBoard("Not a template")
+
+            assertEquals(true, template.template, "created as a template")
+            assertEquals(false, plain.template, "default")
+            val read = client.signedInAs(alice).get().uri("/api/boards/{id}", template.id).exchange().expectBody<Board>().returnResult()
+            assertEquals(true, read.responseBody?.template, "read back from PostgreSQL")
+        }
+
+        @Test
+        fun `when the owner toggles the template flag then the version rises and each change is audited`() = runTest {
+            val board = createBoard("Toggle me")
+
+            val marked = assertNotNull(setTemplate(board, true).expectBody<Board>().returnResult().responseBody, "marked")
+            val unmarked = assertNotNull(setTemplate(marked, false).expectBody<Board>().returnResult().responseBody, "unmarked")
+
+            assertEquals(listOf(true, false), listOf(marked.template, unmarked.template), "flag after each call")
+            assertEquals(board.version + 2, unmarked.version, "version raised by every change")
+            val changes = auditLog.history("board", board.id.toString()).filter { it.eventType == "library.board.updated" }
+            assertEquals(
+                listOf(BoardTemplateChanged(true, board.version), BoardTemplateChanged(false, marked.version)),
+                changes.map { it.detailsAs<BoardTemplateChanged>() },
+                "typed details of both changes",
+            )
+            assertContains(changes.first().changes, FieldChange("template", false, true), "field change")
+        }
+
+        @Test
+        fun `when PUT board given no template field then the flag stays`() {
+            val template = createTemplate("Keep me")
+
+            val renamed = assertNotNull(rename(template, "Kept").expectBody<Board>().returnResult().responseBody, "renamed")
+
+            assertEquals(true, renamed.template, "absent = unchanged")
+            assertEquals("Kept", renamed.title, "title changed")
         }
     }
 

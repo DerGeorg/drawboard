@@ -5,6 +5,7 @@
         class="btn btn-sm btn-outline st-btn-primary-outline"
         routerLink="."
         [queryParams]="{ page: current() - 1 }"
+        queryParamsHandling="merge"
         rel="prev"
       >
         Previous
@@ -20,6 +21,7 @@
         class="btn btn-sm btn-outline st-btn-primary-outline"
         routerLink="."
         [queryParams]="{ page: current() + 1 }"
+        queryParamsHandling="merge"
         rel="next"
       >
         Next

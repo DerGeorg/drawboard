@@ -75,6 +75,9 @@
         <p class="mt-0.5 flex items-center gap-2 text-xs text-(--color-st-grey)">
           <span data-testid="edited">Edited {{ edited() }}</span>
           <drawboard-role-badge [role]="current.role" />
+          @if (current.template) {
+            <span class="badge st-badge-primary" data-testid="template-badge">Template</span>
+          }
         </p>
       }
     </div>

@@ -5,6 +5,7 @@ import { BoardEngine } from '../../../../../board-engine/engine';
 import { BoardDoc } from '../../../../../board-engine/model/board-doc';
 import { all, buttonByLabel } from '../../../../test/dom';
 import type { PluginBlockOption } from '../../../../../board-engine/plugins/plugin-host';
+import { EmojiCatalog, RawEmoji } from '../../../shared/emoji-picker/emoji-catalog';
 import { BoardToolbar } from './board-toolbar';
 
 describe('BoardToolbar', () => {
@@ -385,12 +386,78 @@ describe('BoardToolbar', () => {
     });
   });
 
+  describe('emoji stamp', () => {
+    const RAW: RawEmoji[] = [
+      { unicode: '🎉', label: 'party popper', group: 0, tags: ['party'] },
+      { unicode: '🚀', label: 'rocket', group: 0, tags: ['space'] },
+    ];
+    beforeEach(() => {
+      localStorage.clear();
+      TestBed.inject(EmojiCatalog).loadRaw = async () => RAW;
+    });
+
+    it('when the stamp button is clicked then the stamp tool is active and the picker opens', async () => {
+      await render();
+
+      buttonByLabel(fixture, 'Emoji stamp').click();
+      await fixture.whenStable();
+
+      expect(engine.tool, 'engine tool').toBe('emoji');
+      expect(flyout()?.querySelector('[data-testid=emoji-picker]'), 'picker').not.toBeNull();
+      expect(
+        all(fixture, '.tooltip').map((t) => t.getAttribute('data-tip')),
+        'tooltip without a shortcut',
+      ).toContain('Emoji stamp');
+    });
+
+    it('when an emoji is picked then it is the stamp, the picker closes and the tool stays', async () => {
+      await render();
+      buttonByLabel(fixture, 'Emoji stamp').click();
+      await fixture.whenStable();
+
+      buttonByLabel(fixture, 'rocket').click();
+      await fixture.whenStable();
+
+      expect(engine.drawStyle.emoji, 'stamp').toBe('🚀');
+      expect(engine.tool, 'engine tool').toBe('emoji');
+      expect(flyout(), 'flyout').toBeNull();
+      expect(pressed('Emoji stamp'), 'pressed').toBe('true');
+    });
+
+    it('when another tool is chosen then the picker closes', async () => {
+      await render();
+      buttonByLabel(fixture, 'Emoji stamp').click();
+      await fixture.whenStable();
+
+      engine.setTool('select');
+      await fixture.whenStable();
+
+      expect(flyout(), 'flyout').toBeNull();
+      expect(pressed('Emoji stamp'), 'pressed').toBe('false');
+    });
+
+    it('when Escape is pressed in the picker then the picker closes and the tool stays', async () => {
+      await render();
+      buttonByLabel(fixture, 'Emoji stamp').click();
+      await fixture.whenStable();
+
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('input[type=search]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await fixture.whenStable();
+
+      expect(flyout(), 'flyout').toBeNull();
+      expect(engine.tool, 'engine tool').toBe('emoji');
+    });
+  });
+
   describe('read-only', () => {
     it('when the board is read-only then only select and hand remain', async () => {
       readOnly.set(true);
       await render();
 
       expect(() => buttonByLabel(fixture, 'Sticky note'), 'sticky').toThrow();
+      expect(() => buttonByLabel(fixture, 'Emoji stamp'), 'emoji stamp').toThrow();
       expect(() => buttonByLabel(fixture, 'Undo'), 'undo').toThrow();
       expect(buttonByLabel(fixture, 'Hand'), 'hand').toBeDefined();
     });

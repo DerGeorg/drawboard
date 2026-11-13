@@ -33,6 +33,26 @@ internal class InMemoryBoardRepository(vararg initial: Board) : BoardRepository 
 
     override suspend fun findAllInFolders(folderIds: Collection<Uuid>) = boards.values.filter { it.folderId in folderIds }
 
+    /** How many candidate queries ran and with which limit - the service must ask once and bounded. */
+    val candidateLimits = mutableListOf<Int>()
+
+    /** Sizes of the id lists of the last candidate query: (granted boards, folders). */
+    var lastListSizes: Pair<Int, Int> = 0 to 0
+
+    override suspend fun findTemplateCandidates(
+        ownerId: Uuid,
+        boardIds: Collection<Uuid>,
+        folderIds: Collection<Uuid>,
+        limit: Int,
+    ): List<Board> {
+        candidateLimits += limit
+        lastListSizes = boardIds.size to folderIds.size
+        return boards.values.filter { it.template && it.deletedAt == null }
+            .filter { it.ownerId == ownerId || it.id in boardIds || it.folderId in folderIds }
+            .sortedWith(compareByDescending<Board> { it.updatedAt }.thenByDescending { it.id })
+            .take(limit)
+    }
+
     override suspend fun findAllById(ids: Collection<Uuid>) = boards.values.filter { it.id in ids }
 
     override suspend fun findDeletedByOwner(ownerId: Uuid) = boards.values.filter { it.ownerId == ownerId && it.deletedAt != null }

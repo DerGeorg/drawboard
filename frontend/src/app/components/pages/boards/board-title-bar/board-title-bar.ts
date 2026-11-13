@@ -35,6 +35,8 @@ import { AboutDialog } from '../../../shared/about-dialog/about-dialog';
 import { RoleBadge } from '../../../shared/role-badge/role-badge';
 import { VersionHistory } from '../version-history/version-history';
 import { BoardActions } from '../board-actions';
+import { BoardTemplates, FileSummary } from '../board-templates';
+import { TemplateFilesDialog } from '../template-files-dialog/template-files-dialog';
 import { BoardTransfer } from '../board-transfer';
 
 interface TitleDraft {
@@ -42,19 +44,31 @@ interface TitleDraft {
 }
 
 interface MenuEntry {
-  id: 'export' | 'link' | 'import' | 'history' | 'about';
+  id: 'export' | 'link' | 'import' | 'saveTemplate' | 'template' | 'history' | 'about';
   label: string;
   icon: IconName;
+  /** A switch: "On" or "Off" is shown at the right and the item is a menu item checkbox. */
+  checked?: boolean;
 }
 
 /**
  * The pill at the top left: back to the library, the board title (click to rename in place,
  * optimistic locking through BoardActions.rename) and a "more" menu: export (.drawboard), copy as link,
- * import into a new board and, for the owner, the version history.
+ * import into a new board, "Save as template" and, for the owner, the template switch and the
+ * version history.
  */
 @Component({
   selector: 'drawboard-board-title-bar',
-  imports: [RouterLink, FormField, FormRoot, Icon, RoleBadge, VersionHistory, AboutDialog],
+  imports: [
+    RouterLink,
+    FormField,
+    FormRoot,
+    Icon,
+    RoleBadge,
+    TemplateFilesDialog,
+    VersionHistory,
+    AboutDialog,
+  ],
   templateUrl: './board-title-bar.html',
   host: { '(keydown.escape)': 'closeMenu()' },
 })
@@ -64,6 +78,7 @@ export class BoardTitleBar {
   private readonly actions = inject(BoardActions);
   private readonly toasts = inject(Toasts);
   private readonly transfer = inject(BoardTransfer);
+  private readonly templates = inject(BoardTemplates);
 
   /** Undefined while the board loads: only the back link shows. */
   readonly board = input<Board>();
@@ -81,14 +96,28 @@ export class BoardTitleBar {
   protected readonly historyOpen = signal(false);
   protected readonly aboutOpen = signal(false);
   protected readonly importing = signal(false);
+  protected readonly savingTemplate = signal(false);
+  /** The board has files: "copy files too?" is open. */
+  protected readonly askingFiles = signal<FileSummary | undefined>(undefined);
   protected readonly menu = computed<readonly MenuEntry[]>(() => {
     const entries: MenuEntry[] = [
       { id: 'export', label: 'Export (.drawboard)', icon: 'export' },
       { id: 'link', label: 'Copy as link', icon: 'share' },
       { id: 'import', label: this.importing() ? 'Importing…' : 'Import…', icon: 'import' },
     ];
-    // only the owner may list and restore versions
+    entries.push({
+      id: 'saveTemplate',
+      label: this.savingTemplate() ? 'Saving…' : 'Save as template',
+      icon: 'template',
+    });
+    // only the owner may switch the template flag, list and restore versions
     if (this.board()?.role === BoardRole.OWNER) {
+      entries.push({
+        id: 'template',
+        label: 'Template',
+        icon: 'template',
+        checked: this.board()?.template === true,
+      });
       entries.push({ id: 'history', label: 'Version history', icon: 'history' });
     }
     entries.push({ id: 'about', label: 'About Drawboard', icon: 'info' });
@@ -184,7 +213,69 @@ export class BoardTitleBar {
       case 'import':
         this.fileInput()?.nativeElement.click();
         break;
+      case 'saveTemplate':
+        await this.saveAsTemplate();
+        break;
+      case 'template':
+        await this.toggleTemplate();
+        break;
     }
+  }
+
+  /** A copy of this board with the template flag; this board stays as it is. */
+  private async saveAsTemplate(): Promise<void> {
+    const board = this.board();
+    if (!board || this.savingTemplate()) {
+      return;
+    }
+    this.savingTemplate.set(true);
+    try {
+      const summary = await this.templates.fileSummary(board);
+      if (summary.count > 0) {
+        this.askingFiles.set(summary);
+        return;
+      }
+      await this.templates.saveAsTemplate(board, this.doc());
+    } finally {
+      this.savingTemplate.set(false);
+    }
+  }
+
+  /** The answer to "copy files too?" for Save as template. */
+  @WithSpan('BoardTitleBar.answerFiles')
+  protected async answerFiles(withFiles: boolean): Promise<void> {
+    const board = this.board();
+    this.askingFiles.set(undefined);
+    if (!board) {
+      return;
+    }
+    this.savingTemplate.set(true);
+    try {
+      await this.templates.saveAsTemplate(board, this.doc(), { files: withFiles });
+    } finally {
+      this.savingTemplate.set(false);
+    }
+  }
+
+  @WithSpan('BoardTitleBar.cancelFiles')
+  protected cancelFiles(): void {
+    this.askingFiles.set(undefined);
+  }
+
+  /** The owner's switch: this board is (no longer) offered as a template. */
+  private async toggleTemplate(): Promise<void> {
+    const board = this.board();
+    if (!board || board.role !== BoardRole.OWNER) {
+      return;
+    }
+    const changed = await this.actions.setTemplate(board, !board.template);
+    if (changed) {
+      this.toasts.success(
+        changed.template ? 'This board is a template now.' : 'This board is no longer a template.',
+      );
+    }
+    // also after a failure (409: someone changed the board): show the current state
+    this.changed.emit();
   }
 
   /** A file was picked: import it as a new board (opens it when done). */

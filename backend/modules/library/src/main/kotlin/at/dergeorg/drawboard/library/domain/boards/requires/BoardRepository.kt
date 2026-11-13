@@ -23,6 +23,13 @@ internal interface BoardRepository {
     /** The boards in any of [folderIds], trash or not. */
     suspend fun findAllInFolders(folderIds: Collection<Uuid>): List<Board>
 
+    /**
+     * At most [limit] template boards that are not in the trash, newest change first (then id), that are candidates for
+     * the caller: owned by [ownerId], or one of [boardIds] (a grant on the board itself), or directly in one of
+     * [folderIds] (the folders the caller has a grant on or below). The caller's real role is decided afterwards.
+     */
+    suspend fun findTemplateCandidates(ownerId: Uuid, boardIds: Collection<Uuid>, folderIds: Collection<Uuid>, limit: Int): List<Board>
+
     suspend fun findAllById(ids: Collection<Uuid>): List<Board>
 
     /** The boards of [ownerId] that are in the trash. */

@@ -117,6 +117,66 @@ describe('BoardImporter', () => {
       await result;
     });
 
+    it('when options are given then folder and template flag go to createBoard', async () => {
+      const result = importer.save(aFile(), undefined, { folderId: 'folder-1', template: true });
+      await settle();
+
+      const create = expectRequest('POST', '/api/boards', 'create board');
+      expect(create.request.body, 'body').toEqual({
+        title: 'From a file',
+        folderId: 'folder-1',
+        template: true,
+      });
+      create.flush(aBoard(), { status: 201, statusText: 'Created' });
+
+      await result;
+    });
+
+    it('when prepare changes the file then the changed content is written, after the board exists', async () => {
+      const seen: string[] = [];
+      const result = importer.save(aFile(2), undefined, {
+        prepare: (board, file) => {
+          seen.push(board.id);
+          return Promise.resolve({ ...file, blocks: file.blocks.slice(0, 1) });
+        },
+      });
+      await settle();
+      expectRequest('POST', '/api/boards').flush(aBoard({ id: 'new-board' }), {
+        status: 201,
+        statusText: 'Created',
+      });
+
+      await result;
+
+      expect(seen, 'prepare saw the new board').toEqual(['new-board']);
+      expect(FakeWriter.instance?.doc().blockIds(), 'written content').toEqual(['b0']);
+    });
+
+    it('when prepare fails then the empty board is deleted again, a toast tells and nothing is connected', async () => {
+      const result = importer.save(aFile(), undefined, {
+        prepare: () => Promise.reject(new Error('boom')),
+      });
+      await settle();
+      expectRequest('POST', '/api/boards').flush(aBoard({ id: 'half' }), {
+        status: 201,
+        statusText: 'Created',
+      });
+      await settle();
+      expectRequest('DELETE', '/api/boards/half', 'discard').flush(null, {
+        status: 204,
+        statusText: 'No Content',
+      });
+
+      expect(await result, 'result').toBeUndefined();
+      expect(FakeWriter.instance, 'writer created').toBeUndefined();
+      expect(
+        TestBed.inject(Toasts)
+          .toasts()
+          .map((t) => t.kind),
+        'toast kinds',
+      ).toEqual(['error']);
+    });
+
     it('when createBoard fails then undefined is returned and nothing is connected', async () => {
       const result = importer.save(aFile());
       await settle();

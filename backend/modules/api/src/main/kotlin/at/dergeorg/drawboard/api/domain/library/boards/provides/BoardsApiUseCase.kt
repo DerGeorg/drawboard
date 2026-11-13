@@ -13,6 +13,8 @@ interface BoardsApiUseCase {
 
     suspend fun listBoards(folderId: Uuid?, page: Int, size: Int): BoardPage
 
+    suspend fun listTemplates(page: Int, size: Int): BoardPage
+
     suspend fun getBoard(boardId: Uuid): Board
 
     suspend fun createBoard(newBoard: NewBoard): Board

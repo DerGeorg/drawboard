@@ -22,12 +22,45 @@ export class BoardActions {
   private readonly boardsApi = inject(BoardsService);
   private readonly toasts = inject(Toasts);
 
-  /** Creates a board. `context`: e.g. FIELD_ERRORS_HANDLED_LOCALLY of the calling form. */
+  /**
+   * Creates a board (`template`: as a template). `context`: e.g. FIELD_ERRORS_HANDLED_LOCALLY of
+   * the calling form.
+   */
   @WithSpan('BoardActions.create')
-  create(title: string, context?: HttpContext, folderId?: string): Promise<Board> {
+  create(
+    title: string,
+    context?: HttpContext,
+    folderId?: string,
+    template?: boolean,
+  ): Promise<Board> {
     return firstValueFrom(
-      this.boardsApi.createBoard({ newBoard: { title, folderId } }, 'body', false, { context }),
+      this.boardsApi.createBoard({ newBoard: { title, folderId, template } }, 'body', false, {
+        context,
+      }),
     );
+  }
+
+  /**
+   * Switches the template flag - the owner's job (anyone else gets 403) - optimistic locking with
+   * `board.version`. Resolves to the changed board; undefined when it failed (toasted already).
+   */
+  @WithSpan('BoardActions.setTemplate', {
+    attributes: (board: Board) => ({ 'board.id': board.id }),
+  })
+  async setTemplate(board: Board, template: boolean): Promise<Board | undefined> {
+    try {
+      return await firstValueFrom(
+        this.boardsApi.updateBoard({
+          boardId: board.id,
+          boardUpdate: { title: board.title, template, version: board.version },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   /** Saves a new title - optimistic locking: `board.version` as loaded; a newer one -> 409. */

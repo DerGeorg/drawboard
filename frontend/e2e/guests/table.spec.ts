@@ -67,12 +67,10 @@ test.describe('tables in a real browser', () => {
     );
 
     // moving the table by its title takes cells and card along
+    // grabbed at its right end: the selection toolbar of the header cell sits over the left end
     const title = await box(page.locator('.be-frame-title', { hasText: 'Table' }));
-    await drag(
-      page,
-      { x: title.x + 10, y: title.y + title.height / 2 },
-      { x: title.x + 60, y: title.y + title.height / 2 + 40 },
-    );
+    const grip = { x: title.x + title.width - 20, y: title.y + title.height / 2 };
+    await drag(page, grip, { x: grip.x + 50, y: grip.y + 40 });
     const after = await box(sticky);
     expect(after.y - moved.y, 'card followed the table').toBeCloseTo(40, 0);
 

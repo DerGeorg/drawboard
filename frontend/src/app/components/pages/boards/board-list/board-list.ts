@@ -18,12 +18,14 @@ import { Pager } from '../../../shared/pager/pager';
 import { BoardCard } from '../board-card/board-card';
 import { BoardCreate } from '../board-create/board-create';
 import { BoardMover } from '../board-mover';
+import { NewBoardDialog } from '../new-board-dialog/new-board-dialog';
+import { TemplateList } from '../template-list/template-list';
 import { FolderCard } from '../folder-card/folder-card';
 import { FolderTree } from '../folder-tree/folder-tree';
 import { LibraryFolders } from '../library-folders';
 import { TrashList } from '../trash-list/trash-list';
 
-const VIEWS: readonly LibraryView[] = ['recent', 'mine', 'shared', 'trash'];
+const VIEWS: readonly LibraryView[] = ['recent', 'mine', 'shared', 'templates', 'trash'];
 
 /** Query parameter ?view=: anything unknown is the recent view. */
 function viewFromQuery(value: unknown): LibraryView {
@@ -36,10 +38,11 @@ function folderFromQuery(value: unknown): string | undefined {
 }
 
 /**
- * /boards?view=recent|mine|shared|trash&folder=ID&page=N - the library inside the library
+ * /boards?view=recent|mine|shared|templates|trash&folder=ID&page=N - the library inside the library
  * shell. Recent is the top level of the user's space by last edit; My boards shows the folders
  * and boards of the open folder (the sidebar tree switches folders); Shared with me lists what
- * others shared - a shared folder opens like a folder of one's own; Trash is its own list.
+ * others shared - a shared folder opens like a folder of one's own; Templates lists the built-in
+ * templates and the template boards the user can open; Trash is its own list.
  * The search field filters what is loaded (client-side).
  */
 @Component({
@@ -51,8 +54,10 @@ function folderFromQuery(value: unknown): string | undefined {
     FolderTree,
     LibraryShell,
     LoadError,
+    NewBoardDialog,
     Pager,
     RouterLink,
+    TemplateList,
     TrashList,
   ],
   templateUrl: './board-list.html',
@@ -72,6 +77,8 @@ export class BoardList {
   readonly folder = input<string | undefined, unknown>(undefined, { transform: folderFromQuery });
 
   protected readonly search = signal('');
+  /** The "New board" dialog is open. */
+  protected readonly creating = signal(false);
 
   /** The open folder (heading, role, parent) - also for folders of others (shared). */
   protected readonly folderInfo = rxResource({
@@ -88,7 +95,7 @@ export class BoardList {
     params: () => {
       const view = this.view();
       const folderId = this.folder();
-      if (view === 'trash' || (view === 'shared' && !folderId)) {
+      if (view === 'trash' || view === 'templates' || (view === 'shared' && !folderId)) {
         return undefined;
       }
       // `moves` makes the listing reload after a board was moved by drag and drop
@@ -119,6 +126,8 @@ export class BoardList {
         return folder?.name ?? 'My boards';
       case 'shared':
         return folder?.name ?? 'Shared with me';
+      case 'templates':
+        return 'Templates';
       case 'trash':
         return 'Trash';
       default:
@@ -139,6 +148,9 @@ export class BoardList {
     const view = this.view();
     if (view === 'shared' || view === 'trash') {
       return false;
+    }
+    if (view === 'templates') {
+      return true; // the top level: new boards from a template land there
     }
     return !this.folder() || this.openFolder()?.role === BoardRole.OWNER;
   });
@@ -202,6 +214,16 @@ export class BoardList {
   @WithSpan('BoardList.dropOnRoot')
   protected dropOnRoot(): void {
     void this.mover.drop(null, 'My boards');
+  }
+
+  @WithSpan('BoardList.openCreate')
+  protected openCreate(): void {
+    this.creating.set(true);
+  }
+
+  @WithSpan('BoardList.closeCreate')
+  protected closeCreate(): void {
+    this.creating.set(false);
   }
 
   @WithSpan('BoardList.reload')

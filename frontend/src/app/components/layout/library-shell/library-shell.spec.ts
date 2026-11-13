@@ -46,18 +46,32 @@ describe('LibraryShell', () => {
   });
 
   describe('sidebar', () => {
-    it('when rendered then Recent, My boards, Shared with me and Trash are links with their view', async () => {
+    it('when rendered then Recent, My boards, Shared with me, Templates and Trash are links with their view', async () => {
       await render();
 
       const links = all<HTMLAnchorElement>(fixture, 'nav a');
       expect(
         links.map((a) => a.textContent?.trim()),
         'links',
-      ).toEqual(['Recent', 'My boards', 'Shared with me', 'Trash']);
+      ).toEqual(['Recent', 'My boards', 'Shared with me', 'Templates', 'Trash']);
       expect(
         links.map((a) => a.getAttribute('href')),
         'targets',
-      ).toEqual(['/boards', '/boards?view=mine', '/boards?view=shared', '/boards?view=trash']);
+      ).toEqual([
+        '/boards',
+        '/boards?view=mine',
+        '/boards?view=shared',
+        '/boards?view=templates',
+        '/boards?view=trash',
+      ]);
+    });
+
+    it('when the view is templates then Templates is the current page', async () => {
+      view.set('templates');
+      await render();
+
+      const current = all(fixture, 'nav a[aria-current=page]').map((a) => a.textContent?.trim());
+      expect(current, 'current entries').toEqual(['Templates']);
     });
 
     it('when the view is trash then Trash is the current page', async () => {

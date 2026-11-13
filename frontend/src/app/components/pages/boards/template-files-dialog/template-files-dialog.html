@@ -1,0 +1,13 @@
+<drawboard-modal heading="Copy files too?" (closed)="closed.emit()">
+  <p class="text-sm">
+    This template has {{ count() }} {{ count() === 1 ? 'file' : 'files' }} ({{ size() }} together).
+    Copying them downloads and uploads every file, which can take a while.
+  </p>
+  <div class="mt-4 flex flex-wrap justify-end gap-2">
+    <button type="button" class="btn btn-ghost" (click)="closed.emit()">Cancel</button>
+    <button type="button" class="btn btn-ghost" (click)="choose(false)">Copy without files</button>
+    <button type="button" class="btn st-btn-primary-yellow" (click)="choose(true)">
+      Copy with files
+    </button>
+  </div>
+</drawboard-modal>

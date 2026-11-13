@@ -1,0 +1,123 @@
+<fieldset class="flex flex-col gap-4">
+  <legend class="sr-only">Start from</legend>
+
+  <label
+    class="flex cursor-pointer items-center gap-3 rounded-xl border-(length:--border-size-xs) border-(--color-st-white-darker) p-2 hover:bg-(--color-st-white-darker)/50 has-checked:border-(--color-st-primary) has-checked:bg-(--color-st-yellow)/15 has-focus-visible:ring-2 has-focus-visible:ring-(--color-st-primary)"
+  >
+    <input
+      type="radio"
+      name="template-choice"
+      class="sr-only"
+      [checked]="isEmpty()"
+      (change)="select({ kind: 'empty' })"
+    />
+    <span
+      class="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-(--color-board-paper) text-slate-400"
+      aria-hidden="true"
+    >
+      <drawboard-icon name="board" />
+    </span>
+    <span class="min-w-0">
+      <span class="block font-medium">Empty board</span>
+      <span class="block text-xs text-(--color-st-grey)">Start with a blank canvas.</span>
+    </span>
+  </label>
+
+  <section aria-labelledby="template-builtin">
+    <h3 id="template-builtin" class="mb-2 text-sm font-semibold text-(--color-st-grey)">
+      Built-in
+    </h3>
+    <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      @for (template of builtin(); track template.id) {
+        <li>
+          <label
+            class="flex h-full cursor-pointer items-center gap-3 rounded-xl border-(length:--border-size-xs) border-(--color-st-white-darker) p-2 hover:bg-(--color-st-white-darker)/50 has-checked:border-(--color-st-primary) has-checked:bg-(--color-st-yellow)/15 has-focus-visible:ring-2 has-focus-visible:ring-(--color-st-primary)"
+          >
+            <input
+              type="radio"
+              name="template-choice"
+              class="sr-only"
+              [checked]="isBuiltin(template)"
+              (change)="select({ kind: 'builtin', template })"
+            />
+            <span
+              class="h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-(--color-board-paper)"
+              aria-hidden="true"
+            >
+              <drawboard-template-preview class="h-full w-full" [file]="template.file" />
+            </span>
+            <span class="min-w-0">
+              <span class="block truncate font-medium" data-testid="builtin-title">{{
+                template.title
+              }}</span>
+              <span class="block text-xs text-(--color-st-grey)">{{ template.description }}</span>
+            </span>
+          </label>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <section aria-labelledby="template-own">
+    <h3 id="template-own" class="mb-2 text-sm font-semibold text-(--color-st-grey)">
+      Templates on this instance
+    </h3>
+    @if (templates().length > 0) {
+      <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2" data-testid="own-templates">
+        @for (board of templates(); track board.id) {
+          <li>
+            <label
+              class="flex h-full cursor-pointer items-center gap-3 rounded-xl border-(length:--border-size-xs) border-(--color-st-white-darker) p-2 hover:bg-(--color-st-white-darker)/50 has-checked:border-(--color-st-primary) has-checked:bg-(--color-st-yellow)/15 has-focus-visible:ring-2 has-focus-visible:ring-(--color-st-primary)"
+            >
+              <input
+                type="radio"
+                name="template-choice"
+                class="sr-only"
+                [checked]="isBoard(board)"
+                (change)="select({ kind: 'board', board })"
+              />
+              <span
+                class="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-(--color-board-paper) text-slate-400"
+                aria-hidden="true"
+              >
+                <drawboard-icon name="template" />
+              </span>
+              <span class="min-w-0">
+                <span class="block truncate font-medium" data-testid="template-title">{{
+                  board.title
+                }}</span>
+                <span
+                  class="block truncate text-xs text-(--color-st-grey)"
+                  data-testid="template-meta"
+                  >{{ owners.name(board) ? `By ${owners.name(board)} · ` : '' }}Edited
+                  {{ edited(board) }}</span
+                >
+              </span>
+            </label>
+          </li>
+        }
+      </ul>
+    } @else if (failed() !== undefined) {
+      <p class="text-sm text-(--color-st-grey)" role="alert" data-testid="failed">
+        {{ failed() }}
+        <button type="button" class="link" (click)="loadMore()">Try again</button>
+      </p>
+    } @else if (loaded()) {
+      <p class="text-sm text-(--color-st-grey)" data-testid="no-templates">
+        You have no templates yet. Open a board and choose “Save as template” in its menu.
+      </p>
+    } @else {
+      <p class="text-sm text-(--color-st-grey)" aria-live="polite">Loading…</p>
+    }
+    @if (hasMore()) {
+      <button
+        type="button"
+        class="btn btn-sm btn-ghost mt-2"
+        [disabled]="loading()"
+        (click)="loadMore()"
+      >
+        Load more
+      </button>
+    }
+  </section>
+</fieldset>

@@ -155,6 +155,61 @@ describe('BoardList', () => {
     });
   });
 
+  describe('templates', () => {
+    it('when ?view=templates is open then the Templates page lists templates and no boards are requested', async () => {
+      view.set('templates');
+      await render();
+
+      expectRequest('GET', '/api/templates', 'list templates').flush(
+        aBoardPage([aBoard({ title: 'Our retro', template: true })]),
+      );
+      await settle();
+      await fixture.whenStable();
+
+      expect(textOf(fixture), 'heading').toContain('Templates');
+      expect(all(fixture, 'drawboard-template-card').length, 'template cards').toBe(1);
+    });
+
+    it('when a board is a template then its card shows a Template badge in the normal list', async () => {
+      await render();
+      await respondWith(
+        aBoardPage([aBoard({ template: true }), aBoard({ id: RETRO_BOARD_ID, title: 'Plain' })]),
+      );
+
+      expect(all(fixture, '[data-testid=template-badge]').length, 'badges').toBe(1);
+    });
+
+    it('when New board is clicked then the dialog opens outside of the sidebar', async () => {
+      await render();
+      await respondWith();
+
+      buttonByText(fixture, 'New board').click();
+      await settle();
+      expectRequest('GET', '/api/templates', 'templates for the picker').flush(aBoardPage([]));
+      await settle();
+      await fixture.whenStable();
+
+      const dialog = fixture.nativeElement.querySelector('drawboard-new-board-dialog');
+      expect(dialog, 'dialog').not.toBeNull();
+      expect(dialog.closest('aside'), 'not inside the sidebar drawer').toBeNull();
+    });
+
+    it('when the dialog is closed then it disappears', async () => {
+      await render();
+      await respondWith();
+      buttonByText(fixture, 'New board').click();
+      await settle();
+      expectRequest('GET', '/api/templates').flush(aBoardPage([]));
+      await settle();
+      await fixture.whenStable();
+
+      buttonByText(fixture, 'Cancel').click();
+      await fixture.whenStable();
+
+      expect(all(fixture, 'drawboard-new-board-dialog').length, 'dialog').toBe(0);
+    });
+  });
+
   describe('view and search', () => {
     const boards = [
       aBoard({ title: 'Old retro', updatedAt: '2026-10-01T10:00:00Z' }),

@@ -2,6 +2,7 @@ package at.dergeorg.drawboard.library.infra
 
 import at.dergeorg.drawboard.library.common.LibraryModule
 import at.dergeorg.drawboard.library.domain.boards.requires.BoardRepository
+import at.dergeorg.drawboard.library.domain.boards.requires.TemplateMetrics
 import at.dergeorg.drawboard.library.domain.sharing.requires.ShareLinkRepository
 import at.dergeorg.drawboard.library.domain.sharing.requires.ShareMetrics
 import at.dergeorg.drawboard.shared.logging.AppLogger
@@ -28,6 +29,10 @@ internal class LibraryConfiguration {
     @Bean
     fun sharesGauge(links: ShareLinkRepository, registry: ObjectProvider<MeterRegistry>, clock: Clock, logger: AppLogger) =
         SharesGauge(links, registry, clock, logger)
+
+    /** The counter of the listTemplates calls refused by the rate limit. */
+    @Bean
+    fun templateMetrics(registry: ObjectProvider<MeterRegistry>): TemplateMetrics = MicrometerTemplateMetrics(registry)
 
     /** The counters of the link exchanges and guest sessions. */
     @Bean

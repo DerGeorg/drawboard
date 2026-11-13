@@ -1,6 +1,7 @@
 package at.dergeorg.drawboard.integration.collab
 
 import at.dergeorg.drawboard.contract.model.Board
+import at.dergeorg.drawboard.contract.model.NewBoard
 import at.dergeorg.drawboard.contract.model.BoardPage
 import at.dergeorg.drawboard.contract.model.BoardRole
 import at.dergeorg.drawboard.contract.model.CollabTicket
@@ -213,6 +214,19 @@ class GuestIntegrationTest(
                 assertTrue(verdicts.getValue(operation).status != HttpStatus.UNAUTHORIZED,
                     "$operation passes authentication for a guest")
             }
+        }
+
+        @Test
+        fun `when a guest lists templates then 403 FORBIDDEN, also with a link to a template`() {
+            val owner = user("Olga")
+            val template = checkNotNull(
+                owner.http().post().uri("/api/boards").bodyValue(NewBoard("Template", template = true)).exchange()
+                    .expectBody<Board>().returnResult().responseBody,
+            )
+            val (token, _) = guestLink(owner, "boards", template.id, GrantRole.VIEWER)
+            val session = assertNotNull(open(token).guestSession, "session")
+
+            assertEquals(HttpStatus.FORBIDDEN, statusOf(guest(session), "GET", "/api/templates"), "no templates for a guest")
         }
 
         @Test

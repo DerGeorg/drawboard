@@ -4,6 +4,7 @@ import { STICKY_TYPE } from '../blocks/sticky';
 import { TEXT_TYPE } from '../blocks/text';
 import { ConnectorTool } from './connector-tool';
 import { CreateTool } from './create-tool';
+import { EmojiTool } from './emoji-tool';
 import { EraserTool } from './eraser-tool';
 import { HandTool } from './hand-tool';
 import { PenTool } from './pen-tool';
@@ -68,6 +69,7 @@ export function createTools(ctx: ToolContext): Map<ToolId, Tool> {
     new ConnectorTool(ctx),
     new PenTool(ctx),
     new EraserTool(ctx),
+    new EmojiTool(ctx),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

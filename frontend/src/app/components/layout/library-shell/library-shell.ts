@@ -10,7 +10,7 @@ import { Icon } from '../../shared/icon/icon';
 import { IconName } from '../../shared/icon/icons';
 
 /** The library views the sidebar switches between. */
-export type LibraryView = 'recent' | 'mine' | 'shared' | 'trash';
+export type LibraryView = 'recent' | 'mine' | 'shared' | 'templates' | 'trash';
 
 interface NavItem {
   id: string;
@@ -21,7 +21,7 @@ interface NavItem {
 
 /**
  * The frame of the library: a sidebar (Recent, My boards with the folder tree projected below
- * it as `[sidebar-folders]`, Shared with me, Trash), a top bar with the board search and the user menu, and the page in between.
+ * it as `[sidebar-folders]`, Shared with me, Templates, Trash), a top bar with the board search and the user menu, and the page in between.
  * Below 768 px the sidebar is a drawer opened from the top bar. The search text is a two-way
  * `model`: the page filters what it has loaded.
  */
@@ -48,6 +48,7 @@ export class LibraryShell {
     { id: 'recent', label: 'Recent', icon: 'clock', view: 'recent' },
     { id: 'mine', label: 'My boards', icon: 'board', view: 'mine' },
     { id: 'shared', label: 'Shared with me', icon: 'users', view: 'shared' },
+    { id: 'templates', label: 'Templates', icon: 'template', view: 'templates' },
     { id: 'trash', label: 'Trash', icon: 'trash', view: 'trash' },
   ];
 

@@ -17,7 +17,7 @@
           "
           [attr.aria-pressed]="isActive(group)"
           [attr.aria-label]="group.label"
-          [attr.aria-keyshortcuts]="info[toolOf(group)].key"
+          [attr.aria-keyshortcuts]="info[toolOf(group)].key || null"
           [attr.aria-haspopup]="group.flyout ? 'true' : null"
           [attr.aria-expanded]="group.flyout ? flyout() === group.flyout : null"
           (click)="pick(group)"
@@ -28,7 +28,9 @@
 
       @if (group.flyout && flyout() === group.flyout) {
         <div
-          class="absolute top-0 left-full z-20 ml-3 flex w-max flex-col gap-2 float-panel p-2"
+          class="absolute left-full z-20 ml-3 flex w-max flex-col gap-2 float-panel p-2"
+          [class.top-0]="group.flyout !== 'emoji'"
+          [class.bottom-0]="group.flyout === 'emoji'"
           role="group"
           [attr.aria-label]="`${group.label} options`"
           data-testid="flyout"
@@ -96,6 +98,9 @@
                   ></button>
                 }
               </div>
+            }
+            @case ('emoji') {
+              <drawboard-emoji-picker (picked)="pickEmoji($event)" (closed)="closeFlyout()" />
             }
             @case ('connector') {
               <div class="grid grid-cols-3 gap-2">

@@ -16,6 +16,7 @@ import {
   settle,
 } from '../../../../test/http-testing';
 import { provideTestRuntimeConfig } from '../../../../test/runtime-config';
+import { BoardTemplates } from '../board-templates';
 import { BoardTransfer } from '../board-transfer';
 import { BoardTitleBar } from './board-title-bar';
 
@@ -174,19 +175,21 @@ describe('BoardTitleBar', () => {
   });
 
   describe('menu', () => {
-    it('when the owner opens the menu then export, link, import and version history are offered', async () => {
+    it('when the owner opens the menu then export, link, import, templates and version history are offered', async () => {
       await render();
 
       buttonByLabel(fixture, 'More').click();
       await fixture.whenStable();
 
       expect(
-        all(fixture, '[role=menuitem]').map((i) => i.textContent?.trim()),
+        all(fixture, '[role^=menuitem]').map((i) => i.textContent?.replace(/\s+/g, ' ').trim()),
         'entries',
       ).toEqual([
         'Export (.drawboard)',
         'Copy as link',
         'Import…',
+        'Save as template',
+        'Template Off',
         'Version history',
         'About Drawboard',
       ]);
@@ -199,9 +202,15 @@ describe('BoardTitleBar', () => {
       await fixture.whenStable();
 
       expect(
-        all(fixture, '[role=menuitem]').map((i) => i.textContent?.trim()),
+        all(fixture, '[role^=menuitem]').map((i) => i.textContent?.trim()),
         'entries',
-      ).toEqual(['Export (.drawboard)', 'Copy as link', 'Import…', 'About Drawboard']);
+      ).toEqual([
+        'Export (.drawboard)',
+        'Copy as link',
+        'Import…',
+        'Save as template',
+        'About Drawboard',
+      ]);
     });
 
     it('when About Drawboard is chosen then the About dialog opens and closes again', async () => {
@@ -288,6 +297,176 @@ describe('BoardTitleBar', () => {
 
       expect(exportFile, 'export').not.toHaveBeenCalled();
       expect(copyLink, 'copy').not.toHaveBeenCalled();
+    });
+  });
+
+  describe('templates', () => {
+    const switchItem = (): HTMLElement | null => el('[role=menuitemcheckbox]');
+
+    async function openMenu(): Promise<void> {
+      buttonByLabel(fixture, 'More').click();
+      await fixture.whenStable();
+    }
+
+    it('when the board is a template then a Template badge is shown and the switch is on', async () => {
+      await render(aBoard({ template: true }));
+      await openMenu();
+
+      expect(el('[data-testid=template-badge]')?.textContent?.trim(), 'badge').toBe('Template');
+      expect(switchItem()?.getAttribute('aria-checked'), 'switch state').toBe('true');
+    });
+
+    it('when the board is no template then there is no badge and the switch is off', async () => {
+      await render();
+      await openMenu();
+
+      expect(el('[data-testid=template-badge]'), 'badge').toBeNull();
+      expect(switchItem()?.getAttribute('aria-checked'), 'switch state').toBe('false');
+    });
+
+    it('when an editor opens the menu then the Template switch is not offered', async () => {
+      await render(aBoard({ role: BoardRole.EDITOR }));
+      await openMenu();
+
+      expect(switchItem(), 'switch').toBeNull();
+    });
+
+    it('when a viewer opens the menu then the Template switch is not offered but Save as template is', async () => {
+      await render(aBoard({ role: BoardRole.VIEWER }));
+      await openMenu();
+
+      expect(switchItem(), 'switch').toBeNull();
+      expect(textOf(fixture), 'save as template').toContain('Save as template');
+    });
+
+    it('when the owner turns the switch on then the board is updated with its version and the page is told', async () => {
+      await render(aBoard({ version: 4 }));
+      await openMenu();
+
+      (switchItem() as HTMLElement).click();
+      await settle();
+      const request = expectRequest('PUT', `/api/boards/${SPRINT_BOARD_ID}`, 'update board');
+      expect(request.request.body, 'request body').toEqual({
+        title: 'Sprint planning',
+        template: true,
+        version: 4,
+      });
+      request.flush(aBoard({ template: true, version: 5 }));
+      await settle();
+
+      expect(changed, 'page told').toHaveBeenCalledTimes(1);
+    });
+
+    it('when the owner turns the switch off then template false is sent', async () => {
+      await render(aBoard({ template: true }));
+      await openMenu();
+
+      (switchItem() as HTMLElement).click();
+      await settle();
+      const request = expectRequest('PUT', `/api/boards/${SPRINT_BOARD_ID}`, 'update board');
+      expect(request.request.body, 'request body').toEqual(
+        expect.objectContaining({ template: false }),
+      );
+      request.flush(aBoard({ template: false }));
+      await settle();
+    });
+
+    it('when the update is refused then the page reloads the current state anyway', async () => {
+      await render();
+      await openMenu();
+
+      (switchItem() as HTMLElement).click();
+      await settle();
+      expectRequest('PUT', `/api/boards/${SPRINT_BOARD_ID}`).flush(
+        aProblem({ code: 'INTERNAL_ERROR', status: 409 }),
+        problemResponse(409, 'Conflict'),
+      );
+      await settle();
+
+      expect(changed, 'page told').toHaveBeenCalledTimes(1);
+    });
+
+    const noFiles = (): void => {
+      vi.spyOn(TestBed.inject(BoardTemplates), 'fileSummary').mockResolvedValue({
+        count: 0,
+        bytes: 0,
+      });
+    };
+
+    it('when Save as template is chosen then the board is copied from the open document', async () => {
+      await render();
+      const save = vi
+        .spyOn(TestBed.inject(BoardTemplates), 'saveAsTemplate')
+        .mockResolvedValue(aBoard({ template: true }));
+      noFiles();
+      const doc = new BoardDoc();
+      docSignal.set(doc);
+      await openMenu();
+
+      buttonByText(fixture, 'Save as template').click();
+      await settle();
+      await fixture.whenStable();
+
+      expect(save, 'save as template').toHaveBeenCalledWith(aBoard(), doc);
+      expect(all(fixture, '[role=menu]').length, 'menu closed').toBe(0);
+    });
+
+    it('when the board has files then number and size are asked about before the copy', async () => {
+      await render();
+      const save = vi
+        .spyOn(TestBed.inject(BoardTemplates), 'saveAsTemplate')
+        .mockResolvedValue(aBoard({ template: true }));
+      vi.spyOn(TestBed.inject(BoardTemplates), 'fileSummary').mockResolvedValue({
+        count: 2,
+        bytes: 3_000_000,
+      });
+      await openMenu();
+
+      buttonByText(fixture, 'Save as template').click();
+      await settle();
+      await fixture.whenStable();
+
+      expect(textOf(fixture), 'question').toContain('2 files (3.0 MB together)');
+      expect(save, 'not saved yet').not.toHaveBeenCalled();
+    });
+
+    it('when Copy without files is chosen then the template is saved without files', async () => {
+      await render();
+      const save = vi
+        .spyOn(TestBed.inject(BoardTemplates), 'saveAsTemplate')
+        .mockResolvedValue(aBoard({ template: true }));
+      vi.spyOn(TestBed.inject(BoardTemplates), 'fileSummary').mockResolvedValue({
+        count: 2,
+        bytes: 3_000_000,
+      });
+      await openMenu();
+      buttonByText(fixture, 'Save as template').click();
+      await settle();
+      await fixture.whenStable();
+
+      buttonByText(fixture, 'Copy without files').click();
+      await settle();
+
+      expect(save, 'save').toHaveBeenCalledWith(aBoard(), undefined, { files: false });
+    });
+
+    it('when the question is cancelled then nothing is saved', async () => {
+      await render();
+      const save = vi.spyOn(TestBed.inject(BoardTemplates), 'saveAsTemplate');
+      vi.spyOn(TestBed.inject(BoardTemplates), 'fileSummary').mockResolvedValue({
+        count: 1,
+        bytes: 1_000,
+      });
+      await openMenu();
+      buttonByText(fixture, 'Save as template').click();
+      await settle();
+      await fixture.whenStable();
+
+      buttonByText(fixture, 'Cancel').click();
+      await fixture.whenStable();
+
+      expect(save, 'save').not.toHaveBeenCalled();
+      expect(all(fixture, 'drawboard-template-files-dialog').length, 'question').toBe(0);
     });
   });
 

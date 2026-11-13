@@ -19,6 +19,8 @@ data class Board(
     val folderId: Uuid? = null,
     /** Set while the board is in the trash (30 days, then purged). */
     val deletedAt: Instant? = null,
+    /** A template: still a normal board, but `listTemplates` offers it as a starting point for new boards. */
+    val template: Boolean = false,
 ) {
     companion object {
         const val MAX_TITLE_LENGTH = 200

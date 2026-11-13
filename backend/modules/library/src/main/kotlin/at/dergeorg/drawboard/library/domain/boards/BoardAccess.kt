@@ -14,6 +14,9 @@ internal object BoardAccess {
     /** Roles that may delete a board. */
     val CAN_DELETE: Set<BoardRole> = setOf(BoardRole.OWNER)
 
+    /** Roles that may mark a board as a template or take the mark away. */
+    val CAN_CHANGE_TEMPLATE: Set<BoardRole> = setOf(BoardRole.OWNER)
+
     /** [role] must be one of [allowed], otherwise `LIBRARY_BOARD_ACCESS_DENIED` (403). */
     fun require(boardId: Uuid, role: BoardRole, allowed: Set<BoardRole>) {
         if (role !in allowed) {

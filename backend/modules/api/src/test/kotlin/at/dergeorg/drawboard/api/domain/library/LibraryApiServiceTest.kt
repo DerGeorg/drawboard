@@ -11,7 +11,7 @@ import at.dergeorg.drawboard.contract.model.PageInfo
 import at.dergeorg.drawboard.library.domain.boards.model.BoardView
 import at.dergeorg.drawboard.library.domain.boards.provides.BoardsUseCase
 import at.dergeorg.drawboard.library.domain.boards.provides.CreateBoardCommand
-import at.dergeorg.drawboard.library.domain.boards.provides.RenameBoardCommand
+import at.dergeorg.drawboard.library.domain.boards.provides.UpdateBoardCommand
 import at.dergeorg.drawboard.library.testing.BoardFixtures.BOARD
 import at.dergeorg.drawboard.library.testing.BoardFixtures.aBoard
 import at.dergeorg.drawboard.shared.error.DomainException
@@ -109,6 +109,41 @@ class LibraryApiServiceTest {
         }
 
         @Test
+        fun `when listing templates then the page is mapped with the template flag and the paging info`() = runTest {
+            val query = PageQuery(number = 0, size = 10)
+            val result = Page(listOf(BoardView(board.copy(template = true), LibraryBoardRole.VIEWER)), query, totalElements = 1)
+            coEvery { library.listTemplates(alice, query) } returns result
+
+            val page = service.listTemplates(page = 0, size = 10)
+
+            assertEquals(listOf(true), page.items.map { it.template }, "template flag")
+            assertEquals(listOf(BoardRole.VIEWER), page.items.map { it.role }, "roles")
+            assertEquals(PageInfo(number = 0, size = 10, totalElements = 1, totalPages = 1), page.page, "paging info")
+        }
+
+        @Test
+        fun `when creating a template then the flag goes to the library`() = runTest {
+            val command = CreateBoardCommand(ownerId = ALICE_ID, title = "Roadmap", template = true)
+            coEvery { library.createBoard(command) } returns BoardView(board.copy(template = true), LibraryBoardRole.OWNER)
+
+            val created = service.createBoard(NewBoard("Roadmap", template = true))
+
+            assertEquals(true, created.template, "contract board is a template")
+        }
+
+        @Test
+        fun `when updating with a template flag then it goes to the library, absent stays null`() = runTest {
+            val withFlag = UpdateBoardCommand(caller = alice, boardId = BOARD, title = "Retro", version = 4, template = true)
+            coEvery { library.updateBoard(withFlag) } returns BoardView(board.copy(template = true), LibraryBoardRole.OWNER)
+            coEvery { library.updateBoard(withFlag.copy(template = null)) } returns BoardView(board, LibraryBoardRole.OWNER)
+
+            val marked = service.updateBoard(BOARD, BoardUpdate(title = "Retro", version = 4, template = true))
+            val untouched = service.updateBoard(BOARD, BoardUpdate(title = "Retro", version = 4))
+
+            assertEquals(true to false, marked.template to untouched.template, "flag passed on, absent = unchanged")
+        }
+
+        @Test
         fun `when creating then the caller becomes the owner and the contract board carries every field`() = runTest {
             val command = CreateBoardCommand(ownerId = ALICE_ID, title = "Roadmap")
             coEvery { library.createBoard(command) } returns BoardView(board, LibraryBoardRole.OWNER)
@@ -124,8 +159,8 @@ class LibraryApiServiceTest {
 
         @Test
         fun `when renaming then user, board, title and version go to the library`() = runTest {
-            val command = RenameBoardCommand(caller = alice, boardId = BOARD, title = "Retro", version = 4)
-            coEvery { library.renameBoard(command) } returns BoardView(board.copy(title = "Retro", version = 5),
+            val command = UpdateBoardCommand(caller = alice, boardId = BOARD, title = "Retro", version = 4)
+            coEvery { library.updateBoard(command) } returns BoardView(board.copy(title = "Retro", version = 5),
                 LibraryBoardRole.EDITOR)
 
             val renamed = service.updateBoard(BOARD, BoardUpdate(title = "Retro", version = 4))

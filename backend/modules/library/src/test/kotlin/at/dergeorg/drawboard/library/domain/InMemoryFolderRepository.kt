@@ -11,9 +11,21 @@ internal class InMemoryFolderRepository(vararg initial: Folder) : FolderReposito
 
     val all: List<Folder> get() = folders.values.toList()
 
-    override suspend fun findById(id: Uuid): Folder? = folders[id]
+    var lookups = 0
+
+    override suspend fun findById(id: Uuid): Folder? {
+        lookups++
+        return folders[id]
+    }
 
     override suspend fun findAllByOwner(ownerId: Uuid) = folders.values.filter { it.ownerId == ownerId }
+
+    var childQueries = 0
+
+    override suspend fun findChildren(parentIds: Collection<Uuid>): List<Folder> {
+        childQueries++
+        return folders.values.filter { it.parentId in parentIds }
+    }
 
     override suspend fun findAllById(ids: Collection<Uuid>) = folders.values.filter { it.id in ids }
 

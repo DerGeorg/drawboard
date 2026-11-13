@@ -15,11 +15,12 @@ test.describe('tracing', () => {
     const sent = await captureFaro(page);
     await page.goto('/boards');
 
+    await page.getByRole('button', { name: 'New board' }).first().click();
     const [response] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().endsWith('/api/boards') && r.request().method() === 'POST',
       ),
-      page.getByRole('button', { name: 'New board' }).first().click(),
+      page.getByRole('button', { name: 'Create board' }).click(),
     ]);
     const requestId = response.headers()['x-request-id'] ?? '';
     asAlice.track(((await response.json()) as { id: string }).id);
@@ -33,7 +34,7 @@ test.describe('tracing', () => {
           ),
         { message: 'span chain of the POST, innermost first', timeout: 10_000 },
       )
-      .toEqual(['POST', 'BoardActions.create', 'BoardCreate.create']);
+      .toEqual(['POST', 'BoardActions.create', 'NewBoardDialog.create']);
   });
 
   test('when alice opens a board then the navigation span is the parent of the GET in the trace of its request id', async ({

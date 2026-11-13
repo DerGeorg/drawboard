@@ -3,7 +3,7 @@ package at.dergeorg.drawboard.library.testing
 import at.dergeorg.drawboard.library.domain.access.model.Caller
 import at.dergeorg.drawboard.library.domain.boards.model.Board
 import at.dergeorg.drawboard.library.domain.boards.provides.CreateBoardCommand
-import at.dergeorg.drawboard.library.domain.boards.provides.RenameBoardCommand
+import at.dergeorg.drawboard.library.domain.boards.provides.UpdateBoardCommand
 import at.dergeorg.drawboard.shared.testing.FIXED_NOW
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -26,6 +26,7 @@ object BoardFixtures {
         version: Long = 0,
         folderId: Uuid? = null,
         deletedAt: Instant? = null,
+        template: Boolean = false,
     ) = Board(
         id = id,
         title = title,
@@ -35,17 +36,19 @@ object BoardFixtures {
         version = version,
         folderId = folderId,
         deletedAt = deletedAt,
+        template = template,
     )
 
-    fun aCreateBoardCommand(ownerId: Uuid = OWNER, title: String = "Sprint planning", folderId: Uuid? = null) =
-        CreateBoardCommand(ownerId = ownerId, title = title, folderId = folderId)
+    fun aCreateBoardCommand(ownerId: Uuid = OWNER, title: String = "Sprint planning", folderId: Uuid? = null, template: Boolean = false) =
+        CreateBoardCommand(ownerId = ownerId, title = title, folderId = folderId, template = template)
 
-    fun aRenameBoardCommand(
+    fun anUpdateBoardCommand(
         caller: Caller = asUser(OWNER),
         boardId: Uuid = BOARD,
         title: String = "Retrospective",
         version: Long = 0,
-    ) = RenameBoardCommand(caller = caller, boardId = boardId, title = title, version = version)
+        template: Boolean? = null,
+    ) = UpdateBoardCommand(caller = caller, boardId = boardId, title = title, version = version, template = template)
 
     /** A signed-in user without groups as the library sees the caller. */
     fun asUser(id: Uuid, vararg groups: String): Caller.User = Caller.User(id, groups.toSet())

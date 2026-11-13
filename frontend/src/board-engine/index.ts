@@ -10,6 +10,8 @@ export { FILE_TYPE, fileBlockSize } from './blocks/file';
 export { MERMAID_TYPE, MAX_MERMAID_BYTES } from './blocks/mermaid';
 export type * from './files/file-source';
 export { STICKY_COLORS } from './blocks/sticky';
+export { EMOJI_TYPE } from './blocks/emoji';
+export { isValidEmoji, MAX_EMOJI_LENGTH } from './util/emoji';
 export type { PeerPresence, LocalPresence } from './presence';
 export type { ToolId } from './tools/tool';
 export type { Camera } from './camera';

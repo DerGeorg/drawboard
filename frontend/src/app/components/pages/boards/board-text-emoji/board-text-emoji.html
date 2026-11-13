@@ -1,0 +1,33 @@
+@if (placement(); as place) {
+  <div
+    class="pointer-events-auto absolute -translate-x-1/2"
+    [style.left]="left()"
+    [style.top.px]="place.y"
+    data-testid="text-emoji"
+  >
+    <div class="float-panel flex items-center p-1">
+      <div class="tooltip tooltip-top" data-tip="Emoji">
+        <button
+          type="button"
+          class="btn btn-square btn-sm btn-ghost"
+          aria-label="Insert emoji"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="open()"
+          (mousedown)="keepFocus($event)"
+          (click)="toggle()"
+        >
+          <span class="text-lg" aria-hidden="true">😀</span>
+        </button>
+      </div>
+    </div>
+    @if (open()) {
+      <div
+        class="float-panel absolute top-full left-1/2 z-10 mt-2 -translate-x-1/2 p-2"
+        role="dialog"
+        aria-label="Emoji picker"
+      >
+        <drawboard-emoji-picker (picked)="pick($event)" (closed)="close()" />
+      </div>
+    }
+  </div>
+}

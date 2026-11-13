@@ -22,7 +22,7 @@ bucket4j = "8.22.0"
 tika = "4.2.0"                         # Apache-2.0: only tika-core (magic-byte detector, no parsers) detects the type of uploads (S4.2)
 bouncycastle = "1.86"                    # Argon2 of Spring Security needs it (link passwords, S1.11)
 # The API contract (drawboard-api repository). This version IS the contract the backend implements.
-drawboard-api = "2.0.0"
+drawboard-api = "2.1.0"
 
 [libraries]
 # --- build-logic classpath: the plugins as libraries, so convention plugins apply them without a version ---

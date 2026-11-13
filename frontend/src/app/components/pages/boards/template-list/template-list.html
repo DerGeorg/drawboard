@@ -1,0 +1,83 @@
+<section aria-labelledby="builtin-templates" class="mb-8">
+  <h2 id="builtin-templates" class="mb-3 text-lg font-semibold">Built-in</h2>
+  <ul
+    class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+    aria-label="Built-in templates"
+    data-testid="builtin"
+  >
+    @for (template of visibleBuiltin(); track template.id) {
+      <li>
+        <article
+          class="flex h-full flex-col overflow-hidden rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface)"
+        >
+          <div class="aspect-video bg-(--color-board-paper) p-2" aria-hidden="true">
+            <drawboard-template-preview class="h-full w-full" [file]="template.file" />
+          </div>
+          <div class="flex flex-1 flex-col gap-3 p-3">
+            <div class="min-w-0">
+              <h3 class="truncate font-medium" data-testid="builtin-title">{{ template.title }}</h3>
+              <p class="mt-0.5 text-xs text-(--color-st-grey)">{{ template.description }}</p>
+            </div>
+            <button
+              type="button"
+              class="btn btn-sm st-btn-primary-yellow mt-auto self-start"
+              [disabled]="busy() !== undefined"
+              [attr.aria-label]="`Use ${template.title}`"
+              (click)="useBuiltin(template)"
+            >
+              Use
+            </button>
+          </div>
+        </article>
+      </li>
+    }
+  </ul>
+</section>
+
+<section aria-labelledby="own-templates">
+  <h2 id="own-templates" class="mb-3 text-lg font-semibold">Templates on this instance</h2>
+  @if (list.error(); as error) {
+    <drawboard-load-error [error]="error" subject="your templates" (retry)="reload()" />
+  } @else if (list.hasValue()) {
+    @if (visible().length > 0) {
+      <ul
+        class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        aria-label="Templates"
+        data-testid="templates"
+      >
+        @for (board of visible(); track board.id) {
+          <li>
+            <drawboard-template-card
+              [board]="board"
+              [busy]="busy() !== undefined"
+              (use)="useBoard(board)"
+            />
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="text-(--color-st-grey)" data-testid="empty">
+        @if (search() !== '') {
+          Nothing on this page matches “{{ search() }}”.
+        } @else {
+          You have no templates yet. Open a board, choose “Save as template” in its menu, and it
+          shows up here.
+        }
+      </p>
+    }
+    @if (pageInfo(); as info) {
+      <drawboard-pager class="mt-6" [page]="info" />
+    }
+  } @else {
+    <p class="text-(--color-st-grey)" aria-live="polite">Loading your templates…</p>
+  }
+</section>
+
+@if (asking(); as asked) {
+  <drawboard-template-files-dialog
+    [count]="asked.summary.count"
+    [bytes]="asked.summary.bytes"
+    (chosen)="answer($event)"
+    (closed)="cancelAsking()"
+  />
+}

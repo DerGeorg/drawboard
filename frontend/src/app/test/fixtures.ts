@@ -16,6 +16,7 @@ export function aBoard(overrides: Partial<Board> = {}): Board {
     ownerId: 'id-alice',
     folderId: null,
     role: BoardRole.OWNER,
+    template: false,
     createdAt: '2026-11-01T10:00:00Z',
     updatedAt: '2026-11-02T11:30:00Z',
     version: 0,

@@ -47,6 +47,7 @@ import { BoardPlugins } from '../board-plugins';
 import { BoardUploadPanel } from '../board-upload-panel/board-upload-panel';
 import { BoardUploads } from '../board-uploads';
 import { BoardContextToolbar } from '../board-context-toolbar/board-context-toolbar';
+import { BoardTextEmoji } from '../board-text-emoji/board-text-emoji';
 import { BoardParticipants } from '../board-participants/board-participants';
 import { BoardTitleBar } from '../board-title-bar/board-title-bar';
 import { BoardToolbar } from '../board-toolbar/board-toolbar';
@@ -79,6 +80,7 @@ type SidePanel =
     BoardFollowBar,
     ShareDialog,
     BoardContextToolbar,
+    BoardTextEmoji,
     BoardTitleBar,
     BoardToolbar,
     BoardZoom,

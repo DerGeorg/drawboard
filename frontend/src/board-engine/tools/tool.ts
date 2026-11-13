@@ -17,7 +17,8 @@ export type ToolId =
   | 'table'
   | 'connector'
   | 'pen'
-  | 'eraser';
+  | 'eraser'
+  | 'emoji';
 
 export type HitResult =
   | { kind: 'block'; id: string }
@@ -45,7 +46,14 @@ export interface ToolContext {
   readonly camera: Camera;
   readonly readOnly: boolean;
   /** Pen/shape defaults for new items (set by the style panel). */
-  readonly drawStyle: { color: string; size: number; fill: string; sticky: string };
+  readonly drawStyle: {
+    color: string;
+    size: number;
+    fill: string;
+    sticky: string;
+    /** The emoji the stamp tool places. */
+    emoji: string;
+  };
   setCamera(camera: Camera): void;
   hitTest(world: Point): HitResult | undefined;
   /** The block under the point (ignores strokes and connectors). */

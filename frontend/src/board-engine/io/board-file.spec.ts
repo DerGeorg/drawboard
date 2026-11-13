@@ -492,6 +492,78 @@ describe('board file', () => {
     });
   });
 
+  describe('emoji stamp (S5.5)', () => {
+    const emojiBlock = (emoji: unknown): Record<string, unknown> =>
+      block({ type: 'core.emoji', props: { emoji }, text: undefined });
+
+    it.each(['👍', '👍🏽', '👨‍👩‍👧‍👦', '🇦🇹', '1️⃣'])('when the emoji is %s then it is kept', (emoji) => {
+      const parsed = parseBoardFile(file({ blocks: [emojiBlock(emoji)] }));
+
+      expect(parsed.blocks[0]?.props, 'props').toEqual({ emoji });
+    });
+
+    it.each([
+      ['text', 'hello'],
+      ['a space', '👍 👍'],
+      ['a newline', '👍\n'],
+      ['too long', '😀'.repeat(17)],
+      ['empty', ''],
+      ['HTML', '<img src=x onerror=alert(1)>'],
+      ['HTML around an emoji', '<b>👍</b>'],
+      ['a control character', '👍\u0000'],
+      ['a number', 5],
+      ['missing', undefined],
+    ])('when the emoji is %s then the file is refused', (_name, emoji) => {
+      expect(rejection(file({ blocks: [emojiBlock(emoji)] })), 'message').toMatch(/emoji/);
+    });
+
+    it('when extra props come along then they are dropped', () => {
+      const parsed = parseBoardFile(
+        file({ blocks: [block({ type: 'core.emoji', props: { emoji: '🎉', x: 1 } })] }),
+      );
+
+      expect(parsed.blocks[0]?.props, 'props').toEqual({ emoji: '🎉' });
+    });
+
+    it('when a stamp is exported and imported then the board shows the same stamp', () => {
+      const source = new BoardDoc();
+      source.addBlock({ type: 'core.emoji', x: 5, y: 6, w: 64, h: 64, props: { emoji: '🚀' } });
+
+      const exported = parseBoardFile(JSON.parse(JSON.stringify(boardToFile(source, 'B'))));
+      const target = new BoardDoc();
+      writeBoardFile(target, exported);
+
+      expect(target.blocks(), 'blocks').toEqual(source.blocks());
+      expect(target.blocks()[0]?.props, 'props').toEqual({ emoji: '🚀' });
+    });
+
+    it('when a peer put a non-emoji into the prop then the export holds the fallback and imports cleanly', () => {
+      const source = new BoardDoc();
+      source.addBlock({
+        type: 'core.emoji',
+        x: 0,
+        y: 0,
+        w: 64,
+        h: 64,
+        props: { emoji: '<script>alert(1)</script>' },
+      });
+
+      const exported = boardToFile(source, 'B');
+
+      expect(exported.blocks[0]?.props, 'exported props').toEqual({ emoji: '❔' });
+      expect(() => parseBoardFile(JSON.parse(JSON.stringify(exported))), 'import').not.toThrow();
+    });
+
+    it('when a file that skipped validation is written then a non-emoji is refused', () => {
+      const unvalidated = {
+        ...parseBoardFile(file({ blocks: [emojiBlock('👍')] })),
+      };
+      unvalidated.blocks = [{ ...unvalidated.blocks[0]!, props: { emoji: '<b>' } }];
+
+      expect(() => writeBoardFile(new BoardDoc(), unvalidated), 'write').toThrow(ImportError);
+    });
+  });
+
   describe('splitBoardFile', () => {
     it('when the file is small then there is one piece with everything', () => {
       const parsed = parseBoardFile(file({ strokes: [{ id: 's1', points: [0, 0, 1] }] }));

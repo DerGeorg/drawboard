@@ -47,11 +47,12 @@ test.describe('boards', () => {
     }) => {
       await page.goto('/boards');
 
+      await page.getByRole('button', { name: 'New board' }).first().click();
       const [response] = await Promise.all([
         page.waitForResponse(
           (r) => r.url().endsWith('/api/boards') && r.request().method() === 'POST',
         ),
-        page.getByRole('button', { name: 'New board' }).first().click(),
+        page.getByRole('button', { name: 'Create board' }).click(),
       ]);
       const created = (await response.json()) as { id: string };
       asAlice.track(created.id);

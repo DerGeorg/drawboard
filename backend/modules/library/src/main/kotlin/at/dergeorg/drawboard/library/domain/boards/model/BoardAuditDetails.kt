@@ -15,6 +15,10 @@ data class BoardCreated(val submittedTitle: String) : DomainEventDetails
 @AuditDetails(type = "library.board-renamed")
 data class BoardRenamed(val submittedTitle: String, val basedOnVersion: Long) : DomainEventDetails
 
+/** The board became a template or stopped being one ([template] = the new state), based on [basedOnVersion]. */
+@AuditDetails(type = "library.board-template-changed")
+data class BoardTemplateChanged(val template: Boolean, val basedOnVersion: Long) : DomainEventDetails
+
 /** How long the board existed. */
 @AuditDetails(type = "library.board-deleted")
 data class BoardDeleted(val age: Duration) : DomainEventDetails

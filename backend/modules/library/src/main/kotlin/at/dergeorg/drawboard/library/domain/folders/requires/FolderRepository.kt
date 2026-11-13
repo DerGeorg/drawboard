@@ -12,6 +12,9 @@ internal interface FolderRepository {
     /** Every folder of [ownerId], also those in the trash - the tree of a personal space is small. */
     suspend fun findAllByOwner(ownerId: Uuid): List<Folder>
 
+    /** The folders directly below any of [parentIds], also those in the trash. */
+    suspend fun findChildren(parentIds: Collection<Uuid>): List<Folder>
+
     suspend fun findAllById(ids: Collection<Uuid>): List<Folder>
 
     /** Folders in the trash that were deleted before [before] - for the cleanup. */

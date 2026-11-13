@@ -238,9 +238,10 @@ class SharingIntegrationTest(private val client: WebTestClient, @LocalServerPort
             owner.status("DELETE", "/api/links/${revoked.link.id}")
             val expiring = owner.http().post().uri("/api/boards/{id}/links", board.id)
                 .bodyValue(NewShareLink(GrantRole.VIEWER, ShareAudience.SIGNED_IN,
-                    java.time.Instant.now().plusSeconds(1).let { kotlin.time.Instant.fromEpochSeconds(it.epochSecond) }, null))
+                    // whole seconds: +1 s could already be past when a slow runner reaches the server (400)
+                    java.time.Instant.now().plusSeconds(3).let { kotlin.time.Instant.fromEpochSeconds(it.epochSecond) }, null))
                 .exchange().expectBody<CreatedShareLink>().returnResult().responseBody!!
-            Thread.sleep(2200)
+            Thread.sleep(3200)
 
             val bodies = listOf(unknownToken(), revoked.url.substringAfter('#'), expiring.url.substringAfter('#'))
                 .map { exchange(it) }

@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 
+import { EMOJI_TYPE } from '../blocks/emoji';
 import {
   KANBAN_ID,
   KANBAN_LIMITS,
@@ -35,6 +36,7 @@ import {
   StrokeData,
 } from '../model/types';
 import { LIMITS as PLUGIN_LIMITS, isPlainJson, jsonBytes, withinBound } from '../plugins/protocol';
+import { EMOJI_FALLBACK, MAX_EMOJI_LENGTH, isValidEmoji } from '../util/emoji';
 
 /**
  * `board.json`: the readable JSON form of a board document, inside a `.drawboard` archive, as a
@@ -201,6 +203,8 @@ const PROPS: Readonly<Record<string, (props: Record<string, unknown>) => Props>>
       ? {}
       : { strokeWidth: boundedNumber(p['strokeWidth'], 0, 64, 'a stroke width') }),
   }),
+  // one emoji (or a few): text only, nothing else (S5.5, architecture 3.13)
+  [EMOJI_TYPE]: (p) => ({ emoji: emoji(p['emoji']) }),
   // a reference only (S4.4): the file itself is not in the archive yet, so on another board it
   // shows "not available" - the id is all that is kept, never a URL
   'core.file': (p) => ({ fileId: fileId(p['fileId']) }),
@@ -360,6 +364,13 @@ function fileId(v: unknown): string {
     return fail('a file block must reference a file id');
   }
   return v.toLowerCase();
+}
+
+function emoji(v: unknown): string {
+  if (!isValidEmoji(v)) {
+    return fail(`an emoji must be 1 to ${MAX_EMOJI_LENGTH} characters of emoji and nothing else`);
+  }
+  return v;
 }
 
 function fontSize(v: unknown): number {
@@ -627,6 +638,12 @@ export function parseBoardFile(json: unknown, options: ParseOptions = {}): Board
 
 /** One block as file content (nested Yjs props flattened). */
 export function blockToFile(board: BoardDoc, b: BlockData): FileBlock {
+  // an emoji prop from a peer that is not an emoji leaves as the fallback, never as is: a file
+  // we write must pass our own import
+  const props =
+    b.type === EMOJI_TYPE && !isValidEmoji(b.props['emoji'])
+      ? { ...b.props, emoji: EMOJI_FALLBACK }
+      : (STRUCTURED.get(b.type)?.toFile(board, b.id) ?? b.props);
   return {
     id: b.id,
     type: b.type,
@@ -638,7 +655,7 @@ export function blockToFile(board: BoardDoc, b: BlockData): FileBlock {
     z: b.z,
     parent: b.parent,
     locked: b.locked,
-    props: STRUCTURED.get(b.type)?.toFile(board, b.id) ?? b.props,
+    props,
     ...(b.hasText ? { text: board.textOf(b.id) } : {}),
   };
 }
@@ -669,6 +686,13 @@ function propsMap(board: BoardDoc, id: string): Y.Map<unknown> | undefined {
 
 /** Writes a VALIDATED file into an (empty) document in one transaction. */
 export function writeBoardFile(board: BoardDoc, file: BoardFile): void {
+  // belt and braces: a file that did not come through parseBoardFile never puts a foreign
+  // string into an emoji prop
+  for (const b of file.blocks) {
+    if (b.type === EMOJI_TYPE && !isValidEmoji(b.props['emoji'])) {
+      fail('an emoji block holds something that is not an emoji');
+    }
+  }
   board.transact(() => {
     for (const b of file.blocks) {
       const m = new Y.Map<unknown>();

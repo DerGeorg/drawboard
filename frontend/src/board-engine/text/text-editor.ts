@@ -71,6 +71,16 @@ export function applyTextDiff(board: BoardDoc, text: Y.Text, after: string): voi
 export interface TextEditSession {
   readonly blockId: string;
   stop(): void;
+  /**
+   * Puts `text` at the caret (replacing the selection) the way typing does: through the input
+   * path, so it becomes one Yjs edit. False if it would exceed the limit or the edit ended.
+   */
+  insert(text: string): boolean;
+  /**
+   * Keeps the editor open when the textarea loses the focus (to a panel beside it); the returned
+   * function ends the hold and gives the focus back, with the caret where it was.
+   */
+  hold(): () => void;
 }
 
 /**
@@ -106,6 +116,7 @@ export function startTextEditor(
   ta.setSelectionRange(ta.value.length, ta.value.length);
 
   let stopped = false;
+  let holds = 0;
   const onInput = (): void => {
     if (singleLine && /[\r\n]/.test(ta.value)) {
       ta.value = ta.value.replace(/[\r\n]+/g, ' ');
@@ -129,7 +140,7 @@ export function startTextEditor(
     stopped = true;
     ytext.unobserve(observer);
     ta.removeEventListener('input', onInput);
-    ta.removeEventListener('blur', stop);
+    ta.removeEventListener('blur', onBlur);
     ta.removeEventListener('keydown', onKey);
     ta.remove();
     onStop();
@@ -141,9 +152,43 @@ export function startTextEditor(
       stop();
     }
   };
+  const onBlur = (): void => {
+    if (holds === 0) {
+      stop();
+    }
+  };
+  const insert = (text: string): boolean => {
+    const value = singleLine ? text.replace(/[\r\n]+/g, ' ') : text;
+    if (stopped || value === '') {
+      return false;
+    }
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (ta.value.length - (end - start) + value.length > maxLength) {
+      return false;
+    }
+    ta.focus({ preventScroll: true });
+    ta.setRangeText(value, start, end, 'end');
+    onInput();
+    return true;
+  };
+  const hold = (): (() => void) => {
+    holds++;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      holds--;
+      if (!stopped) {
+        ta.focus({ preventScroll: true });
+      }
+    };
+  };
   ta.addEventListener('input', onInput);
-  ta.addEventListener('blur', stop);
+  ta.addEventListener('blur', onBlur);
   ta.addEventListener('keydown', onKey);
   ytext.observe(observer);
-  return { blockId, stop };
+  return { blockId, stop, insert, hold };
 }

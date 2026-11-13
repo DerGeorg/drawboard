@@ -19,6 +19,20 @@ import { BoardCollab } from './board-collab';
 export const IMPORT_PIECE_BYTES = 200_000;
 export const DEFAULT_IMPORT_TITLE = 'Imported board';
 
+/** What a save may add to a plain import. */
+export interface SaveOptions {
+  /** Own folder to create the board in; undefined = the top level. */
+  folderId?: string;
+  /** Create the board as a template. */
+  template?: boolean;
+  /**
+   * Runs after the board exists and before its content is written: may return a changed copy of
+   * the file (templates upload their files to the new board here and point the blocks at them).
+   * A throw cancels the save like a failed write.
+   */
+  prepare?: (board: Board, file: BoardFile) => Promise<BoardFile>;
+}
+
 /**
  * Creates a NEW board from a validated board file: `createBoard`, then the normal collaboration
  * traffic writes the document (no API of its own, architecture 3.9). The board is written piece
@@ -38,16 +52,34 @@ export class BoardImporter {
 
   /** The new board, or undefined when it failed (a message was shown). */
   @WithSpan('BoardImporter.save')
-  async save(file: BoardFile, title?: string): Promise<Board | undefined> {
+  async save(
+    file: BoardFile,
+    title?: string,
+    options: SaveOptions = {},
+  ): Promise<Board | undefined> {
     let board: Board;
     try {
       // started before the first await: BoardActions' span becomes a child of this one
-      board = await this.actions.create(title?.trim() || file.title.trim() || DEFAULT_IMPORT_TITLE);
+      board = await this.actions.create(
+        title?.trim() || file.title.trim() || DEFAULT_IMPORT_TITLE,
+        undefined,
+        options.folderId,
+        options.template,
+      );
     } catch (error) {
       if (error instanceof ApiError) {
         return undefined;
       }
       throw error;
+    }
+    let content: BoardFile;
+    try {
+      // before the connection opens: copying files can take a while
+      content = options.prepare ? await options.prepare(board, file) : file;
+    } catch {
+      this.toasts.error('The board could not be written. The import was cancelled.');
+      await this.discard(board);
+      return undefined;
     }
     const injector = createEnvironmentInjector(
       [{ provide: BoardCollab, useClass: this.collabType }],
@@ -57,7 +89,7 @@ export class BoardImporter {
       const collab = injector.get(BoardCollab);
       collab.connect(board.id);
       await collab.whenSynced();
-      for (const piece of splitBoardFile(file, IMPORT_PIECE_BYTES)) {
+      for (const piece of splitBoardFile(content, IMPORT_PIECE_BYTES)) {
         writeBoardFile(collab.doc(), piece);
         await collab.whenFlushed();
       }

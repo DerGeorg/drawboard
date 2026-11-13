@@ -29,6 +29,10 @@ internal class FolderRepositoryAdapter(
     override suspend fun findAllByOwner(ownerId: Uuid): List<Folder> = folders.findAllByOwnerId(ownerId).map { it.toDomain() }.toList()
 
     @WithSpan
+    override suspend fun findChildren(parentIds: Collection<Uuid>): List<Folder> =
+        if (parentIds.isEmpty()) emptyList() else folders.findAllByParentIdIn(parentIds).map { it.toDomain() }.toList()
+
+    @WithSpan
     override suspend fun findAllById(ids: Collection<Uuid>): List<Folder> =
         if (ids.isEmpty()) emptyList() else folders.findAllById(ids).map { it.toDomain() }.toList()
 

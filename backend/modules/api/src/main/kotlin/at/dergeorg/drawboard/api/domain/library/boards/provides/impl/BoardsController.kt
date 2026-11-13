@@ -35,6 +35,10 @@ internal class BoardsController(
         ResponseEntity.ok(boards.listBoards(folderId, page, size))
 
     @WithSpan
+    override suspend fun listTemplates(page: Int, size: Int): ResponseEntity<BoardPage> =
+        ResponseEntity.ok(boards.listTemplates(page, size))
+
+    @WithSpan
     override suspend fun getBoard(@SpanAttribute("board.id") boardId: Uuid): ResponseEntity<Board> =
         ResponseEntity.ok(boards.getBoard(boardId))
 

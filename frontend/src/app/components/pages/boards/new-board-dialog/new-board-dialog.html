@@ -1,0 +1,40 @@
+<drawboard-modal heading="New board" [wide]="true" (closed)="close()">
+  <form [formRoot]="createForm" class="flex flex-col gap-4">
+    <div>
+      <label for="new-board-title" class="mb-1 block text-sm font-medium">Title</label>
+      <input
+        id="new-board-title"
+        type="text"
+        class="st-input"
+        autocomplete="off"
+        [formField]="createForm.title"
+        [attr.aria-invalid]="createForm.title().touched() && createForm.title().invalid()"
+        aria-describedby="new-board-title-errors"
+        (input)="markEdited()"
+      />
+      <drawboard-field-errors id="new-board-title-errors" [field]="createForm.title" />
+    </div>
+
+    <div class="max-h-[50dvh] overflow-y-auto pr-1">
+      <drawboard-template-picker [choice]="choice()" (choiceChange)="choose($event)" />
+    </div>
+
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn btn-ghost" [disabled]="busy()" (click)="close()">
+        Cancel
+      </button>
+      <button type="submit" class="btn st-btn-primary-yellow" [disabled]="busy()">
+        Create board
+      </button>
+    </div>
+  </form>
+</drawboard-modal>
+
+@if (asking(); as summary) {
+  <drawboard-template-files-dialog
+    [count]="summary.count"
+    [bytes]="summary.bytes"
+    (chosen)="answer($event)"
+    (closed)="cancelAsking()"
+  />
+}

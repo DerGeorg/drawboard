@@ -126,6 +126,20 @@ export class BoardCollab {
     }, timeoutMs);
   }
 
+  /**
+   * Resolves once the whole document has arrived: synced, or read-only for a viewer (who can
+   * read everything but write nothing). Rejects on denial or timeout.
+   */
+  whenLoaded(timeoutMs = 15_000): Promise<void> {
+    return this.waitFor(() => {
+      const status = this.state()?.status;
+      if (status === 'denied' || status === 'full') {
+        throw new Error('The board cannot be opened.');
+      }
+      return status === 'synced' || status === 'readonly';
+    }, timeoutMs);
+  }
+
   /** Resolves once the server acknowledged every local change (nothing is pending any more). */
   whenFlushed(timeoutMs = 30_000): Promise<void> {
     return this.waitFor(() => (this.provider?.pendingCount ?? 0) === 0, timeoutMs);

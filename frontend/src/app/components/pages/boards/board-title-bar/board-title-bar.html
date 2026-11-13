@@ -58,6 +58,11 @@
       </h1>
     }
 
+    @if (current.template) {
+      <span class="badge st-badge-primary hidden sm:inline-flex" data-testid="template-badge"
+        >Template</span
+      >
+    }
     <drawboard-role-badge class="hidden sm:inline-flex" [role]="current.role" />
 
     @if (!guest()) {
@@ -92,13 +97,22 @@
             <li role="none">
               <button
                 type="button"
-                role="menuitem"
+                [attr.role]="entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'"
+                [attr.aria-checked]="entry.checked ?? null"
                 class="panel-item"
-                [disabled]="entry.id === 'import' && importing()"
+                [disabled]="
+                  (entry.id === 'import' && importing()) ||
+                  (entry.id === 'saveTemplate' && savingTemplate())
+                "
                 (click)="choose(entry)"
               >
                 <drawboard-icon [name]="entry.icon" />
                 {{ entry.label }}
+                @if (entry.checked !== undefined) {
+                  <span class="ml-auto text-xs text-(--color-st-grey)">{{
+                    entry.checked ? 'On' : 'Off'
+                  }}</span>
+                }
               </button>
             </li>
           }
@@ -110,6 +124,15 @@
 
 @if (historyOpen() && board(); as current) {
   <drawboard-version-history [boardId]="current.id" (closed)="closeHistory()" />
+}
+
+@if (askingFiles(); as summary) {
+  <drawboard-template-files-dialog
+    [count]="summary.count"
+    [bytes]="summary.bytes"
+    (chosen)="answerFiles($event)"
+    (closed)="cancelFiles()"
+  />
 }
 
 @if (aboutOpen()) {

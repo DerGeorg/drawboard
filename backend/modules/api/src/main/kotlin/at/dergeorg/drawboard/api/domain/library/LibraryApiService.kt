@@ -18,7 +18,7 @@ import at.dergeorg.drawboard.library.domain.boards.model.BoardView
 import at.dergeorg.drawboard.library.domain.boards.provides.BoardsUseCase
 import at.dergeorg.drawboard.library.domain.boards.provides.CreateBoardCommand
 import at.dergeorg.drawboard.library.domain.boards.provides.MoveBoardCommand
-import at.dergeorg.drawboard.library.domain.boards.provides.RenameBoardCommand
+import at.dergeorg.drawboard.library.domain.boards.provides.UpdateBoardCommand
 import at.dergeorg.drawboard.library.domain.trash.provides.TrashUseCase
 import at.dergeorg.drawboard.shared.paging.PageQuery
 import io.opentelemetry.instrumentation.annotations.SpanAttribute
@@ -50,21 +50,35 @@ internal class LibraryApiService(
     }
 
     @WithSpan
+    override suspend fun listTemplates(page: Int, size: Int): BoardPage {
+        val result = boards.listTemplates(callers.any(), PageQuery(number = page, size = size))
+        return BoardPage(items = result.items.map { it.toApi() }, page = result.toPageInfo())
+    }
+
+    @WithSpan
     override suspend fun getBoard(@SpanAttribute("board.id") boardId: Uuid): Board = boards.getBoard(callers.any(), boardId).toApi()
 
     @WithSpan
-    override suspend fun createBoard(newBoard: NewBoard): Board =
-        boards.createBoard(CreateBoardCommand(ownerId = signedIn.caller().id, title = newBoard.title, folderId = newBoard.folderId)).toApi()
+    override suspend fun createBoard(newBoard: NewBoard): Board {
+        val command = CreateBoardCommand(
+            ownerId = signedIn.caller().id,
+            title = newBoard.title,
+            folderId = newBoard.folderId,
+            template = newBoard.template ?: false,
+        )
+        return boards.createBoard(command).toApi()
+    }
 
     @WithSpan
     override suspend fun updateBoard(@SpanAttribute("board.id") boardId: Uuid, boardUpdate: BoardUpdate): Board {
-        val command = RenameBoardCommand(
+        val command = UpdateBoardCommand(
             caller = signedIn.caller(),
             boardId = boardId,
             title = boardUpdate.title,
             version = boardUpdate.version,
+            template = boardUpdate.template,
         )
-        return boards.renameBoard(command).toApi()
+        return boards.updateBoard(command).toApi()
     }
 
     @WithSpan

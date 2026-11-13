@@ -50,6 +50,22 @@ internal class BoardRepositoryAdapter(
     override suspend fun findAllInFolders(folderIds: Collection<Uuid>): List<Board> =
         if (folderIds.isEmpty()) emptyList() else boards.findAllByFolderIdIn(folderIds).map { it.toDomain() }.toList()
 
+    /** One statement: `template AND deleted_at IS NULL AND (owner_id = ? OR id IN (...) OR folder_id IN (...)) ORDER BY ... LIMIT`. */
+    @WithSpan
+    override suspend fun findTemplateCandidates(
+        ownerId: Uuid,
+        boardIds: Collection<Uuid>,
+        folderIds: Collection<Uuid>,
+        limit: Int,
+    ): List<Board> {
+        var reachable = Criteria.where("ownerId").`is`(ownerId)
+        if (boardIds.isNotEmpty()) reachable = reachable.or("id").`in`(boardIds)
+        if (folderIds.isNotEmpty()) reachable = reachable.or("folderId").`in`(folderIds)
+        val criteria = Criteria.where("template").isTrue.and("deletedAt").isNull.and(listOf(reachable))
+        val query = Query.query(criteria).sort(NEWEST_CHANGE_FIRST).limit(limit)
+        return template.select(BoardEntity::class.java).matching(query).all().map { it.toDomain() }.collectList().awaitSingle()
+    }
+
     @WithSpan
     override suspend fun findAllById(ids: Collection<Uuid>): List<Board> =
         if (ids.isEmpty()) emptyList() else boards.findAllById(ids).map { it.toDomain() }.toList()

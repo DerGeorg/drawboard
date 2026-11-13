@@ -43,7 +43,8 @@ class RouteTableIntegrationTest(private val client: WebTestClient) {
         fun `when reading the contract then it lists every operation of the API`() {
             assertEquals(
                 setOf(
-                    "listBoards", "createBoard", "getBoard", "updateBoard", "deleteBoard", "moveBoard", "listTrash", "restoreBoard",
+                    "listBoards", "listTemplates", "createBoard", "getBoard", "updateBoard", "deleteBoard", "moveBoard", "listTrash",
+                    "restoreBoard",
                     "purgeBoard", "listFolders", "createFolder", "getFolder", "updateFolder", "deleteFolder", "restoreFolder",
                     "purgeFolder", "listSharedWithMe", "listBoardMembers", "setBoardUserMember", "removeBoardUserMember",
                     "setBoardGroupMember", "removeBoardGroupMember", "listFolderMembers", "setFolderUserMember",

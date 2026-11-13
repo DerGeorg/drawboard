@@ -1,5 +1,6 @@
 import { FileSource, NO_FILES } from '../files/file-source';
 import { BlockType, BlockTypeRegistry } from '../renderer/block-registry';
+import { emojiBlock } from './emoji';
 import { FileRenderers, createFileBlock } from './file';
 import { frameBlock } from './frame';
 import { STICKY_OUT, createKanbanBlock } from './kanban';
@@ -38,6 +39,7 @@ export function registerBuiltinBlocks(
   register(stickyBlock);
   register(textBlock);
   register(shapeBlock);
+  register(emojiBlock);
   register(frameBlock);
   register(createFileBlock(services.files ?? NO_FILES, services.fileRenderers));
   register(createMermaidBlock(services.diagrams));

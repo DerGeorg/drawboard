@@ -120,6 +120,7 @@ export class BoardEngine implements InputTarget, ToolContext {
     size: 4,
     fill: '#ffffff',
     sticky: STICKY_COLORS[0] as string,
+    emoji: '👍',
   };
 
   readonly toolChanged = new Emitter<ToolId>();
@@ -142,6 +143,12 @@ export class BoardEngine implements InputTarget, ToolContext {
    * anyone, and is `null` while the selection is being dragged or edited.
    */
   readonly selectionAnchorChanged = new Emitter<SelectionAnchor>();
+  /**
+   * Fires with the screen rectangle of the block whose text is being edited, and with `null`
+   * when no text is edited; it follows panning and zooming. The emoji button of a text edit
+   * sits at this rectangle.
+   */
+  readonly textEditAnchorChanged = new Emitter<SelectionAnchor>();
   /** The read-only flag changed (plugins switch between view and edit mode). */
   readonly readOnlyChanged = new Emitter<boolean>();
   /** A block whose type has an editor of its own was double-clicked (id of the block). */
@@ -177,6 +184,7 @@ export class BoardEngine implements InputTarget, ToolContext {
   /** True between pointer down and up of a tool gesture (not of panning). */
   private gesture = false;
   private lastAnchor: SelectionAnchor = null;
+  private lastEditAnchor: SelectionAnchor = null;
   private readonly boardId: string | null;
   /** The previous paste: the same content at the same spot steps by PASTE_OFFSET. */
   private lastPaste: { key: string; at: Point; count: number } | undefined;
@@ -400,7 +408,7 @@ export class BoardEngine implements InputTarget, ToolContext {
 
   /** Called by tools that need a drawing style (pen, shapes). Merges into `drawStyle`. */
   setDrawStyle(
-    patch: Partial<{ color: string; size: number; fill: string; sticky: string }>,
+    patch: Partial<{ color: string; size: number; fill: string; sticky: string; emoji: string }>,
   ): void {
     Object.assign(this.drawStyle, patch);
     this.drawStyleChanged.emit();
@@ -896,6 +904,33 @@ export class BoardEngine implements InputTarget, ToolContext {
     }
   }
 
+  /** The screen rectangle of the block whose text is edited now (see `textEditAnchorChanged`). */
+  get textEditAnchor(): SelectionAnchor {
+    const block = this.edit ? this.board.getBlock(this.edit.blockId) : undefined;
+    if (!block) {
+      return null;
+    }
+    const { x, y, zoom } = this._camera;
+    return { x: block.x * zoom + x, y: block.y * zoom + y, w: block.w * zoom, h: block.h * zoom };
+  }
+
+  /**
+   * Puts text at the caret of the open text editor - the way typing does (one Yjs edit, so undo
+   * works and others see it). False if no text is edited or the text would be too long.
+   */
+  insertIntoEditedText(text: string): boolean {
+    return this.edit?.insert(text) ?? false;
+  }
+
+  /**
+   * Keeps the open text editor alive while a panel next to it (the emoji picker) takes the
+   * focus: the editor then does not end on blur. The returned function gives the focus back.
+   * Undefined if no text is edited.
+   */
+  holdTextEdit(): (() => void) | undefined {
+    return this.edit?.hold();
+  }
+
   /** Renders pending changes now (tests; the engine otherwise renders on the next frame). */
   flush(): void {
     this.scheduled = false;
@@ -965,6 +1000,7 @@ export class BoardEngine implements InputTarget, ToolContext {
       this.drawStyleChanged,
       this.localPresence,
       this.selectionAnchorChanged,
+      this.textEditAnchorChanged,
       this.blockRequested,
       this.clipboardNotice,
     ]) {
@@ -1089,18 +1125,14 @@ export class BoardEngine implements InputTarget, ToolContext {
 
   private emitAnchor(): void {
     const next = this.selectionAnchor;
-    const prev = this.lastAnchor;
-    const same =
-      next === prev ||
-      (next !== null &&
-        prev !== null &&
-        next.x === prev.x &&
-        next.y === prev.y &&
-        next.w === prev.w &&
-        next.h === prev.h);
-    if (!same) {
+    if (!sameRect(next, this.lastAnchor)) {
       this.lastAnchor = next;
       this.selectionAnchorChanged.emit(next);
+    }
+    const edit = this.textEditAnchor;
+    if (!sameRect(edit, this.lastEditAnchor)) {
+      this.lastEditAnchor = edit;
+      this.textEditAnchorChanged.emit(edit);
     }
   }
 
@@ -1155,6 +1187,13 @@ export class BoardEngine implements InputTarget, ToolContext {
       queueMicrotask(() => this.flush());
     }
   }
+}
+
+function sameRect(a: SelectionAnchor, b: SelectionAnchor): boolean {
+  return (
+    a === b ||
+    (a !== null && b !== null && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h)
+  );
 }
 
 function count(n: number, noun: string): string {

@@ -167,6 +167,29 @@ describe('BoardCollab', () => {
       await expect(collab.whenSynced(1000), 'rejection').rejects.toThrow('cannot be edited');
     });
 
+    it('when the state is not synced yet then whenLoaded rejects after the timeout', async () => {
+      collab.connect('b1');
+
+      await expect(collab.whenLoaded(120), 'rejection').rejects.toThrow('did not answer in time');
+    });
+
+    it('when the server denies the board then whenLoaded rejects at once', async () => {
+      collab.connect('b1');
+      await vi.waitFor(() => expect(sockets.length, 'socket').toBe(1));
+      sockets[0]?.socket.onclose?.({ code: 4403 } as never);
+
+      await expect(collab.whenLoaded(1000), 'rejection').rejects.toThrow('cannot be opened');
+    });
+
+    it('when the document is read-only for a viewer then whenLoaded resolves, whenSynced does not', async () => {
+      collab.connect('b1');
+      await vi.waitFor(() => expect(sockets.length, 'socket').toBe(1));
+      collab.state.set({ status: 'readonly' } as never);
+
+      await expect(collab.whenLoaded(1000), 'loaded').resolves.toBeUndefined();
+      await expect(collab.whenSynced(120), 'synced').rejects.toThrow('did not answer in time');
+    });
+
     it('when nothing is pending then whenFlushed resolves; before connecting too', async () => {
       await expect(collab.whenFlushed(100), 'before connecting').resolves.toBeUndefined();
       collab.connect('b1');

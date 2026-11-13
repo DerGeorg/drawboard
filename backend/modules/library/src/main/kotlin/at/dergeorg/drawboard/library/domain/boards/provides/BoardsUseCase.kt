@@ -25,17 +25,38 @@ interface BoardsUseCase {
      */
     suspend fun listBoards(caller: Caller, folderId: Uuid?, page: PageQuery): Page<BoardView>
 
+    /**
+     * The template boards the caller may open (users only, guests get `FORBIDDEN`): their own in any folder and every
+     * template they have at least `VIEWER` on - granted directly, through a group of the current token, through a share
+     * link they opened, or inherited from a shared folder. The role in each view is the effective one. Trash excluded
+     * (the board itself or via its folder). Most recently changed first, then by id.
+     *
+     * Candidates are never "all templates" but what the caller's own rights can reach: their own boards, boards with a
+     * grant for them (user, group of the current token, link) and boards in or below folders with such a grant - one
+     * SQL statement, newest first, at most 1000 rows. The final role of each candidate comes from the `AccessResolver`
+     * (the one place for access rules); the page is cut in memory. A caller who can reach more than 1000 templates
+     * sees the 1000 most recently changed ones. Likewise at most 1000 granted boards (newest grant first) and 1000
+     * folders (granted ones first, then their subfolders level by level) are searched: whoever reaches more
+     * folders or boards through shares sees the templates of the first ones only. At most 30 calls per minute and user (`LIBRARY_TEMPLATE_LISTS_PER_MINUTE`):
+     * more is `TOO_MANY_REQUESTS` (429, `Retry-After`), counted by a metric and not audited.
+     */
+    suspend fun listTemplates(caller: Caller, page: PageQuery): Page<BoardView>
+
     suspend fun getBoard(caller: Caller, boardId: Uuid): BoardView
 
-    /** The creator becomes the owner; [CreateBoardCommand.folderId] must be one of their own folders. */
+    /**
+     * The creator becomes the owner; [CreateBoardCommand.folderId] must be one of their own folders;
+     * [CreateBoardCommand.template] creates the board as a template.
+     */
     suspend fun createBoard(command: CreateBoardCommand): BoardView
 
     /**
-     * Changes the title; needs the role `EDITOR` or `OWNER`. Fails with `CONFLICT` if
-     * [RenameBoardCommand.version] is not the current version (the board was changed in between). An unchanged title
-     * changes and audits nothing.
+     * Changes the title and/or the template flag; needs the role `EDITOR` or `OWNER`. Changing the template flag
+     * needs `OWNER`: an editor who sends another value than the current one gets `LIBRARY_BOARD_ACCESS_DENIED`
+     * (required: OWNER, like every other role failure); the same value is fine. Fails with `CONFLICT` if [UpdateBoardCommand.version] is not the current version (the board was changed
+     * in between). Nothing that stays the same is changed or audited.
      */
-    suspend fun renameBoard(command: RenameBoardCommand): BoardView
+    suspend fun updateBoard(command: UpdateBoardCommand): BoardView
 
     /** Moves into another folder of the owner or into the root; needs `OWNER`; `CONFLICT` on an outdated version. */
     suspend fun moveBoard(command: MoveBoardCommand): BoardView
@@ -55,10 +76,19 @@ interface BoardsUseCase {
 }
 
 /** Input of [BoardsUseCase.createBoard]. [title] as submitted: surrounding whitespace is removed, blank is rejected. */
-data class CreateBoardCommand(val ownerId: Uuid, val title: String, val folderId: Uuid? = null)
+data class CreateBoardCommand(val ownerId: Uuid, val title: String, val folderId: Uuid? = null, val template: Boolean = false)
 
-/** Input of [BoardsUseCase.renameBoard]: the new [title] (trimmed like on create) and the [version] it is based on. */
-data class RenameBoardCommand(val caller: Caller, val boardId: Uuid, val title: String, val version: Long)
+/**
+ * Input of [BoardsUseCase.updateBoard]: the new [title] (trimmed like on create), the new [template] flag (null =
+ * unchanged) and the [version] it is based on.
+ */
+data class UpdateBoardCommand(
+    val caller: Caller,
+    val boardId: Uuid,
+    val title: String,
+    val version: Long,
+    val template: Boolean? = null,
+)
 
 /** Input of [BoardsUseCase.moveBoard]: the target [folderId] (null = root) and the [version] it is based on. */
 data class MoveBoardCommand(val caller: Caller, val boardId: Uuid, val folderId: Uuid?, val version: Long)

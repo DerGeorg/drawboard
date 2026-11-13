@@ -129,6 +129,110 @@ describe('text-editor', () => {
       board.destroy();
     });
 
+    describe('insert and hold', () => {
+      function start(maxLength?: number): ReturnType<typeof setup> & {
+        session: NonNullable<ReturnType<typeof startTextEditor>>;
+        ta: HTMLTextAreaElement;
+      } {
+        const board = new BoardDoc();
+        const id = board.addBlock({ type: 't', x: 0, y: 0, w: 1, h: 1, text: 'one two' });
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        let stops = 0;
+        const session = startTextEditor(board, host, id, () => stops++, { maxLength });
+        return {
+          board,
+          id,
+          host,
+          stopped: () => stops,
+          session: session as NonNullable<typeof session>,
+          ta: host.querySelector('textarea') as HTMLTextAreaElement,
+        };
+      }
+
+      it('when text is inserted then it goes in at the caret as one edit in the Y.Text', () => {
+        const { board, id, session, ta } = start();
+        ta.setSelectionRange(3, 3);
+        const deltas: unknown[] = [];
+        board.getText(id)?.observe((e) => deltas.push(e.delta));
+
+        const inserted = session.insert('🎉');
+
+        expect(inserted, 'result').toBe(true);
+        expect(board.textOf(id), 'text').toBe('one🎉 two');
+        expect(deltas, 'one delta').toEqual([[{ retain: 3 }, { insert: '🎉' }]]);
+        expect(ta.selectionStart, 'caret after the insert').toBe(5);
+        board.destroy();
+      });
+
+      it('when text is selected then the insert replaces it', () => {
+        const { board, id, session, ta } = start();
+        ta.setSelectionRange(4, 7);
+
+        session.insert('🎉');
+
+        expect(board.textOf(id), 'text').toBe('one 🎉');
+        board.destroy();
+      });
+
+      it('when the insert would exceed the limit then nothing changes', () => {
+        const { board, id, session } = start(8);
+
+        expect(session.insert('🎉'), 'fits 8 units? 7 + 2').toBe(false);
+        expect(board.textOf(id), 'text').toBe('one two');
+        board.destroy();
+      });
+
+      it('when the editor is one line then line breaks become spaces', () => {
+        const { board, id, session } = start(50);
+
+        session.insert('a\nb');
+
+        expect(board.textOf(id), 'text').toBe('one twoa b');
+        board.destroy();
+      });
+
+      it('when the editor has ended then insert does nothing', () => {
+        const { board, id, session } = start();
+        session.stop();
+
+        expect(session.insert('🎉'), 'result').toBe(false);
+        expect(board.textOf(id), 'text').toBe('one two');
+        board.destroy();
+      });
+
+      it('when the editor is held then blur does not end it, and release gives the focus back', () => {
+        const { board, host, session, ta, stopped } = start();
+        ta.setSelectionRange(2, 2);
+        const release = session.hold();
+        const other = document.createElement('input');
+        host.appendChild(other);
+
+        other.focus();
+        expect(stopped(), 'stopped while held').toBe(0);
+        expect(host.querySelector('textarea'), 'editor while held').not.toBeNull();
+
+        release();
+        release();
+        expect(document.activeElement, 'focus').toBe(ta);
+        expect(ta.selectionStart, 'caret kept').toBe(2);
+        ta.blur();
+        expect(stopped(), 'stopped after release and blur').toBe(1);
+        board.destroy();
+      });
+
+      it('when the editor ends while held then release does not bring it back', () => {
+        const { board, host, session } = start();
+        const release = session.hold();
+
+        session.stop();
+        release();
+
+        expect(host.querySelector('textarea'), 'editor').toBeNull();
+        board.destroy();
+      });
+    });
+
     it('when the block has no text then no editor is created', () => {
       const board = new BoardDoc();
       const id = board.addBlock({ type: 't', x: 0, y: 0, w: 1, h: 1 });

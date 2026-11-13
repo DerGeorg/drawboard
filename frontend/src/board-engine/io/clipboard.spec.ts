@@ -202,6 +202,17 @@ describe('clipboard', () => {
       expect(parsed.skippedTypes, 'nothing skipped').toBe(0);
     });
 
+    it('when a pasted stamp holds an emoji then it is kept, and anything else is refused', () => {
+      const stamp = (emoji: string): string =>
+        envelope({ blocks: [block({ type: 'core.emoji', props: { emoji }, text: undefined })] });
+
+      expect(parseClipboard(stamp('🎉')).content.blocks[0]?.props, 'emoji').toEqual({
+        emoji: '🎉',
+      });
+      expect(refusal(stamp('<img src=x>')), 'markup').toMatch(/emoji/);
+      expect(refusal(stamp('🎉 🎉')), 'space').toMatch(/emoji/);
+    });
+
     it('when the clipboard is larger than 512 KB then it is refused before parsing', () => {
       const big = 'x'.repeat(CLIPBOARD_LIMITS.maxBytes + 1);
       const wide = '€'.repeat(CLIPBOARD_LIMITS.maxBytes / 3 + 1);

@@ -34,11 +34,18 @@ internal class AccessResolver(
     private val clock: Clock,
 ) {
 
-    suspend fun boardRole(board: Board, caller: Caller): BoardRole? {
+    /**
+     * The role on [board]. A caller that resolves many boards at once passes the same [ancestorCache] (folder id to the
+     * ids above it): boards in one folder then share one walk up the tree. The cache belongs to one call - never
+     * keep it around, folders move.
+     */
+    suspend fun boardRole(board: Board, caller: Caller, ancestorCache: MutableMap<Uuid?, List<Uuid>> = HashMap()): BoardRole? {
         if (board.deletedAt != null) return null
-        val above = ancestorIds(board.folderId)
+        // The owner needs no look at the folders above.
+        if (caller is Caller.User && board.ownerId == caller.id) return BoardRole.OWNER
+        val above = ancestorCache.getOrPut(board.folderId) { ancestorIds(board.folderId) }
         return when (caller) {
-            is Caller.User -> if (board.ownerId == caller.id) BoardRole.OWNER else userRole(caller, BOARD to board.id, above)
+            is Caller.User -> userRole(caller, BOARD to board.id, above)
             is Caller.Guest -> guestRole(caller, board.id, ResourceKind.BOARD, above)
         }
     }

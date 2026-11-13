@@ -1,0 +1,42 @@
+@let current = board();
+<article
+  class="flex flex-col overflow-hidden rounded-2xl border-(length:--border-size-xs) border-(--color-st-white-darker) bg-(--color-st-surface)"
+  [attr.aria-labelledby]="`template-${current.id}`"
+>
+  <div
+    class="flex aspect-video items-center justify-center bg-(--color-board-paper) text-slate-400"
+    aria-hidden="true"
+  >
+    <drawboard-icon name="template" />
+  </div>
+  <div class="flex flex-1 flex-col gap-3 p-3">
+    <div class="min-w-0">
+      <h3 [id]="`template-${current.id}`" class="truncate font-medium">{{ current.title }}</h3>
+      <p class="mt-0.5 flex items-center gap-2 text-xs text-(--color-st-grey)">
+        @if (owners.name(current); as owner) {
+          <span data-testid="owner">By {{ owner }}</span>
+        }
+        <span data-testid="edited">Edited {{ edited() }}</span>
+        <drawboard-role-badge [role]="current.role" />
+      </p>
+    </div>
+    <div class="mt-auto flex gap-2">
+      <button
+        type="button"
+        class="btn btn-sm st-btn-primary-yellow"
+        [disabled]="busy()"
+        [attr.aria-label]="`Use ${current.title}`"
+        (click)="requestUse()"
+      >
+        Use
+      </button>
+      <a
+        class="btn btn-sm btn-ghost"
+        [routerLink]="['/boards', current.id]"
+        [attr.aria-label]="`Open ${current.title}`"
+      >
+        Open
+      </a>
+    </div>
+  </div>
+</article>

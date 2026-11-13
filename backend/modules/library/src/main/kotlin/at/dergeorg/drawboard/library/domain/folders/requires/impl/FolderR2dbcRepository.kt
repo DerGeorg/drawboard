@@ -10,5 +10,7 @@ internal interface FolderR2dbcRepository : CoroutineCrudRepository<FolderEntity,
 
     fun findAllByOwnerId(ownerId: Uuid): Flow<FolderEntity>
 
+    fun findAllByParentIdIn(parentIds: Collection<Uuid>): Flow<FolderEntity>
+
     fun findAllByDeletedAtBefore(before: Instant): Flow<FolderEntity>
 }

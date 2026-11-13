@@ -1,12 +1,15 @@
 <drawboard-library-shell [view]="view()" [(search)]="search" (rootDrop)="dropOnRoot()">
   @if (canCreate()) {
-    <drawboard-board-create sidebar-action variant="button" [folderId]="newBoardFolder()" />
+    <drawboard-board-create sidebar-action variant="button" (requested)="openCreate()" />
   }
   <drawboard-folder-tree sidebar-folders [active]="view() === 'mine' ? folder() : undefined" />
 
   @if (view() === 'trash') {
     <h1 class="mb-5 text-2xl font-bold tracking-tight">{{ heading() }}</h1>
     <drawboard-trash-list />
+  } @else if (view() === 'templates') {
+    <h1 class="mb-5 text-2xl font-bold tracking-tight">{{ heading() }}</h1>
+    <drawboard-template-list [page]="page()" [search]="search()" />
   } @else {
     @if (folder()) {
       <a
@@ -44,7 +47,7 @@
         [attr.aria-busy]="busy()"
       >
         @if (canCreate() && search() === '') {
-          <li><drawboard-board-create [folderId]="newBoardFolder()" /></li>
+          <li><drawboard-board-create (requested)="openCreate()" /></li>
         }
         @for (board of visible(); track board.id) {
           <li>
@@ -73,3 +76,7 @@
     }
   }
 </drawboard-library-shell>
+
+@if (creating()) {
+  <drawboard-new-board-dialog [folderId]="newBoardFolder()" (closed)="closeCreate()" />
+}

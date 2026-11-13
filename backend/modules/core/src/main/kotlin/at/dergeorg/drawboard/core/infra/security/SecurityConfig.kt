@@ -72,6 +72,7 @@ internal class SecurityConfig {
             authorize(pathMatchers(PUT, "/api/boards/*"), signedIn) // updateBoard
             authorize(pathMatchers(DELETE, "/api/boards/*"), signedIn) // deleteBoard
             authorize(pathMatchers(PUT, "/api/boards/*/folder"), signedIn) // moveBoard
+            authorize(pathMatchers(GET, "/api/templates"), signedIn) // listTemplates
             authorize(pathMatchers(GET, "/api/trash"), signedIn) // listTrash
             authorize(pathMatchers(POST, "/api/trash/boards/*/restore"), signedIn) // restoreBoard
             authorize(pathMatchers(DELETE, "/api/trash/boards/*"), signedIn) // purgeBoard

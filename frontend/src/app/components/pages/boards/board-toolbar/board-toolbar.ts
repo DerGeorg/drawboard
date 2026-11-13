@@ -15,6 +15,7 @@ import { FILL_COLORS, STROKE_COLORS, STROKE_WIDTHS } from '../../../../../board-
 import type { PluginBlockOption } from '../../../../../board-engine/plugins/plugin-host';
 import { ToolId } from '../../../../../board-engine/tools/tool';
 import { WithSpan } from '../../../../util/tracing';
+import { EmojiPicker } from '../../../shared/emoji-picker/emoji-picker';
 import { Icon } from '../../../shared/icon/icon';
 import { IconName } from '../../../shared/icon/icons';
 import { ACCEPTED_EXTENSIONS, UPLOAD_LIMITS_TEXT } from '../board-uploads';
@@ -29,12 +30,13 @@ type GroupId =
   | 'table'
   | 'connector'
   | 'pen'
-  | 'eraser';
-type FlyoutId = 'sticky' | 'shapes' | 'connector' | 'pen';
+  | 'eraser'
+  | 'emoji';
+type FlyoutId = 'sticky' | 'shapes' | 'connector' | 'pen' | 'emoji';
 
 interface ToolInfo {
   label: string;
-  /** Shortcut shown in the tooltip (the engine handles the key). */
+  /** Shortcut shown in the tooltip (the engine handles the key); empty if the tool has none. */
   key: string;
   icon: IconName;
 }
@@ -60,6 +62,7 @@ const TOOL_INFO: Readonly<Record<ToolId, ToolInfo>> = {
   connector: { label: 'Connector', key: 'C', icon: 'connector' },
   pen: { label: 'Pen', key: 'P', icon: 'pen' },
   eraser: { label: 'Eraser', key: 'E', icon: 'eraser' },
+  emoji: { label: 'Emoji stamp', key: '', icon: 'emoji' },
 };
 
 const GROUPS: readonly ToolGroup[] = [
@@ -73,6 +76,7 @@ const GROUPS: readonly ToolGroup[] = [
   { id: 'connector', label: 'Connector', tools: ['connector'], flyout: 'connector' },
   { id: 'pen', label: 'Pen', tools: ['pen'], flyout: 'pen' },
   { id: 'eraser', label: 'Eraser', tools: ['eraser'] },
+  { id: 'emoji', label: 'Emoji stamp', tools: ['emoji'], flyout: 'emoji' },
 ];
 
 const READ_ONLY_GROUPS: ReadonlySet<GroupId> = new Set(['select', 'hand']);
@@ -84,7 +88,7 @@ const READ_ONLY_GROUPS: ReadonlySet<GroupId> = new Set(['select', 'hand']);
  */
 @Component({
   selector: 'drawboard-board-toolbar',
-  imports: [Icon],
+  imports: [Icon, EmojiPicker],
   templateUrl: './board-toolbar.html',
   host: {
     '(document:pointerdown)': 'closeFlyoutOnOutside($event)',
@@ -189,7 +193,8 @@ export class BoardToolbar {
 
   protected tooltip(group: ToolGroup): string {
     const t = TOOL_INFO[this.toolOf(group)];
-    return `${group.id === 'shapes' ? group.label : t.label} (${t.key})`;
+    const name = group.id === 'shapes' ? group.label : t.label;
+    return t.key ? `${name} (${t.key})` : name;
   }
 
   /** Selects the group's tool; a group with a flyout opens or closes it on every click. */
@@ -208,6 +213,15 @@ export class BoardToolbar {
   @WithSpan('BoardToolbar.pickShape', { attributes: (id: ToolId) => ({ 'tool.id': id }) })
   protected pickShape(id: ToolId): void {
     this.engine()?.setTool(id);
+    this.flyout.set(undefined);
+  }
+
+  /** An emoji was picked: it is the stamp from now on, and the stamp tool is active. */
+  @WithSpan('BoardToolbar.pickEmoji')
+  protected pickEmoji(emoji: string): void {
+    const engine = this.engine();
+    engine?.setDrawStyle({ emoji });
+    engine?.setTool('emoji');
     this.flyout.set(undefined);
   }
 
@@ -279,6 +293,7 @@ export class BoardToolbar {
     }
   }
 
+  @WithSpan('BoardToolbar.closeFlyout')
   protected closeFlyout(): void {
     this.flyout.set(undefined);
     this.pluginMenu.set(false);

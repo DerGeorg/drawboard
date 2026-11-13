@@ -25,6 +25,7 @@ internal fun BoardView.toApi() = Board(
     ownerId = board.ownerId,
     folderId = board.folderId,
     role = role.toApi(),
+    template = board.template,
     createdAt = board.createdAt,
     updatedAt = board.updatedAt,
     version = board.version,

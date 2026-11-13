@@ -72,6 +72,23 @@ describe('BoardCard', () => {
 
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
+  describe('template badge', () => {
+    it('when the board is a template then a Template badge is shown', async () => {
+      await render({ template: true });
+
+      expect(
+        all(fixture, '[data-testid=template-badge]').map((b) => b.textContent?.trim()),
+        'badges',
+      ).toEqual(['Template']);
+    });
+
+    it('when the board is no template then there is no badge', async () => {
+      await render({ template: false });
+
+      expect(all(fixture, '[data-testid=template-badge]').length, 'badges').toBe(0);
+    });
+  });
+
   describe('rendering', () => {
     it('when shown then the title links to the board and the role is shown', async () => {
       await render();
