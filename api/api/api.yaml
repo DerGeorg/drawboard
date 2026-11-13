@@ -81,10 +81,10 @@ paths:
       description: |
         Creates an empty board owned by the signed-in user, in the root of
         their space or in `folderId` (a folder they own, else 404
-        `LIBRARY_FOLDER_NOT_FOUND`). The server assigns the id (UUIDv7).
-        Importing a `.drawboard` file or a data URL is this call plus the
-        normal collaboration traffic; it needs no API of its own. Not for
-        guests.
+        `LIBRARY_FOLDER_NOT_FOUND`), optionally as a template. The server
+        assigns the id (UUIDv7). Importing a `.drawboard` file or a data URL,
+        and a new board from a template, is this call plus the normal
+        collaboration traffic; it needs no API of its own. Not for guests.
       tags: [boards]
       requestBody:
         required: true
@@ -151,13 +151,15 @@ paths:
           $ref: '../common/common.yaml#/components/responses/InternalError'
     put:
       operationId: updateBoard
-      summary: Rename a board
+      summary: Rename a board or mark it as a template
       description: |
-        Replaces the changeable metadata of a board (its title). Optimistic
-        locking: `version` is the version the client read last; if the board
-        was changed in between, nothing is changed and the answer is 409
-        `CONFLICT`. Needs the role `EDITOR` or `OWNER`. Moving the board into
-        another folder is moveBoard. Not for guests.
+        Replaces the changeable metadata of a board (its title and, for the
+        owner, whether it is a template). Optimistic locking: `version` is
+        the version the client read last; if the board was changed in
+        between, nothing is changed and the answer is 409 `CONFLICT`. Needs
+        the role `EDITOR` or `OWNER`; changing `template` needs `OWNER` (403
+        `FORBIDDEN` otherwise). Moving the board into another folder is
+        moveBoard. Not for guests.
       tags: [boards]
       requestBody:
         required: true
@@ -259,6 +261,40 @@ paths:
           $ref: '../common/common.yaml#/components/responses/InternalError'
 
   # --- trash (boards and folders of the caller; module library) --------------
+  /templates:
+    get:
+      operationId: listTemplates
+      summary: List the templates the caller can use
+      description: |
+        One page of template boards (Board.template), most recently changed
+        first: the caller's own (in any folder) and every template the
+        caller has at least the role `VIEWER` on - shared directly, through
+        a group of the current access token, through a link the caller
+        opened while signed in, or inherited from a shared folder. Boards in
+        the trash are never listed. `role` is the caller's effective role.
+        The templates built into the frontend are not part of this list.
+        Not for guests.
+      tags: [boards]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/PageNumber'
+        - $ref: '../common/common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of templates.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/BoardPage'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
   /trash:
     get:
       operationId: listTrash

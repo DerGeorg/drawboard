@@ -142,6 +142,8 @@ paths:
     $ref: 'api/api.yaml#/paths/~1shares~1exchange'
   /shares/refresh:
     $ref: 'api/api.yaml#/paths/~1shares~1refresh'
+  /templates:
+    $ref: 'api/api.yaml#/paths/~1templates'
   /trash:
     $ref: 'api/api.yaml#/paths/~1trash'
   /trash/boards/{boardId}:

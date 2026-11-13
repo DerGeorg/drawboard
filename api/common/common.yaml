@@ -182,7 +182,7 @@ components:
         part of this resource; it is synchronised over the collaboration
         WebSocket. The board summary and thumbnail (S2.9) are not part of the
         contract yet; they follow in a later change.
-      required: [id, title, ownerId, folderId, role, createdAt, updatedAt, version]
+      required: [id, title, ownerId, folderId, role, template, createdAt, updatedAt, version]
       properties:
         id:
           type: string
@@ -207,6 +207,14 @@ components:
             the owner's space. Changed with moveBoard.
         role:
           $ref: '#/components/schemas/BoardRole'
+        template:
+          type: boolean
+          description: |
+            The board is a template: it stays a normal board (same folder,
+            sharing and editing), and listTemplates offers it as a starting
+            point for new boards. A new board from a template is a copy made
+            by the client (createBoard plus the normal collaboration traffic);
+            later changes to the template do not reach the copies.
         createdAt:
           type: string
           format: date-time
@@ -231,7 +239,7 @@ components:
           readOnly: true
           description: |
             Optimistic-lock version of the metadata, raised by every change
-            (title, folder). Send it back unchanged in `BoardUpdate.version`
+            (title, folder, template). Send it back unchanged in `BoardUpdate.version`
             and `BoardMove.version`.
     BoardRole:
       type: string
@@ -266,6 +274,10 @@ components:
             Folder of the caller's own space to create the board in; absent =
             the root of the space. A folder the caller does not own, or one in
             the trash, answers 404 LIBRARY_FOLDER_NOT_FOUND.
+        template:
+          type: boolean
+          default: false
+          description: true creates the board as a template (Board.template).
     BoardUpdate:
       type: object
       description: |
@@ -280,6 +292,11 @@ components:
           # Same pattern as NewBoard.title.
           pattern: '^\s*\S[\s\S]*'
           description: Leading and trailing whitespace is removed by the server.
+        template:
+          type: boolean
+          description: |
+            Absent = unchanged. Only the OWNER may change it: another value
+            than the current one from an EDITOR answers 403 FORBIDDEN.
         version:
           type: integer
           format: int64

@@ -249,6 +249,38 @@ Pushed via OTLP to Alloy → Prometheus (house standard, `spring-kotlin-monitori
 Plus the standard HTTP/JVM/R2DBC metrics, traces and logs, and Faro in the
 frontend. A generated service dashboard plus a "Drawboard usage" dashboard.
 
+### 3.12 Templates (M5)
+
+* A template is a normal board with `Board.template = true`: same folder, sharing and
+  editing. Only the owner switches the flag. `listTemplates` lists every template the
+  caller may open (own, shared directly, by group, by link, inherited from a folder).
+* **A new board from a template is a copy made in the browser**, the same path as an
+  import (3.9): read the template's document over the collaboration connection,
+  `boardToFile`, `createBoard`, write the pieces. No server-side copy, so the board
+  document stays opaque to the backend. Later changes of the template do not reach
+  the copies.
+* Files on a template (images, PDFs) belong to the template board (S4.1). The copy
+  downloads each through its signed URL and uploads it to the new board, then points
+  the block at the new file id; a file that cannot be copied leaves the block showing
+  "not available".
+* "Save as template" on any board makes a template copy (the retro board stays as it
+  was); "Use template" is in the new-board dialog and on the Templates page.
+* **Built-in templates** ship in the frontend image as typed board files, validated by
+  `parseBoardFile` in a test: retros (Start/Stop/Continue, Mad/Sad/Glad, 4L), Kanban,
+  Sprint planning, Brainstorming, User story map, SWOT.
+
+### 3.13 Emojis (M5)
+
+* The system's emoji font draws them; no emoji images are shipped (Twemoji and Noto
+  graphics are not under a permissive licence, see the rules of the project).
+* Picker: own Angular component, emoji data from `emojibase-data` (MIT), loaded as a
+  lazy chunk on first use, served from the app (no CDN). Recently used emojis in
+  localStorage (per browser, best effort).
+* In text: a button while a text is edited inserts at the caret.
+* `core.emoji` block (stamp): props `{ emoji }`, validated on import and paste like every
+  other prop (one emoji, at most 32 UTF-16 units, no whitespace or control characters),
+  rendered as text only. Used for reactions and dot voting in retros.
+
 ## 4. Backend modules
 
 ```
@@ -286,6 +318,7 @@ for a room goes through a port that `api`/`core` wires to `library`.
 | M2 | Folders, ACL, user/group/link sharing, guests, export/import file + data URL, Helm chart | A guest opens a link without an account and edits |
 | M3 | Plugin SDK + built-ins moved onto it, mermaid block, uploads (image, video, PDF, Office via Gotenberg) | An external sample plugin works in the sandbox |
 | M4 | Kanban, story cards, planning poker, usage dashboard, hardening | Sprint planning on a board works end to end |
+| M5 | Emoji picker and stamps, templates (own, shared, built-in) | A team runs its retro from a shared template and reacts with emojis |
 
 ## 7. Open points
 
