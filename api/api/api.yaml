@@ -158,7 +158,7 @@ paths:
         the version the client read last; if the board was changed in
         between, nothing is changed and the answer is 409 `CONFLICT`. Needs
         the role `EDITOR` or `OWNER`; changing `template` needs `OWNER` (403
-        `FORBIDDEN` otherwise). Moving the board into another folder is
+        `LIBRARY_BOARD_ACCESS_DENIED` otherwise). Moving the board into another folder is
         moveBoard. Not for guests.
       tags: [boards]
       requestBody:
@@ -272,6 +272,8 @@ paths:
         a group of the current access token, through a link the caller
         opened while signed in, or inherited from a shared folder. Boards in
         the trash are never listed. `role` is the caller's effective role.
+        Only what getBoard would show the caller. At most 100 per page; 30
+        calls per minute per user (429 `TOO_MANY_REQUESTS`, `Retry-After`).
         The templates built into the frontend are not part of this list.
         Not for guests.
       tags: [boards]
@@ -293,6 +295,8 @@ paths:
           $ref: '../common/common.yaml#/components/responses/Forbidden'
         '406':
           $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../common/common.yaml#/components/responses/InternalError'
   /trash:

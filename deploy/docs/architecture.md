@@ -252,22 +252,29 @@ frontend. A generated service dashboard plus a "Drawboard usage" dashboard.
 ### 3.12 Templates (M5)
 
 * A template is a normal board with `Board.template = true`: same folder, sharing and
-  editing. Only the owner switches the flag. `listTemplates` lists every template the
-  caller may open (own, shared directly, by group, by link, inherited from a folder).
+  editing. `template` grants nothing: reading, copying, editing, sharing and trashing follow
+  the board's roles. Only the owner switches the flag; every change is an audit event.
+* `listTemplates` lists every template the caller may open (own, shared directly, by group,
+  by link, inherited from a folder). Its candidates come from the caller's grants (own,
+  direct, group, link, folder subtree), at most 1 000 per call and 30 calls per minute,
+  never from all templates of the instance (Fable T4).
 * **A new board from a template is a copy made in the browser**, the same path as an
   import (3.9): read the template's document over the collaboration connection,
-  `boardToFile`, `createBoard`, write the pieces. No server-side copy, so the board
-  document stays opaque to the backend. Later changes of the template do not reach
-  the copies.
-* Files on a template (images, PDFs) belong to the template board (S4.1). The copy
-  downloads each through its signed URL and uploads it to the new board, then points
-  the block at the new file id; a file that cannot be copied leaves the block showing
-  "not available".
+  `boardToFile`, `parseBoardFile` with the clipboard rules, `createBoard`, write the pieces.
+  Plugin blocks of unknown or disabled plugins are dropped and counted; plugin storage and
+  poker rounds are not copied. No server-side copy, so the board document stays opaque to
+  the backend. Later changes of the template do not reach the copies.
+* Files on a template (images, PDFs) belong to the template board (S4.1). The copy fetches
+  each through `getFileUrls` (`original` variant, same fetch options as pdf.js, URLs never
+  stored) and uploads it with `uploadFile` to the new board; the server re-checks type,
+  size, quota and scan. A file that cannot be copied leaves the block showing "not
+  available".
 * "Save as template" on any board makes a template copy (the retro board stays as it
   was); "Use template" is in the new-board dialog and on the Templates page.
-* **Built-in templates** ship in the frontend image as typed board files, validated by
-  `parseBoardFile` in a test: retros (Start/Stop/Continue, Mad/Sad/Glad, 4L), Kanban,
-  Sprint planning, Brainstorming, User story map, SWOT.
+* **Built-in templates** ship in the frontend image as typed board files, parsed by
+  `parseBoardFile` at runtime and in a test, shown in their own group (instance templates
+  show their owner): retros (Start/Stop/Continue, Mad/Sad/Glad, 4L), Kanban, Sprint
+  planning, Brainstorming, User story map, SWOT.
 
 ### 3.13 Emojis (M5)
 
@@ -275,10 +282,12 @@ frontend. A generated service dashboard plus a "Drawboard usage" dashboard.
   graphics are not under a permissive licence, see the rules of the project).
 * Picker: own Angular component, emoji data from `emojibase-data` (MIT), loaded as a
   lazy chunk on first use, served from the app (no CDN). Recently used emojis in
-  localStorage (per browser, best effort).
+  localStorage (per browser, best effort), validated on read, at most 32 entries.
 * In text: a button while a text is edited inserts at the caret.
-* `core.emoji` block (stamp): props `{ emoji }`, validated on import and paste like every
-  other prop (one emoji, at most 32 UTF-16 units, no whitespace or control characters),
+* `core.emoji` block (stamp): props `{ emoji }`. The value is checked by an allowlist
+  (well-formed, at most 32 UTF-16 units, only emoji characters with their joiners,
+  modifiers, keycaps and complete tag sequences; no whitespace, bidi controls, letters or
+  markup) on import, paste and template copy, and again on every read before rendering;
   rendered as text only. Used for reactions and dot voting in retros.
 
 ## 4. Backend modules
@@ -1324,6 +1333,194 @@ only, agent notes dropped, LAN addresses and data paths outside `src/` replaced 
 documentation values, `gitleaks dir` with `public/gitleaks.toml` (default rules plus the
 reviewed findings by exact value or rule and file) - any finding stops the run before the
 push. The M3 status is recorded above.
+
+### M5 contract and design review: templates and emojis (Fable, 2026-11-12)
+
+Review of the M5 contract (api `feat/board-templates`: `Board.template`, `NewBoard.template`,
+`BoardUpdate.template`, `listTemplates`) and the design (3.12, 3.13) against S1.7, S1.8, S2.4,
+S2.5, S4.1–S4.5, S5.2, S5.5, S6.5, S7.1, S7.3 and the M2–M4 and clipboard reviews. **Verdict:
+release the contract as 2.1.0 after three text changes; design approved with the additions
+below.** A template is metadata, the copy is an import, files go through the upload path: no
+new trust boundary. The one real risk is an unscoped `listTemplates` (T4).
+
+| # | Level | Finding | Fix |
+|---|---|---|---|
+| 1 | MUST | Planned `listTemplates` scans every template of the instance and resolves a role per candidate in memory; any user can flag unlimited boards as templates, so one user slows every list call for everyone | Candidates from the caller's grants only (T4), cap 1 000, 30/min per user |
+| 2 | MUST | `BoardUpdate.template` names `FORBIDDEN` for an EDITOR; every other role failure of `updateBoard`/`moveBoard` is `LIBRARY_BOARD_ACCESS_DENIED` | One code, `required: OWNER` |
+| 3 | MUST | 3.13 "no whitespace or control characters" would refuse ZWJ and tag sequences (both Cf) or, read loosely, admit bidi controls | Allowlist validator (E1), also on read |
+| 4 | MUST | 3.12 does not say the copy is validated; `boardToFile` → `writeBoardFile` without `parseBoardFile` would write an editor-written document unchecked | Copy = import path with clipboard rules (T5) |
+| 5 | SHOULD | Instance templates are indistinguishable from built-ins in a picker | Own group for built-ins, owner name on instance templates (T7) |
+| 6 | SHOULD | A copy with many files runs into 30/min and the byte budget without warning | Show count and bytes, offer "without files" (T9) |
+
+Decisions (templates):
+
+* **T1** `template` grants nothing: reading, copying, editing, sharing and trashing follow the
+  board's roles (`AccessResolver`); the server never copies a board document or a file. Guests:
+  `listTemplates` 403, no copy (no `createBoard`, S1.8 unchanged); the flag is visible to anyone
+  who can `getBoard`.
+* **T2** Flag set by the OWNER only (create: creator; update: OWNER, an EDITOR with a different
+  value → 403 `LIBRARY_BOARD_ACCESS_DENIED`); every change is an audit event
+  (`BoardTemplateChanged`, S7.1) and raises `version`.
+* **T3** `listTemplates` shows exactly the boards with `boardRole ≥ VIEWER` at request time:
+  groups from the current token (S6.5), LINK_USER while the link is usable, trash excluded
+  (board or folder above). Rows are the same `Board` as `getBoard`, nothing more.
+* **T4** Bounded work: candidates = own boards ∪ boards with a grant for the caller (USER,
+  GROUP of the token, LINK_USER; `findForPrincipal` as `listSharedWithMe`) ∪ boards in the
+  subtree of folders with such a grant; `template = true AND deleted_at IS NULL` in SQL with a
+  partial index, newest first, ≤ 1 000 candidate rows per call, page ≤ 100, 30/min per user
+  (refusals are metrics, never audit); `boardRole` per candidate as the final check.
+* **T5** The copy is an import (S5.5 extended): `boardToFile` → `parseBoardFile` with the
+  clipboard rules → `writeBoardFile` in pieces (S2.5). Plugin types of enabled plugins pass
+  through `pluginProps`; unknown or disabled types and their connectors are dropped and counted,
+  never written raw and never a reason to refuse the copy. Plugin storage and poker rounds are
+  not copied; `pokerRoundId` never travels.
+* **T6** Files only through `getFileUrls` (template, VIEWER) → `fetch` with `credentials:
+  'omit'`, `referrerPolicy: 'no-referrer'`, `redirect: 'error'` → `uploadFile` (new board,
+  OWNER) with the stored original name, `original` variant only; the server re-checks type,
+  size, quota, scan and conversion. Signed URLs are never stored, logged or written into the
+  document (S4.4); files over the caps are skipped before download; serial, 429 `Retry-After`
+  honoured; a failed file leaves "not available". No "copy file by id" route: one would need
+  VIEWER on the source, EDITOR/OWNER on the target, the target owner's quota and a new review.
+  Confidentiality is unchanged (a VIEWER can already export and download); the quota spent is
+  the copier's.
+* **T7** Built-in templates pass `parseBoardFile` at runtime as well as in the test, hold no
+  `core.file` and no plugin types, are shown in their own group; instance templates show the
+  owner's display name.
+* **T8** No `sourceTemplateId` in the contract (unverifiable, or an existence oracle). The copy
+  is audited as `board.created` plus `file.uploaded` per file; reads are not audited. A template
+  deleted or revoked during a copy ends the session (4403/4410) and the copy is discarded like
+  a failed import.
+
+Decisions (emojis):
+
+* **E1** The emoji validator: well-formed, 1..32 UTF-16 units, only emoji characters
+  (`\p{Extended_Pictographic}`, regional indicators, keycaps) with the joiners, variation
+  selector, modifiers and complete tag sequences they need; excludes control characters, bidi
+  controls, whitespace, letters and private use. Applied in `board-file.ts` (import, clipboard,
+  template copy) and again on every read of `props.emoji` before rendering (S5.2: peers write the
+  Y.Map directly); invalid = placeholder. Rendered via `textContent` in an element with
+  `unicode-bidi: isolate`; `text` on `core.emoji` ignored.
+* **E2** Picker data only from the app bundle (`'self'`, lazy), no runtime network; glyphs,
+  names and keywords via `textContent`/interpolation, no `innerHTML` or
+  `bypassSecurityTrust*`; CSP and Trusted Types unchanged.
+* **E3** localStorage recents: one key, array of strings, read in try/catch, each entry through
+  the validator, ≤ 32 entries, anything else discarded; nothing else is ever written. Accepted:
+  recents outlive logout on a shared browser (not a secret).
+* **E4** Stamps for reactions and dot voting carry no authority; counts are display only.
+  `emojibase-data` MIT, no glyph images (project rule).
+
+**Contract changes before 2.1.0:** (1) `BoardUpdate.template` and the `updateBoard` description:
+`403 LIBRARY_BOARD_ACCESS_DENIED` (required OWNER) instead of `FORBIDDEN`; (2) `Board.template`:
+"grants nothing … the server never copies a board or its files"; (3) `listTemplates`: `429`
+response, "at most 100 per page, 30 calls per minute per user", "only what getBoard would show".
+2.1.0 was released before these texts were in; they follow as a docs-only change (api!8,
+no generated code changes).
+
+**M5 in production only when:** `listTemplates` is grant-scoped and capped (T4) with a test that
+a user with no grants sees only their own templates and that 1 001 templates of a stranger cost
+one bounded query; the copy path has a test that a plugin block of a disabled plugin and an
+invalid `props.emoji` from the template never reach the new document; a copied file is a fresh
+upload (new id, new scan, no URL in the document); the emoji validator refuses U+202E, U+0009
+and a bare U+FE0F and accepts a ZWJ family, a keycap and a flag tag sequence; the frontend names
+the released contract 2.1.0.
+
+### M5 frontend review: emojis (Fable, 2026-11-12)
+
+Review of frontend!52 `feat/emojis` (6285ff4: `core.emoji` stamp block, `isValidEmoji`,
+emoji tool, picker on `emojibase-data`, emoji insert into an edited text with `hold`) against
+3.13, S5.2, S5.5, S5.6, S3.12, S7.5, S2.4 and the M3/M4 and clipboard frontend reviews.
+**Verdict: approved, merge as is; no MUST.** Every claim held in code; the twelve touched spec
+files (235 tests) pass. SHOULD 1 before `deploy:prod`, SHOULD 2 optional; both are fixed in
+the same MR.
+
+| # | Level | Finding | Fix |
+|---|---|---|---|
+| 1 | SHOULD | `emojiFontSize` scales the glyph with `min(w, h)` and peers' `w`/`h` are only checked for finiteness: a hostile editor's `1e9 × 1e9` stamp makes every viewer rasterise a glyph of ~8e8 px; the first block whose paint cost follows a peer-controlled size | Cap the block-space font size (2048 px; zoom is a transform), test with `1e9` |
+| 2 | SHOULD (optional) | The validator accepts tag characters after any pictograph (≈ 14 hidden ASCII characters per stamp) and text-like pictographs | Tags only as a complete sequence after `U+1F3F4` |
+
+Decisions:
+
+* **`core.emoji` (S5.5 extended):** props `{ emoji }`, validated on import, paste and write
+  by `isValidEmoji` (length checked before the regex, so no ReDoS); rendered through
+  `textContent` only, constant styles, no image assets. An invalid value from a peer shows
+  `❔` and is exported as `❔`, so our export always passes our import. Clients without the
+  type render the placeholder and refuse a file with it, like for every new type.
+* **Text insert:** goes through the editor's textarea (`setRangeText` + the typing path):
+  one Yjs transaction, `textMaxLength`/`MAX_TEXT_LENGTH` enforced, single-line titles keep
+  stripping newlines. `hold()` only suppresses the blur-stop; `stop()`, Escape and a live
+  role change (`setReadOnly(true)`) end a held edit. Neither call is exposed to plugins.
+* **Guests:** VIEWER/COMMENTER links stay read-only at three layers (toolbar, `setTool`,
+  tool `pointerDown`) and never see the text-edit emoji button; EDITOR links gain nothing
+  beyond the Yjs write rights S2.4 already grants.
+* **Picker:** `emojibase-data` 18.0.0 (MIT, npmjs, integrity pinned, no install scripts),
+  `en/compact.json` as a lazy same-origin chunk, Trusted Types unchanged; the localStorage
+  "recent" list is re-validated element by element and capped on read.
+
+### M5 backend review: templates (Fable, 2026-11-13)
+
+Review of backend `feat/board-templates` (eceb59e, c5a75e1: `Board.template`, `createBoard`/`updateBoard`
+with the flag, `listTemplates`, V5, `WindowRateLimiter` 30/min, metric `drawboard.templates.list.refused`)
+against T1–T8, S1.7, S1.8, S6.5, S7.1, S7.3 and the M2–M4 reviews. **Verdict: merge after the one MUST;
+T4 is met once the traversal is capped like the result.** Guests get 403 at the route and in the service;
+the flag is changed by the OWNER only, before the version check, audited as `BoardTemplateChanged`;
+candidates come from `findForPrincipal` (USER, GROUP of the token, LINK_USER) plus the subtree of granted
+folders, one SQL statement with `LIMIT 1000` on two partial indexes, the role per candidate from
+`AccessResolver` (revoked links lose their grants, expired ones fail `usable`, trashed folders cascade
+`deletedAt` onto their boards).
+
+| # | Level | Finding | Fix |
+|---|---|---|---|
+| 1 | MUST | `subtreeOf` and the `IN` lists are bounded in depth only: 33 000 subfolders (or 33 000 board grants) shared with a victim exceed the 32 767 bind parameters of R2DBC Postgres, so the victim's `listTemplates` is 500 for good and they cannot remove the grant; below that it is attacker-sized DB work 30/min | Cap the traversal (`MAX_TEMPLATE_FOLDERS`, 1 000, per call) and the number of board grants, document "the first N", unit test with a wide tree, integration test that a shared non-template board is not listed |
+| 2 | SHOULD | `visible.drop(page.offset.toInt())` overflows for large `page` → 500 | `coerceAtMost(visible.size)` |
+| 3 | SHOULD | V5 adds `template NOT NULL` without a default: after a failed rollout the previous image can no longer insert boards | `ADD COLUMN … NOT NULL DEFAULT false`, keep the default |
+| 4 | SHOULD | `boardRole` walks the ancestors before the owner shortcut, 1 000 times per call | Owner check first, memoize ancestors per folder within one call |
+
+Decisions: **T4a** bounded work means every list the request builds is capped, not only the rows the
+statement returns: folders visited, grants taken, bind parameters per statement. **T4b** No audit for 429
+(metric only), no personal data in the metric label. **T2** confirmed as implemented: an EDITOR who sends the
+current value is not refused; a different value is `LIBRARY_BOARD_ACCESS_DENIED` with `required: OWNER`,
+checked before `CONFLICT`. **V5** keeps `DEFAULT false` as a deliberate exception to "no defaults in the
+database": the previous image must still insert boards after a failed rollout.
+
+### M5 frontend review: templates (Fable, 2026-11-13)
+
+Review of frontend `feat/templates` (c99582c, de0144e: Templates page, new-board dialog with
+picker, built-in templates, `importableCopy`, `BoardTemplates` with file copy, "Save as
+template", owner switch) against T1–T9 of the M5 design review, 3.9, 3.12, S4.1, S4.4, S4.5,
+S5.5/S5.6, S6.9, the clipboard review and the M2–M4 frontend reviews. **Verdict: approved,
+merge as is; no MUST.** T5, T6, T7 and T9 are met. SHOULD 1 is optional; it is fixed in the
+same MR.
+
+| # | Level | Finding | Fix |
+|---|---|---|---|
+| 1 | SHOULD (optional) | `importableCopy` drops bad blocks one by one, but the whole-file parse still refuses structure a hostile peer can write into the Y.Doc (parent missing or not a frame, frame cycle, depth > 8, connector end on a missing block) where the engine renders it degraded; an EDITOR of a shared template makes it uncopyable | Resolve such parents to `null` and drop such connectors, counted as skipped, before the whole-file parse; refuse only schema version and duplicate ids |
+
+Decisions:
+
+* **T5 met:** the copy is `boardToFile` → plain JSON → per-block `parseBoardFile` (unknown or
+  disabled types and invalid props dropped and counted, their connectors too, children of a
+  dropped frame become top-level) → whole-file `parseBoardFile` → `writeBoardFile` in pieces.
+  Plugin types come from `listEnabledPlugins`; a failed list means no plugin types (fail closed);
+  `core.*` never passes the plugin path. Built-ins take the same path at runtime and in a test.
+* **T6 met:** `getFileUrls` of the source (server role check), `original` only, URL form
+  checked, `fetch` with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'`,
+  `redirect: 'error'`; size from metadata before the download and from the blob after; serial;
+  429 with `Retry-After` capped at 60 s, three retries; signed URLs only in the throw-away
+  `BoardFiles` injector, never in the document, toasts or spans. The reader connection stays open
+  during the copy: 4403/4404 (`denied`) and 4410 (document replaced) cancel the copy before the
+  next file and the half board is deleted like a failed import.
+* **T7 met:** built-ins in their own group; instance templates show the owner's display name
+  from `listBoardMembers` of a board the caller may already open (VIEWER); nothing a caller
+  could not fetch anyway. **T9 met:** count and bytes from `listFiles`, "copy without files"
+  leaves the file blocks out without touching a file.
+* Owner switch only in the owner's menu and enforced by the server (403, 409 refetch); guests
+  see no menu. No `innerHTML`, no `bypassSecurityTrust*`, no storage; everything rendered by
+  interpolation. Accepted: after a mid-copy revocation the half board with its re-uploaded files
+  sits in the copier's trash until purge (the copier could download them while a VIEWER).
+
+**Open before `deploy:prod` of M5:** once `feat/emojis` and `feat/templates` are both on
+`main`, the test from the design review that an invalid `props.emoji` in a template never
+reaches the new document (through `importableCopy`).
 
 ### Before enabling in production
 

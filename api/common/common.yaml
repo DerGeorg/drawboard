@@ -215,6 +215,10 @@ components:
             point for new boards. A new board from a template is a copy made
             by the client (createBoard plus the normal collaboration traffic);
             later changes to the template do not reach the copies.
+            `template` grants nothing: reading, copying, editing and sharing a
+            template follow the board's roles. The server never copies a board
+            or its files; the copy is made by the client under its own rights
+            and quota.
         createdAt:
           type: string
           format: date-time
@@ -295,8 +299,9 @@ components:
         template:
           type: boolean
           description: |
-            Absent = unchanged. Only the OWNER may change it: another value
-            than the current one from an EDITOR answers 403 FORBIDDEN.
+            Absent = unchanged. Only the OWNER may change it: a value different
+            from the current one from an EDITOR answers 403
+            LIBRARY_BOARD_ACCESS_DENIED (required OWNER).
         version:
           type: integer
           format: int64
