@@ -8,6 +8,7 @@ import { Avatar } from '../../shared/avatar/avatar';
 import { DgLogo } from '../../shared/dg-logo/dg-logo';
 import { Icon } from '../../shared/icon/icon';
 import { IconName } from '../../shared/icon/icons';
+import { ThemeSwitch } from '../../shared/theme-switch/theme-switch';
 
 /** The library views the sidebar switches between. */
 export type LibraryView = 'recent' | 'mine' | 'shared' | 'templates' | 'trash';
@@ -27,7 +28,7 @@ interface NavItem {
  */
 @Component({
   selector: 'drawboard-library-shell',
-  imports: [RouterLink, Avatar, DgLogo, Icon],
+  imports: [RouterLink, Avatar, DgLogo, Icon, ThemeSwitch],
   templateUrl: './library-shell.html',
   // the library fills the window; the page scrolls inside the frame
   host: { class: 'block h-dvh', '(keydown.escape)': 'closeDrawer(); closeUserMenu()' },

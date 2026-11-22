@@ -122,6 +122,27 @@ describe('runtime-config', () => {
     });
   });
 
+  describe('gifsEnabled (G3)', () => {
+    it('when nginx writes the boolean true then GIFs are on', () => {
+      expect(normalizeRuntimeConfig({ ...complete, gifsEnabled: true }).gifsEnabled, 'on').toBe(
+        true,
+      );
+    });
+
+    it.each([false, 'true', 'TRUE', 'false', '', 1, 0, null, undefined, {}, [true]])(
+      'when the value is %j then GIFs are off (fail closed)',
+      (value) => {
+        expect(normalizeRuntimeConfig({ ...complete, gifsEnabled: value }).gifsEnabled, 'off').toBe(
+          false,
+        );
+      },
+    );
+
+    it('when the key is missing (an older image) then GIFs are off', () => {
+      expect(normalizeRuntimeConfig(complete).gifsEnabled, 'off without the key').toBe(false);
+    });
+  });
+
   describe('aboutUrl and sourceUrl', () => {
     it('when both keys are absent then the defaults apply', () => {
       const config = normalizeRuntimeConfig(complete);

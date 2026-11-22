@@ -1,6 +1,6 @@
 import { Service } from '@angular/core';
 
-import { isValidEmoji } from '../../../../board-engine/util/emoji';
+import { isValidEmoji } from '@apps/drawboard-engine';
 
 export type EmojiGroupKey =
   | 'smileys'

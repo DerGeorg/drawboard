@@ -1,6 +1,8 @@
 package at.dergeorg.drawboard.integration
 
+import at.dergeorg.drawboard.contract.model.ColorTheme
 import at.dergeorg.drawboard.contract.model.CurrentUser
+import at.dergeorg.drawboard.contract.model.UserPreferences
 import at.dergeorg.drawboard.contract.model.ErrorCode
 import at.dergeorg.drawboard.contract.model.ErrorModel
 import at.dergeorg.drawboard.shared.auditing.AuditLog
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.test.web.reactive.server.WebTestClient
 import org.springframework.test.web.reactive.server.expectBody
 import kotlin.test.assertEquals
@@ -115,6 +118,77 @@ class UsersApiIntegrationTest(
             assertEquals(HttpStatus.UNAUTHORIZED, result.status, "status without a token")
             assertEquals(ErrorCode.UNAUTHORIZED, result.responseBody?.code, "error code")
             assertEquals("Bearer", result.responseHeaders.getFirst(HttpHeaders.WWW_AUTHENTICATE), "challenge")
+        }
+    }
+
+    private inline fun <reified T : Any> putPreferences(user: TokenUser?, body: String) =
+        (user?.let(client::signedInAs) ?: client).put().uri("/api/users/me/preferences")
+            .contentType(MediaType.APPLICATION_JSON).bodyValue(body).exchange().expectBody<T>().returnResult()
+
+    @Nested
+    inner class UpdateUserPreferences {
+
+        @Test
+        fun `when GET users me given a new user then the theme is SYSTEM`() {
+            assertEquals(ColorTheme.SYSTEM, getMe(newUser()).responseBody?.theme, "default theme")
+        }
+
+        @Test
+        fun `when PUT preferences given DARK then 200 and the theme survives later logins with refreshed claims`() = runTest {
+            val user = newUser()
+            val me = assertNotNull(getMe(user).responseBody, "first call")
+
+            val saved = putPreferences<UserPreferences>(user, """{"theme":"DARK"}""")
+
+            assertEquals(HttpStatus.OK, saved.status, "status of PUT /api/users/me/preferences")
+            assertEquals(ColorTheme.DARK, saved.responseBody?.theme, "stored theme in the answer")
+            assertEquals(ColorTheme.DARK, getMe(user).responseBody?.theme, "getCurrentUser returns the stored theme")
+            val refreshed = assertNotNull(getMe(user.copy(email = "new@example.test", username = "renamed")).responseBody, "claims refresh")
+            assertEquals("renamed" to ColorTheme.DARK, refreshed.username to refreshed.theme, "claims follow the token, the theme stays")
+            assertEquals(me.id, refreshed.id, "same user")
+            assertEquals(
+                listOf("users.profile.created"),
+                auditLog.history("profile", me.id.toString()).map { it.eventType },
+                "a display setting is not audited",
+            )
+        }
+
+        @Test
+        fun `when PUT preferences given another value then the last write wins`() {
+            val user = newUser()
+
+            putPreferences<UserPreferences>(user, """{"theme":"DARK"}""")
+            val second = putPreferences<UserPreferences>(user, """{"theme":"LIGHT"}""")
+
+            assertEquals(ColorTheme.LIGHT, second.responseBody?.theme, "answer of the second write")
+            assertEquals(ColorTheme.LIGHT, getMe(user).responseBody?.theme, "stored theme")
+        }
+
+        @Test
+        fun `when PUT preferences given a user who never called users me then the profile is created`() {
+            val user = newUser()
+
+            val saved = putPreferences<UserPreferences>(user, """{"theme":"LIGHT"}""")
+
+            assertEquals(HttpStatus.OK, saved.status, "status for a first call")
+            assertEquals(ColorTheme.LIGHT, getMe(user).responseBody?.theme, "theme of the freshly created profile")
+        }
+
+        @Test
+        fun `when PUT preferences given an unknown theme then 400 and the stored theme is unchanged`() {
+            val user = newUser()
+            putPreferences<UserPreferences>(user, """{"theme":"DARK"}""")
+
+            val result = putPreferences<ErrorModel>(user, """{"theme":"SEPIA"}""")
+
+            assertEquals(HttpStatus.BAD_REQUEST, result.status, "status for a value outside the enum")
+            assertEquals(ErrorCode.MALFORMED_REQUEST, result.responseBody?.code, "error code")
+            assertEquals(ColorTheme.DARK, getMe(user).responseBody?.theme, "unchanged")
+        }
+
+        @Test
+        fun `when PUT preferences given no token then 401 UNAUTHORIZED`() {
+            assertEquals(HttpStatus.UNAUTHORIZED, putPreferences<ErrorModel>(null, """{"theme":"DARK"}""").status, "status without a token")
         }
     }
 }

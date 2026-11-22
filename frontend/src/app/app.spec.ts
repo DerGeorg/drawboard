@@ -36,6 +36,10 @@ describe('App', () => {
     http.match('/api/plugins').forEach((r) => r.flush({ items: [] }));
     // and its open planning poker rounds
     http.match((r) => r.url.endsWith('/poker-rounds')).forEach((r) => r.flush({ items: [] }));
+    // and its active estimation sessions
+    http
+      .match((r) => r.url.endsWith('/estimation-sessions'))
+      .forEach((r) => r.flush({ items: [] }));
     http.verify();
   });
 

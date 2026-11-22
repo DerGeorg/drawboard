@@ -1,7 +1,6 @@
 import { FRAME_TYPE } from '../blocks/frame';
-import { SHAPE_TYPE, ShapeKind } from '../blocks/shape';
-import { STICKY_TYPE } from '../blocks/sticky';
-import { TEXT_TYPE } from '../blocks/text';
+import { ShapeKind } from '../blocks/shape';
+import { SHAPE_TYPE, STICKY_TYPE, TEXT_TYPE } from '@apps/drawboard-engine';
 import { ConnectorTool } from './connector-tool';
 import { CreateTool } from './create-tool';
 import { EmojiTool } from './emoji-tool';

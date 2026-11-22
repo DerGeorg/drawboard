@@ -2,7 +2,7 @@ import { inputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
 import { all, buttonByLabel } from '../../../../test/dom';
 import { EmojiCatalog, RawEmoji } from '../../../shared/emoji-picker/emoji-catalog';
 import { BoardTextEmoji } from './board-text-emoji';

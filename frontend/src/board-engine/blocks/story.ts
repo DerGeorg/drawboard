@@ -1,6 +1,6 @@
 import { BlockRenderContext, BlockType, BlockView } from '../renderer/block-registry';
 import { renderSafeText } from '../util/safe-text';
-import { STORY_TYPE, StoryState, readStory } from './story-model';
+import { STORY_TYPE, StoryState, readStory } from '@apps/drawboard-engine';
 
 /** The request the "estimating" chip of a story card sends: open the planning poker dialog. */
 export const STORY_ESTIMATE_ACTION = 'story.estimate';
@@ -72,15 +72,15 @@ class StoryView implements BlockView {
       'article',
       'be-story',
       'width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;' +
-        'padding:10px 12px 10px 16px;background:#fff;border:1px solid #cbd5e1;border-left:6px solid #0d9488;' +
-        'border-radius:6px;overflow:hidden;font:13px/1.35 system-ui,sans-serif;color:#1f2937;' +
+        'padding:10px 12px 10px 16px;background:var(--be-surface,#fff);border:1px solid var(--be-border,#cbd5e1);border-left:6px solid #0d9488;' +
+        'border-radius:6px;overflow:hidden;font:13px/1.35 system-ui,sans-serif;color:var(--be-text,#1f2937);' +
         'box-shadow:0 1px 2px rgba(15,23,42,.12)',
     );
     const head = el('div', 'be-story-head', 'display:flex;align-items:center;gap:8px');
     const kind = el(
       'span',
       'be-story-kind',
-      'font-size:10px;font-weight:700;letter-spacing:.08em;color:#0f766e;text-transform:uppercase',
+      'font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--be-story-kind,#0f766e);text-transform:uppercase',
     );
     kind.textContent = 'Story';
     kind.setAttribute('aria-hidden', 'true');
@@ -88,7 +88,7 @@ class StoryView implements BlockView {
       'span',
       'be-story-estimate',
       'margin-left:auto;min-width:22px;text-align:center;padding:1px 7px;border-radius:10px;' +
-        'background:#ccfbf1;color:#134e4a;font-weight:700',
+        'background:var(--be-story-chip,#ccfbf1);color:var(--be-story-chip-text,#134e4a);font-weight:700',
     );
     this.chip = el(
       'button',
@@ -114,7 +114,7 @@ class StoryView implements BlockView {
     this.description = el(
       'div',
       'be-story-description',
-      'color:#475569;overflow:hidden;overflow-wrap:anywhere;white-space:pre-wrap;' +
+      'color:var(--be-text-2,#475569);overflow:hidden;overflow-wrap:anywhere;white-space:pre-wrap;' +
         'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3',
     );
     this.criteria = el(
@@ -152,7 +152,7 @@ class StoryView implements BlockView {
         const li = doc.createElement('li');
         li.className = 'be-story-criterion';
         li.dataset['done'] = String(c.done);
-        li.style.cssText = `display:flex;gap:6px;${c.done ? 'color:#64748b;text-decoration:line-through' : ''}`;
+        li.style.cssText = `display:flex;gap:6px;${c.done ? 'color:var(--be-text-3,#64748b);text-decoration:line-through' : ''}`;
         const box = doc.createElement('span');
         box.setAttribute('aria-hidden', 'true');
         box.textContent = c.done ? '☑' : '☐';

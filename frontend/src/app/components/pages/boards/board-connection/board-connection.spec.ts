@@ -1,7 +1,7 @@
 import { inputBinding, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import type { ProviderState } from '../../../../../board-engine/collab/provider';
+import type { ProviderState } from '@apps/drawboard-engine';
 import { BoardConnection } from './board-connection';
 
 describe('BoardConnection', () => {

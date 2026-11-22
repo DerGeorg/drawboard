@@ -1,8 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 
-import type { SummonState } from '../../../../../board-engine/collab/awareness-state';
+import { type SummonState, PeerPresence, safeColor } from '@apps/drawboard-engine';
 import type { Following } from '../../../../../board-engine/collab/follow';
-import { PeerPresence, safeColor } from '../../../../../board-engine/presence';
 import { WithSpan } from '../../../../util/tracing';
 
 /** At most this many follower names are spelled out, the rest is "+n". */

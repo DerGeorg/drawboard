@@ -1,9 +1,9 @@
 #!/bin/sh
 # =============================================================================
-# github-sync.sh - publish a snapshot of the four Drawboard repos on GitHub
+# github-sync.sh - publish a snapshot of the five Drawboard repos on GitHub
 #
 # One public repository (https://github.com/DerGeorg/drawboard) holds the GitLab repos
-# api, backend, frontend and deploy as folders. It is NOT a mirror: every run takes the
+# api, backend, frontend, engine and deploy as folders. It is NOT a mirror: every run takes the
 # `main` trees from GitLab, assembles them, checks them and commits ONE snapshot commit if
 # anything changed (Fable review "Publishing the source", 2026-11-12, decision (c)):
 #   - source: `main` of the GitLab repos only (git archive = tracked files only), never a
@@ -24,14 +24,14 @@
 set -eu
 
 GITHUB_REPO="${GITHUB_REPO:-https://github.com/DerGeorg/drawboard.git}"
-REPOS="api backend frontend deploy"
+REPOS="api backend frontend engine deploy"
 DRY_RUN="${DRY_RUN:-0}"
 GITLEAKS_VERSION=8.30.1
 GITLEAKS_SHA256_X64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
 
 if [ -n "${SYNC_SOURCE:-}" ]; then
-  # a folder with the four local clones, or a GitLab base like git@gitlab.dergeorg.at:apps/drawboard
+  # a folder with the five local clones, or a GitLab base like git@gitlab.dergeorg.at:apps/drawboard
   source_url() { if [ -d "$SYNC_SOURCE/$1" ]; then echo "file://$SYNC_SOURCE/$1"; else echo "$SYNC_SOURCE/$1.git"; fi; }
 else
   : "${CI_JOB_TOKEN:?outside CI set SYNC_SOURCE}"

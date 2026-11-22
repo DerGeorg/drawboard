@@ -1,4 +1,10 @@
-import { CLIPBOARD_LIMITS, CLIPBOARD_MIME } from './io/clipboard';
+import {
+  KANBAN_TYPE,
+  KanbanModel,
+  newKanbanProps,
+  CLIPBOARD_LIMITS,
+  CLIPBOARD_MIME,
+} from '@apps/drawboard-engine';
 import { BlockType } from './renderer/block-registry';
 import { TestEngine, createTestEngine } from './testing/helpers';
 
@@ -87,6 +93,44 @@ describe('BoardEngine clipboard', () => {
       } finally {
         limits.maxBlocks = before;
       }
+    });
+  });
+
+  describe('kanban cards with story details', () => {
+    it('when a kanban is copied and pasted then its cards keep description, criteria and estimate', () => {
+      start();
+      const id = t.board.addBlock({
+        type: KANBAN_TYPE,
+        x: 0,
+        y: 0,
+        w: 700,
+        h: 400,
+        props: newKanbanProps('Sprint', ['To do']),
+      });
+      const model = new KanbanModel(t.board, id);
+      model.addStoryCards(model.read().columns[0]?.id as string, 0, [
+        {
+          title: 'Story',
+          description: 'Why <b>this</b>',
+          criteria: [{ id: '55555555-5555-4555-8555-555555555555', text: 'One', done: true }],
+          estimate: '?',
+          points: null,
+        },
+      ]);
+      t.engine.selection.set([id]);
+      const content = t.engine.copySelection();
+
+      t.engine.paste({ json: content?.json });
+
+      const copy = t.board.blocks().find((b) => b.type === KANBAN_TYPE && b.id !== id);
+      expect(copy, 'pasted').toBeDefined();
+      const pasted = new KanbanModel(t.board, copy?.id as string).read();
+      expect(pasted.columns[0]?.cards[0], 'details').toMatchObject({
+        title: 'Story',
+        description: 'Why <b>this</b>',
+        criteria: [{ text: 'One', done: true }],
+        estimate: '?',
+      });
     });
   });
 

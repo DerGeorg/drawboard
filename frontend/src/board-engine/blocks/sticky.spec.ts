@@ -1,5 +1,5 @@
-import { BlockData } from '../model/types';
-import { STICKY_COLORS, STICKY_FONT_MAX, STICKY_FONT_MIN, stickyBlock } from './sticky';
+import { BlockData, STICKY_COLORS } from '@apps/drawboard-engine';
+import { STICKY_FONT_MAX, STICKY_FONT_MIN, stickyBlock } from './sticky';
 
 describe('stickyBlock', () => {
   const aSticky = (color: unknown): BlockData => ({
@@ -23,6 +23,7 @@ describe('stickyBlock', () => {
       block: aSticky(color),
       text: () => '',
       readOnly: false,
+      theme: () => 'light',
     });
     return {
       note: host.querySelector<HTMLElement>('.be-sticky') as HTMLElement,
@@ -79,7 +80,12 @@ describe('stickyBlock', () => {
 
     function render(): { host: HTMLElement; note: HTMLElement; mounted: () => void } {
       const host = document.createElement('div');
-      const view = stickyBlock.render(host, { block, text: () => 'text', readOnly: false });
+      const view = stickyBlock.render(host, {
+        block,
+        text: () => 'text',
+        readOnly: false,
+        theme: () => 'light',
+      });
       return {
         host,
         note: host.querySelector<HTMLElement>('.be-sticky') as HTMLElement,

@@ -1,0 +1,121 @@
+<div class="flex w-80 max-w-full flex-col gap-2" data-testid="gif-picker">
+  @if (!consented()) {
+    <div class="flex flex-col gap-2 p-1 text-sm" data-testid="gif-consent">
+      <p class="font-semibold">GIFs from GIPHY</p>
+      <p>
+        Showing GIFs loads them from GIPHY. That sends your IP address to GIPHY. Nothing is loaded
+        until you agree.
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm st-btn-primary-yellow" (click)="loadBoard()">
+          Load
+        </button>
+        <button type="button" class="btn btn-sm" (click)="loadAlways()">
+          Always in this browser
+        </button>
+      </div>
+    </div>
+  } @else {
+    <input
+      #field
+      type="search"
+      class="input input-sm w-full"
+      placeholder="Search GIFs"
+      aria-label="Search GIFs"
+      autocomplete="off"
+      spellcheck="false"
+      [attr.maxlength]="maxLength"
+      [value]="query()"
+      (input)="setQuery(field.value)"
+    />
+
+    <div role="region" aria-label="GIF results" [attr.aria-busy]="loading()">
+      <p class="mb-1 text-xs font-semibold text-(--color-st-grey)">{{ heading() }}</p>
+      @if (message(); as text) {
+        <div
+          class="flex h-52 flex-col items-center justify-center gap-2 text-center text-sm"
+          role="alert"
+        >
+          <p>{{ text }}</p>
+          <button type="button" class="btn btn-sm" (click)="retry()">Try again</button>
+        </div>
+      } @else if (tooShort()) {
+        <p class="flex h-52 items-center justify-center text-sm text-(--color-st-grey)">
+          Type at least {{ minLength }} characters.
+        </p>
+      } @else if (loading() && items().length === 0) {
+        <p
+          class="flex h-52 items-center justify-center text-sm text-(--color-st-grey)"
+          role="status"
+        >
+          Loading GIFs…
+        </p>
+      } @else {
+        <div class="grid h-52 grid-cols-3 content-start gap-1 overflow-y-auto" role="group">
+          @for (gif of items(); track gif.id) {
+            @if (previewUrl(gif); as url) {
+              <button
+                type="button"
+                class="aspect-square overflow-hidden rounded-sm bg-(--color-st-white-darker) p-0 focus-visible:ring-2 focus-visible:ring-(--color-st-primary)"
+                [attr.aria-label]="label(gif)"
+                [attr.title]="label(gif)"
+                (click)="pick(gif)"
+              >
+                <!-- the URL is built by gifUrl from constants and a validated id; NgOptimizedImage would add nothing -->
+                <!-- eslint-disable @angular-eslint/template/prefer-ngsrc -->
+                <img
+                  class="size-full object-cover"
+                  [src]="url"
+                  alt=""
+                  crossorigin="anonymous"
+                  referrerpolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
+                  draggable="false"
+                />
+                <!-- eslint-enable @angular-eslint/template/prefer-ngsrc -->
+              </button>
+            }
+          } @empty {
+            <p class="col-span-3 p-3 text-center text-sm text-(--color-st-grey)">
+              @if (searching()) {
+                No GIF found.
+              } @else {
+                No trending GIFs right now.
+              }
+            </p>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="flex items-center justify-between gap-2 text-xs">
+      <span class="font-semibold text-(--color-st-grey)" data-testid="gif-powered">
+        Powered by GIPHY
+      </span>
+      @if (searching()) {
+        <span class="flex items-center gap-1">
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            aria-label="Previous page"
+            [disabled]="page() === 0 || loading()"
+            (click)="go(-1)"
+          >
+            ‹
+          </button>
+          <span aria-live="polite">Page {{ page() + 1 }}</span>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            aria-label="Next page"
+            [disabled]="!hasMore() || loading()"
+            (click)="go(1)"
+          >
+            ›
+          </button>
+        </span>
+      }
+    </div>
+  }
+</div>

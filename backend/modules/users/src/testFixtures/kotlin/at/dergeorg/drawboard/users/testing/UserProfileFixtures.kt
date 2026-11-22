@@ -3,6 +3,7 @@ package at.dergeorg.drawboard.users.testing
 import at.dergeorg.drawboard.shared.context.CurrentUser
 import at.dergeorg.drawboard.shared.testing.FIXED_NOW
 import at.dergeorg.drawboard.shared.testing.TestUsers
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme
 import at.dergeorg.drawboard.users.domain.users.model.UserProfile
 import at.dergeorg.drawboard.users.domain.users.provides.SyncFromLoginCommand
 import kotlin.time.Instant
@@ -21,6 +22,7 @@ object UserProfileFixtures {
         id: Uuid = ALICE_ID,
         firstLoginAt: Instant = FIXED_NOW,
         lastLoginAt: Instant = firstLoginAt,
+        theme: ColorTheme = ColorTheme.SYSTEM,
         version: Long = 0,
     ) = UserProfile(
         id = id,
@@ -32,6 +34,7 @@ object UserProfileFixtures {
         groups = user.groups.toList(),
         firstLoginAt = firstLoginAt,
         lastLoginAt = lastLoginAt,
+        theme = theme,
         version = version,
     )
 

@@ -1,6 +1,5 @@
 import { PointerInfo } from '../input/events';
-import { Anchor, ConnectorEnd, Point, Rect } from '../model/types';
-import { anchorPoint } from '../model/board-doc';
+import { Anchor, ConnectorEnd, Point, Rect, anchorPoint } from '@apps/drawboard-engine';
 import { Tool, ToolContext, ToolId } from './tool';
 
 /** The side of `rect` that `p` is closest to (for a point inside or near the block). */

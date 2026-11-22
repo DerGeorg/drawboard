@@ -1,9 +1,15 @@
-import { safeColor } from '../presence';
-import { BlockData } from '../model/types';
+import {
+  safeColor,
+  SHAPE_TYPE,
+  BlockData,
+  TEXT_ON_PASTEL,
+  displayColor,
+  fillStaysLight,
+} from '@apps/drawboard-engine';
 import { BlockType } from '../renderer/block-registry';
+import { setEditorColors } from '../renderer/editor-colors';
 import { renderSafeText } from '../util/safe-text';
 
-export const SHAPE_TYPE = 'core.shape';
 export type ShapeKind = 'rect' | 'ellipse' | 'diamond';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -64,7 +70,7 @@ export const shapeBlock: BlockType = {
     label.style.cssText =
       'position:absolute;left:0;top:0;width:100%;height:100%;box-sizing:border-box;padding:10px;display:flex;' +
       'align-items:center;justify-content:center;text-align:center;overflow:hidden;white-space:pre-wrap;' +
-      'overflow-wrap:anywhere;font:16px/1.3 system-ui,sans-serif;color:#1f2937';
+      'overflow-wrap:anywhere;font:16px/1.3 system-ui,sans-serif';
     host.append(svg, label);
 
     let shape: SVGElement | undefined;
@@ -86,8 +92,17 @@ export const shapeBlock: BlockType = {
       const fill = block.props['fill'];
       const stroke = block.props['stroke'];
       // props come from any editor: only plain hex colours reach the SVG (finding 6 of the M1 review)
-      shape.setAttribute('fill', fill === 'none' ? 'none' : safeColor(fill, 'none'));
-      shape.setAttribute('stroke', safeColor(stroke, '#334155'));
+      // only the display is mapped for the dark canvas; the stored colours stay as they are
+      const theme = ctx.theme();
+      shape.setAttribute(
+        'fill',
+        fill === 'none' ? 'none' : displayColor(safeColor(fill, 'none'), theme),
+      );
+      shape.setAttribute('stroke', displayColor(safeColor(stroke, '#334155'), theme));
+      // text on a fill that stays light stays dark; otherwise it follows the theme
+      const light = fillStaysLight(fill, theme);
+      label.style.color = light ? TEXT_ON_PASTEL : 'var(--be-text, #1f2937)';
+      setEditorColors(host, light);
       shape.setAttribute('stroke-width', String(strokeWidth));
       shape.setAttribute('stroke-linejoin', 'round');
       renderSafeText(label, ctx.text());

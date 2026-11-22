@@ -10,7 +10,7 @@ const TEMPLATE = readFileSync(join(__dirname, '../../deploy/nginx/default.conf.t
  * the deployment may add (files, plugin, OIDC) are empty and `upgrade-insecure-requests` is
  * left out (the specs run over http or on made-up https origins).
  */
-export function appCsp(origins: { oidc?: string } = {}): string {
+export function appCsp(origins: { oidc?: string; gifs?: boolean } = {}): string {
   // Found by the output variable, not the input: a renamed input ($uri -> $header_uri) must not
   // silently point the search at the end of the file.
   const start = /^map\s+\S+\s+\$content_security_policy\s*\{/m.exec(TEMPLATE)?.index;
@@ -22,12 +22,16 @@ export function appCsp(origins: { oidc?: string } = {}): string {
   if (!value) {
     throw new Error('no default CSP in the nginx template');
   }
-  return value
-    .replace('$csp_upgrade', '')
-    .replaceAll('$oidc_origin', origins.oidc ?? '')
-    .replaceAll('$files_origin', '')
-    .replaceAll('$plugin_origin', '')
-    .replace(/\s+;/g, ';');
+  return (
+    value
+      .replace('$csp_upgrade', '')
+      .replaceAll('$oidc_origin', origins.oidc ?? '')
+      .replaceAll('$files_origin', '')
+      .replaceAll('$plugin_origin', '')
+      // GIFS_ENABLED=true adds exactly one host (Fable G12); off by default
+      .replaceAll('$gifs_img_src', origins.gifs ? 'https://media.giphy.com' : '')
+      .replace(/\s+;/g, ';')
+  );
 }
 
 /**

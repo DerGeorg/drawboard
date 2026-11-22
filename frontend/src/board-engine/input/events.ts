@@ -1,4 +1,4 @@
-import { Point } from '../model/types';
+import { Point } from '@apps/drawboard-engine';
 
 /** A pointer event normalized by the engine; tools never see DOM events. */
 export interface PointerInfo {

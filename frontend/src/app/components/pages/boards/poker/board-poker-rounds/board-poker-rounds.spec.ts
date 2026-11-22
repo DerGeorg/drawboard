@@ -3,9 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { BoardRole, GrantRole, PokerRound } from '@apps/drawboard-api';
 
-import { STORY_TYPE, newStoryProps } from '../../../../../../board-engine/blocks/story-model';
+import { STORY_TYPE, newStoryProps, BoardDoc } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../../board-engine/model/board-doc';
 import { all, buttonByText } from '../../../../../test/dom';
 import { provideFakeAuth } from '../../../../../test/fake-auth';
 import { SPRINT_BOARD_ID } from '../../../../../test/fixtures';

@@ -30,9 +30,10 @@ import { WithSpan } from '../../../../util/tracing';
 import { violationsToFieldErrors } from '../../../../util/violations';
 import { Icon } from '../../../shared/icon/icon';
 import { IconName } from '../../../shared/icon/icons';
-import type { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import type { BoardDoc } from '@apps/drawboard-engine';
 import { AboutDialog } from '../../../shared/about-dialog/about-dialog';
 import { RoleBadge } from '../../../shared/role-badge/role-badge';
+import { ThemeMenu } from '../../../shared/theme-menu/theme-menu';
 import { VersionHistory } from '../version-history/version-history';
 import { BoardActions } from '../board-actions';
 import { BoardTemplates, FileSummary } from '../board-templates';
@@ -68,6 +69,7 @@ interface MenuEntry {
     TemplateFilesDialog,
     VersionHistory,
     AboutDialog,
+    ThemeMenu,
   ],
   templateUrl: './board-title-bar.html',
   host: { '(keydown.escape)': 'closeMenu()' },

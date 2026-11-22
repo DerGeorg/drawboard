@@ -14,27 +14,22 @@ import {
 import { FormField, FormRoot, form, maxLength, required, validate } from '@angular/forms/signals';
 import { PokerDeckKind, PokerRound, PokerRoundState } from '@apps/drawboard-api';
 
-import {
-  STORY_ID,
-  StoryModel,
-  StoryState,
-  isValidEstimate,
-} from '../../../../../../board-engine/blocks/story-model';
+import { STORY_ID, StoryModel, StoryState } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../../board-engine/engine';
 import { ErrorMessages } from '../../../../../services/error-messages';
 import { ApiError } from '../../../../../util/api-error';
 import { WithSpan } from '../../../../../util/tracing';
 import { FieldErrors } from '../../../../shared/field-errors/field-errors';
 import { Avatar } from '../../../../shared/avatar/avatar';
+import {
+  DeckPicker,
+  DeckChoice,
+  parseCustomDeck,
+  validateCustomDeck,
+} from '../../../../shared/deck-picker/deck-picker';
 import { Icon } from '../../../../shared/icon/icon';
 import { BoardPoker, isQuickRound } from '../board-poker';
 import { PokerPoller } from '../poker-poller';
-
-/** The fixed decks of the contract (`PokerDeckKind`), in the order the UI shows them. */
-export const DECKS: Readonly<Record<'FIBONACCI' | 'TSHIRT', readonly string[]>> = {
-  FIBONACCI: ['0', '1', '2', '3', '5', '8', '13', '21', '?', 'coffee'],
-  TSHIRT: ['XS', 'S', 'M', 'L', 'XL', '?'],
-};
 
 /** The stroke palette of the board, so a voter keeps one colour (taken from the name). */
 const VOTER_COLORS = ['#ea580c', '#2563eb', '#16a34a', '#7c3aed', '#db2777', '#0891b2', '#ca8a04'];
@@ -50,27 +45,9 @@ const NO_ESTIMATE = new Set(['?', 'coffee']);
 
 const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
-/** A custom deck typed as "1, 2, 4, 8": the values, or an error text. */
-export function parseCustomDeck(text: string): string[] | string {
-  const values = text
-    .split(',')
-    .map((v) => v.trim())
-    .filter((v) => v !== '');
-  if (values.length < 2 || values.length > 20) {
-    return 'Between 2 and 20 values, separated by commas.';
-  }
-  if (!values.every(isValidEstimate)) {
-    return 'Each value has 1 to 8 characters, like 1, 2, 4 or XL.';
-  }
-  if (new Set(values.map((v) => v.normalize('NFC'))).size !== values.length) {
-    return 'Each value only once.';
-  }
-  return values;
-}
-
 interface StartDraft {
   title: string;
-  deck: 'FIBONACCI' | 'TSHIRT' | 'CUSTOM';
+  deck: DeckChoice;
   custom: string;
 }
 
@@ -115,7 +92,7 @@ let nextId = 0;
  */
 @Component({
   selector: 'drawboard-board-poker-dialog',
-  imports: [FormField, FormRoot, FieldErrors, Icon, Avatar],
+  imports: [FormField, FormRoot, FieldErrors, Icon, Avatar, DeckPicker],
   templateUrl: './board-poker-dialog.html',
   styleUrl: './board-poker-dialog.css',
   host: { '(keydown.escape)': 'close()' },
@@ -139,7 +116,6 @@ export class BoardPokerDialog {
   readonly closed = output();
 
   protected readonly ids = `poker-${nextId++}`;
-  protected readonly decks = DECKS;
   protected readonly state = PokerRoundState;
 
   /** Quick mode: no story card. */
@@ -251,13 +227,7 @@ export class BoardPokerDialog {
           ? { kind: 'control', message: 'No control characters.' }
           : undefined,
       );
-      validate(path.custom, ({ value, valueOf }) => {
-        if (valueOf(path.deck) !== 'CUSTOM') {
-          return undefined;
-        }
-        const parsed = parseCustomDeck(value());
-        return typeof parsed === 'string' ? { kind: 'deck', message: parsed } : undefined;
-      });
+      validateCustomDeck(path.deck, path.custom);
     },
     { submission: { action: () => this.start() } },
   );

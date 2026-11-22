@@ -5,10 +5,10 @@ import {
   MAX_SUMMON_TARGETS,
   SummonState,
   newSummonId,
-} from '../../../../board-engine/collab/awareness-state';
+  type PeerPresence,
+} from '@apps/drawboard-engine';
 import { FollowController, FollowEnd, Following } from '../../../../board-engine/collab/follow';
 import type { BoardEngine } from '../../../../board-engine/engine';
-import type { PeerPresence } from '../../../../board-engine/presence';
 import { Auth } from '../../../services/auth';
 import { Toasts } from '../../../services/toasts';
 import { BoardCollab } from './board-collab';

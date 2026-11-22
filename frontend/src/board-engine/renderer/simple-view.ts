@@ -1,7 +1,13 @@
-import { FRAME_TITLE_MAX, isFrame } from '../model/frames';
-import { parseCellProps, parseTableProps } from '../model/tables';
-import { BlockData } from '../model/types';
-import { safeColor } from '../presence';
+import {
+  FRAME_TITLE_MAX,
+  isFrame,
+  parseCellProps,
+  parseTableProps,
+  BlockData,
+  safeColor,
+  BoardTheme,
+  displayColor,
+} from '@apps/drawboard-engine';
 import { BlockType, BlockView } from './block-registry';
 
 /**
@@ -18,6 +24,8 @@ export const FULL_ZOOM = 0.18;
 
 /** The box of a block whose type gives no colour (plugins, files, diagrams, text). */
 export const SIMPLE_NEUTRAL = '#e2e8f0';
+/** The neutral box on the dark canvas. */
+export const SIMPLE_NEUTRAL_DARK = '#334155';
 const FRAME_BORDER = '#94a3b8';
 
 /**
@@ -32,10 +40,18 @@ export function simpleAt(zoom: number, simpleNow: boolean): boolean {
   return simpleNow ? zoom < FULL_ZOOM : zoom < SIMPLE_ZOOM;
 }
 
-/** The fill of a simple box: the type's colour (trusted types only), always through safeColor. */
-export function simpleFillOf(type: BlockType | undefined, block: BlockData): string {
+/**
+ * The fill of a simple box: the type's colour (trusted types only), always through safeColor,
+ * mapped for the theme like the full view (`displayColor`; the document keeps its colours).
+ */
+export function simpleFillOf(
+  type: BlockType | undefined,
+  block: BlockData,
+  theme: BoardTheme = 'light',
+): string {
+  const neutral = theme === 'dark' ? SIMPLE_NEUTRAL_DARK : SIMPLE_NEUTRAL;
   if (!type?.trusted || !type.simpleFill) {
-    return SIMPLE_NEUTRAL;
+    return neutral;
   }
   let fill: unknown;
   try {
@@ -43,7 +59,7 @@ export function simpleFillOf(type: BlockType | undefined, block: BlockData): str
   } catch {
     fill = undefined;
   }
-  return fill === 'transparent' ? 'transparent' : safeColor(fill, SIMPLE_NEUTRAL);
+  return fill === 'transparent' ? 'transparent' : displayColor(safeColor(fill, neutral), theme);
 }
 
 /**
@@ -75,7 +91,7 @@ export function renderSimple(
         title.style.cssText =
           'position:absolute;left:0;bottom:100%;max-width:100%;overflow:hidden;white-space:nowrap;' +
           `text-overflow:ellipsis;font:600 calc(12px * ${SCREEN_PX})/1.4 system-ui,sans-serif;` +
-          `color:#475569;padding-bottom:calc(2px * ${SCREEN_PX})`;
+          `color:var(--be-text-2,#475569);padding-bottom:calc(2px * ${SCREEN_PX})`;
         host.appendChild(title);
       }
       const fallback = parseTableProps(b.props['table']) ? 'Table' : 'Frame';

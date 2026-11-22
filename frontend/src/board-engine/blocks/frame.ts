@@ -1,10 +1,18 @@
-import { FRAME_TITLE_HEIGHT, FRAME_TITLE_MAX, FRAME_TYPE } from '../model/frames';
-import { parseCellProps, parseTableProps } from '../model/tables';
-import { safeColor } from '../presence';
+import {
+  FRAME_TITLE_HEIGHT,
+  FRAME_TITLE_MAX,
+  FRAME_TYPE,
+  parseCellProps,
+  parseTableProps,
+  safeColor,
+  displayColor,
+  fillStaysLight,
+} from '@apps/drawboard-engine';
 import { BlockType } from '../renderer/block-registry';
+import { setEditorColors } from '../renderer/editor-colors';
 import { renderSafeText } from '../util/safe-text';
 
-export { FRAME_TYPE } from '../model/frames';
+export { FRAME_TYPE } from '@apps/drawboard-engine';
 
 /** A frame's fill when none (or no valid one) is set. */
 export const FRAME_DEFAULT_FILL = '#ffffff';
@@ -38,7 +46,7 @@ export const frameBlock: BlockType = {
     const box = doc.createElement('div');
     box.className = 'be-frame';
     box.style.cssText =
-      'width:100%;height:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;' +
+      'width:100%;height:100%;box-sizing:border-box;border:1px solid var(--be-border,#cbd5e1);border-radius:6px;' +
       'box-shadow:0 1px 2px rgba(15,23,42,.08)';
     // the strip the text editor opens in (data-be-text-host) and where a drag moves the frame
     const strip = doc.createElement('div');
@@ -48,7 +56,7 @@ export const frameBlock: BlockType = {
     title.className = 'be-text be-frame-title';
     title.style.cssText =
       'height:100%;box-sizing:border-box;padding:7px 10px 0;overflow:hidden;white-space:nowrap;' +
-      'text-overflow:ellipsis;font:600 13px/18px system-ui,sans-serif;color:#475569';
+      'text-overflow:ellipsis;font:600 13px/18px system-ui,sans-serif;color:var(--be-text-2,#475569)';
     strip.appendChild(title);
     box.appendChild(strip);
     host.appendChild(box);
@@ -56,16 +64,28 @@ export const frameBlock: BlockType = {
       // the look only; whether a table is intact is decided where it matters (model/tables.ts)
       const cell = parseCellProps(props['cell']);
       const table = parseTableProps(props['table']);
-      box.style.background = frameFill(props['fill']);
+      const theme = ctx.theme();
+      const fill = frameFill(props['fill']);
+      box.style.background = displayColor(fill, theme);
+      // the title sits on the frame: on a fill that stays light on the dark canvas it stays dark
+      const light = fillStaysLight(fill, theme);
       box.style.borderRadius = cell ? '0' : '6px';
       box.style.boxShadow = cell ? 'none' : '0 1px 2px rgba(15,23,42,.08)';
-      box.style.border = cell ? '0' : '1px solid #cbd5e1';
+      box.style.border = cell ? '0' : '1px solid var(--be-border, #cbd5e1)';
       if (cell) {
         // neighbouring cells share one line
-        box.style.borderRight = box.style.borderBottom = '1px solid #cbd5e1';
+        box.style.borderRight = box.style.borderBottom = '1px solid var(--be-border, #cbd5e1)';
       }
       title.style.fontWeight = !cell || cell.row === 0 ? '600' : '400';
-      title.style.color = cell && cell.row > 0 ? '#64748b' : '#475569';
+      const body = cell !== undefined && cell.row > 0;
+      title.style.color = light
+        ? body
+          ? '#64748b'
+          : '#475569'
+        : body
+          ? 'var(--be-text-3, #64748b)'
+          : 'var(--be-text-2, #475569)';
+      setEditorColors(box, light);
       if (cell) {
         box.dataset['cell'] = `${cell.row},${cell.col}`;
       } else {

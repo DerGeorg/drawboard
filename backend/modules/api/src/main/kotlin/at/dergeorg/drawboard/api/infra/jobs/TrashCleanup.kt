@@ -3,6 +3,7 @@ package at.dergeorg.drawboard.api.infra.jobs
 import at.dergeorg.drawboard.api.common.BoardDataEraser
 import at.dergeorg.drawboard.api.common.DrawboardProperties
 import at.dergeorg.drawboard.library.domain.trash.provides.TrashUseCase
+import at.dergeorg.drawboard.planning.domain.sessions.provides.EstimationUseCase
 import at.dergeorg.drawboard.shared.logging.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -23,11 +24,15 @@ import kotlin.time.Duration.Companion.seconds
  * board stays stored although nobody can open the board any more (known gap: a sweep for log and snapshots of boards that
  * no longer exist). The other order would be worse: a board that is still listed but has lost its drawing.
  *
+ * The same job reduces estimation sessions that have been DONE for 30 days to numbers (E22): no reason, no seat of an entry, no move.
+ * The answers stop showing them at that time anyway (enforced on read); this deletes them. Each step runs on its own.
+ *
  * Single replica, like the rest: one job, no lock. Runs `trashCleanupSeconds` after the start and then at that interval.
  */
 internal class TrashCleanup(
     private val trash: TrashUseCase,
     private val eraser: BoardDataEraser,
+    private val estimation: EstimationUseCase,
     private val properties: DrawboardProperties,
     private val clock: Clock,
     private val logger: AppLogger,
@@ -46,19 +51,31 @@ internal class TrashCleanup(
         return purged.size
     }
 
+    /** One pass of the retention purge of the estimation sessions (E22); returns how many sessions were reduced. */
+    suspend fun reduceEstimations(): Int {
+        val reduced = estimation.reduceExpired(clock.now())
+        if (reduced > 0) logger.info("estimation sessions reduced to numbers", "planning.sessions.reduced" to reduced)
+        return reduced
+    }
+
     override fun start() {
         running = true
         scope.launch {
             while (true) {
                 delay(properties.trashCleanupSeconds.seconds)
-                try {
-                    runOnce()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                    logger.error("trash cleanup failed", e)
-                }
+                step("trash cleanup failed") { runOnce() }
+                step("estimation retention purge failed") { reduceEstimations() }
             }
+        }
+    }
+
+    private suspend fun step(failure: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            logger.error(failure, e)
         }
     }
 

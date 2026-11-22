@@ -10,7 +10,7 @@ import kotlin.uuid.Uuid
  *
  * ([issuer], [subject]) is the login key and unique: `sub` alone is not a UUID with every provider, and a user must
  * keep the same [id] when their username changes. [email] is only stored when the provider marked it verified;
- * [groups] are display-only - every decision (e.g. instance admin) uses the groups of the CURRENT token, never these.
+ * [theme] is the user's own choice and never touched by a login; [groups] are display-only - every decision (e.g. instance admin) uses the groups of the CURRENT token, never these.
  * [version] is the optimistic lock.
  */
 data class UserProfile(
@@ -23,5 +23,6 @@ data class UserProfile(
     val groups: List<String>,
     val firstLoginAt: Instant,
     val lastLoginAt: Instant,
+    val theme: ColorTheme = ColorTheme.SYSTEM,
     val version: Long = 0,
 )

@@ -1,0 +1,20 @@
+<div role="group" aria-label="Theme" class="flex flex-col">
+  @for (option of options; track option.mode) {
+    <button
+      type="button"
+      role="menuitemradio"
+      class="panel-item"
+      [attr.aria-checked]="mode() === option.mode"
+      [attr.tabindex]="mode() === option.mode ? 0 : -1"
+      [attr.data-testid]="`theme-${option.mode.toLowerCase()}`"
+      (click)="choose(option.mode)"
+      (keydown)="move($event, $index)"
+    >
+      <drawboard-icon [name]="option.icon" />
+      {{ option.label }}
+      @if (mode() === option.mode) {
+        <span class="ml-auto text-xs text-(--color-st-grey)" aria-hidden="true">On</span>
+      }
+    </button>
+  }
+</div>

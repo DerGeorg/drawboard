@@ -7,10 +7,11 @@ import {
   looksLikeZip,
   parseBoardJson,
   readArchive,
-} from '../../../../board-engine/io/archive';
-import { BoardFile, ImportError } from '../../../../board-engine/io/board-file';
-import { encodeDataUrlFragment } from '../../../../board-engine/io/data-url';
-import type { BoardDoc } from '../../../../board-engine/model/board-doc';
+  BoardFile,
+  ImportError,
+  encodeDataUrlFragment,
+  type BoardDoc,
+} from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { WithSpan } from '../../../util/tracing';
 import { BoardImporter } from './board-importer';

@@ -1,6 +1,12 @@
-import type { BoardDoc } from '../model/board-doc';
-import { BlockData, Point, Props, Size } from '../model/types';
-import { Emitter } from '../util/emitter';
+import {
+  type BoardDoc,
+  BlockData,
+  Point,
+  Props,
+  Size,
+  BoardTheme,
+  Emitter,
+} from '@apps/drawboard-engine';
 
 /** What a block type's `render` gets: read access to its own block, nothing else. */
 export interface BlockRenderContext {
@@ -9,6 +15,12 @@ export interface BlockRenderContext {
   /** The plain content of the block's Y.Text ('' if it has none). */
   text(): string;
   readonly readOnly: boolean;
+  /**
+   * The theme the board is shown in now. Read it in `render` and `update`: a theme change calls
+   * `update` on every mounted block (no document change). Colours of the content are mapped
+   * with `displayColor`; the chrome uses the `--be-*` CSS variables.
+   */
+  theme(): BoardTheme;
   /**
    * Write access for TRUSTED built-in blocks (kanban, story card) that edit their own data in
    * place. Plugin blocks never see it: their views are sandboxed frames that only talk to the
@@ -44,7 +56,7 @@ export interface BlockHost {
 }
 
 export interface BlockView {
-  /** Called whenever the block's geometry, props or text changed. */
+  /** Called whenever the block's geometry, props or text changed, and when the theme changed. */
   update(block: BlockData): void;
   /**
    * Called once the block's element is in the document (and again if it is mounted anew after

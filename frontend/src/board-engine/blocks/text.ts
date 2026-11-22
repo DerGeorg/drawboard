@@ -1,8 +1,6 @@
-import { safeColor } from '../presence';
+import { TEXT_TYPE, safeColor, displayColor } from '@apps/drawboard-engine';
 import { BlockType } from '../renderer/block-registry';
 import { renderSafeText } from '../util/safe-text';
-
-export const TEXT_TYPE = 'core.text';
 
 /** A free text label without background. */
 export const textBlock: BlockType = {
@@ -19,7 +17,7 @@ export const textBlock: BlockType = {
       'overflow-wrap:anywhere;font-family:system-ui,sans-serif;line-height:1.3';
     host.appendChild(el);
     const apply = (props: Record<string, unknown>): void => {
-      el.style.color = safeColor(props['color'], '#0f172a');
+      el.style.color = displayColor(safeColor(props['color'], '#0f172a'), ctx.theme());
       el.style.fontSize = `${typeof props['fontSize'] === 'number' ? props['fontSize'] : 20}px`;
       renderSafeText(el, ctx.text());
     };

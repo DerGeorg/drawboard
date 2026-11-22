@@ -2,6 +2,7 @@ import { Provider, signal } from '@angular/core';
 
 import { Auth, AuthUser } from '../services/auth';
 import type { GuestUser } from '../services/guest-session';
+import type { ThemeMode } from '../util/theme-mode';
 
 /** Auth for tests: sign in directly; records login/logout calls. */
 export class FakeAuth extends Auth {
@@ -16,8 +17,23 @@ export class FakeAuth extends Auth {
   readonly loginCalls: (string | undefined)[] = [];
   logoutCalls = 0;
 
-  signIn(username: string, displayName = username, admin = false, guestLinksEnabled = false): void {
-    this.profile.set({ id: `id-${username}`, username, displayName, admin, guestLinksEnabled });
+  signIn(
+    username: string,
+    displayName = username,
+    admin = false,
+    guestLinksEnabled = false,
+    theme: ThemeMode = 'SYSTEM',
+    gifsEnabled = false,
+  ): void {
+    this.profile.set({
+      id: `id-${username}`,
+      username,
+      displayName,
+      admin,
+      guestLinksEnabled,
+      gifsEnabled,
+      theme,
+    });
     this.session.set(true);
   }
 

@@ -3,6 +3,8 @@ package at.dergeorg.drawboard.planning.infra
 import at.dergeorg.drawboard.planning.common.PlanningModule
 import at.dergeorg.drawboard.planning.domain.rounds.PlanningSettings
 import at.dergeorg.drawboard.planning.domain.rounds.requires.PlanningMetrics
+import at.dergeorg.drawboard.planning.domain.sessions.EstimationLimits
+import at.dergeorg.drawboard.planning.domain.sessions.requires.EstimationMetrics
 import at.dergeorg.drawboard.shared.persistence.FlywayModule
 import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.beans.factory.ObjectProvider
@@ -21,4 +23,10 @@ internal class PlanningConfiguration {
 
     @Bean
     fun planningMetrics(registry: ObjectProvider<MeterRegistry>): PlanningMetrics = MicrometerPlanningMetrics(registry)
+
+    @Bean
+    fun estimationLimits(properties: EstimationProperties): EstimationLimits = properties.toLimits()
+
+    @Bean
+    fun estimationMetrics(registry: ObjectProvider<MeterRegistry>): EstimationMetrics = MicrometerEstimationMetrics(registry)
 }

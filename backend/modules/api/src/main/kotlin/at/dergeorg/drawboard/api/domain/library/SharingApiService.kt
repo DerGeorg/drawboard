@@ -36,6 +36,7 @@ import at.dergeorg.drawboard.library.domain.sharing.provides.LinksUseCase
 import at.dergeorg.drawboard.library.domain.sharing.provides.MembersUseCase
 import at.dergeorg.drawboard.library.domain.sharing.provides.SetMemberCommand
 import at.dergeorg.drawboard.planning.domain.rounds.provides.PlanningUseCase
+import at.dergeorg.drawboard.planning.domain.sessions.provides.EstimationUseCase
 import at.dergeorg.drawboard.shared.error.DomainException
 import at.dergeorg.drawboard.shared.context.ClientAddressProvider
 import at.dergeorg.drawboard.shared.error.ErrorCode
@@ -79,6 +80,7 @@ internal class SharingApiService(
     private val profiles: UserProfilesUseCase,
     private val collab: CollabUseCase,
     private val planning: PlanningUseCase,
+    private val estimation: EstimationUseCase,
     private val log: AppLogger,
 ) : SharingApiUseCase {
 
@@ -172,15 +174,25 @@ internal class SharingApiService(
         links.revokeLink(signedIn.caller(), linkId)
         // Remembered access and guest sessions of this link end now (S1.13): sessions are re-evaluated.
         collab.recheckAll()
-        // Its guests leave the open planning poker rounds with their votes (M4 review); the library does not know the planning module.
-        // The revoke is committed and the sessions are cut: if this fails the link is still revoked and the answer stays 204. The guests
-        // that stay are dropped at the reveal (LibraryGuestShares); the error is logged with the share id so somebody can look.
-        try {
+        // Its guests leave the open planning poker rounds with their votes (M4 review) and the estimation sessions (E11); the library
+        // does not know the planning module. The revoke is committed and the sessions are cut: if a step fails the link is still revoked
+        // and the answer stays 204. Each use case runs on its own - one failing never skips the other (E24). The guests that stay are
+        // dropped at the reveal or when a session enters REVIEW (LibraryGuestShares); the error is logged with the share id.
+        removeGuests(linkId, "the guests of a revoked link could not be removed from the planning rounds") {
             planning.removeGuestsOfShare(linkId)
+        }
+        removeGuests(linkId, "the guests of a revoked link could not be removed from the estimation sessions") {
+            estimation.removeGuestsOfShare(linkId)
+        }
+    }
+
+    private suspend fun removeGuests(linkId: Uuid, message: String, step: suspend () -> Unit) {
+        try {
+            step()
         } catch (e: CancellationException) {
             throw e
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            log.error("the guests of a revoked link could not be removed from the planning rounds", e, "share.id" to linkId.toString())
+            log.error(message, e, "share.id" to linkId.toString())
         }
     }
 

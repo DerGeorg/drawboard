@@ -1,4 +1,4 @@
-import { isValidEmoji } from '../../../../board-engine/util/emoji';
+import { isValidEmoji } from '@apps/drawboard-engine';
 
 const KEY = 'drawboard.emoji.recent';
 export const RECENT_LIMIT = 24;

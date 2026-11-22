@@ -1,4 +1,4 @@
-import { glideCamera, screenToWorld } from './camera';
+import { glideCamera, screenToWorld } from '@apps/drawboard-engine';
 import { TestEngine, createTestEngine } from './testing/helpers';
 
 /** What following needs from the engine: a smooth camera move, and knowing what the user did. */

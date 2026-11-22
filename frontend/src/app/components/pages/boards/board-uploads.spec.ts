@@ -3,9 +3,8 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { BoardFile, BoardFileConversion, BoardFileKind } from '@apps/drawboard-api';
 
-import { FILE_TYPE } from '../../../../board-engine/blocks/file';
+import { FILE_TYPE, BoardDoc } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../board-engine/engine';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
 import { signedInAsAlice } from '../../../test/fake-auth';
 import { SPRINT_BOARD_ID } from '../../../test/fixtures';
 import { expectRequest, provideHttpTesting, settle } from '../../../test/http-testing';

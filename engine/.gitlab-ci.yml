@@ -1,0 +1,49 @@
+# =============================================================================
+# apps/drawboard/engine - pipeline of the board engine core, published as npm package
+#
+# All logic lives in ci/components. This file only says WHAT to do.
+#
+#   push to a branch   version, lint, unit tests (Node, coverage), package built and packed
+#                      (.tgz as artifact of npm:publish, installable for a trial)
+#   push to main       additionally: @apps/drawboard-engine to this project's npm registry,
+#                      then tag + GitLab release
+#
+# The version is derived from the commit messages. package.json holds the placeholder 0.0.0;
+# npm:publish writes the real one into the package before packing it.
+#
+# angular-lint and angular-test are generic: lint = npm run lint + prettier --check, test = the
+# test-command below (typecheck, then vitest with coverage and JUnit report under junit/).
+#
+# Consumers (frontend, later the MCP server and the desktop app) install through the
+# instance-level endpoint (@apps:registry=…) with their job token; the group apps/drawboard is
+# on this project's job-token allowlist. This project in turn reads @ci/eslint-plugin with its
+# job token (ci/eslint-rules allows the apps group).
+# =============================================================================
+
+include:
+  - component: $CI_SERVER_FQDN/ci/components/version@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-lint@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-test@2.20.0
+    inputs:
+      test-command: 'npm run test:ci'
+  - component: $CI_SERVER_FQDN/ci/components/npm-publish@2.20.0
+    inputs:
+      build-command: 'npm run build'
+      package-dir: '.'
+  - component: $CI_SERVER_FQDN/ci/components/release@2.20.0
+
+stages: [version, lint, test, package, release]
+
+# Which pipelines exist:
+#   tag        none - semantic-release creates a tag per release; the tag pipeline would
+#              publish the same version again.
+#   open MR    only the MR pipeline, not a second branch pipeline.
+#   otherwise  the branch pipeline, also when started by hand.
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH

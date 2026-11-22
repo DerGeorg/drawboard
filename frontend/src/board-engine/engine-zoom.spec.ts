@@ -1,5 +1,5 @@
 import { registerBuiltinBlocks } from './blocks/builtin';
-import { MIN_ZOOM } from './camera';
+import { MIN_ZOOM } from '@apps/drawboard-engine';
 import { BlockTypeRegistry } from './renderer/block-registry';
 import { FULL_ZOOM, SIMPLE_NEUTRAL, SIMPLE_ZOOM } from './renderer/simple-view';
 import { TestEngine, createTestEngine } from './testing/helpers';

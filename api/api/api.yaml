@@ -26,7 +26,13 @@
 # table; the operation descriptions repeat it. Since M4 (security review
 # 2026-11-10) also listPokerRounds (state OPEN only), getPokerRound and
 # castPokerVote - only for guests whose link role is COMMENTER or EDITOR;
-# VIEWER-link guests get 403 on every poker operation.
+# VIEWER-link guests get 403 on every poker operation. Since the estimation
+# sessions (security review 2026-11-19, E8) also listEstimationSessions (state
+# ACTIVE only), getEstimationSession, joinEstimationSession,
+# leaveEstimationSession, placeEstimationItem and setRotationEstimate - again
+# only for COMMENTER/EDITOR links; VIEWER-link guests get 403 on every
+# estimation operation, and no guest may create, start, advance, decide,
+# finish or cancel a session.
 openapi: 3.1.0
 info:
   title: Drawboard API - operations
@@ -2377,6 +2383,741 @@ paths:
         '500':
           $ref: '../common/common.yaml#/components/responses/InternalError'
 
+
+  # ==========================================================================
+  # planning - backend module `planning`, subdomain `sessions` (3.15, S7.6)
+  # Estimation sessions: Magic Estimation and Rotation, moderated sessions
+  # over many cards at once (security review 2026-11-19, E1-E24). Seats,
+  # entries, moves, reasons and timers live ONLY on the server (schema
+  # `planning`), never in the Yjs document, `.drawboard` files, templates,
+  # versions or board copies; the server never reads or writes the document
+  # (E20). Phases end by the server clock, applied on the next request (no
+  # scheduler, no client time in any request). Live state without a change
+  # of the WebSocket protocol: clients poll getEstimationSession with
+  # If-None-Match. Poker operations above are unchanged (E24).
+  # Moderator (E13): the user who created the session while they still have
+  # the role EDITOR or OWNER, or the board's OWNER; checked on every request.
+  # Order of refusals, the same for every operation (steps an operation does
+  # not have are skipped): board role (404 LIBRARY_BOARD_NOT_FOUND) ->
+  # VIEWER-link guest (403 FORBIDDEN) -> session, including E9 for guests
+  # (404 PLANNING_SESSION_NOT_FOUND) -> role or seat (403) -> state and
+  # expected round (409 PLANNING_SESSION_WRONG_STATE) -> card held (409
+  # PLANNING_ITEM_NOT_HELD) -> value (400 PLANNING_VALUE_INVALID) -> reason
+  # (400 PLANNING_REASON_REQUIRED) -> move limits (409
+  # PLANNING_MOVE_LIMIT_REACHED). Only schema-side 400s (VALIDATION_FAILED,
+  # MALFORMED_REQUEST) that do not depend on the session may come earlier;
+  # checks of a body against the session (e.g. startEstimationSession's
+  # `seatIds`) come after the state.
+  # E9 on every operation: a guest without a seat gets 404
+  # PLANNING_SESSION_NOT_FOUND (params: sessionId only) for a session in
+  # REVIEW, DONE or CANCELLED - also on join and leave.
+  # An `itemId` that is not a card of the session answers 404
+  # PLANNING_SESSION_NOT_FOUND with `params.itemId`.
+  # Guests (S1.8, E8): guests whose link role is COMMENTER or EDITOR may call
+  # listEstimationSessions (state ACTIVE only), getEstimationSession,
+  # joinEstimationSession, leaveEstimationSession, placeEstimationItem and
+  # setRotationEstimate, on the board of their link or boards below their
+  # folder link. VIEWER-link guests: 403 FORBIDDEN on every estimation
+  # operation. createEstimationSession, startEstimationSession,
+  # advanceEstimationSession, decideEstimationItem, finishEstimationSession
+  # and cancelEstimationSession: never guests (403 FORBIDDEN).
+  # Awareness poke (E19, client convention): only the client that performed
+  # create, start, advance, decide, finish or cancel raises the field
+  # `estimation: <counter>` of its awareness state - never on join, leave,
+  # placement or estimate; receivers with access re-list (at most every 5 s)
+  # and nothing else. No id, cursor, drag, selection or "in estimation" state
+  # in awareness.
+  # ==========================================================================
+  /boards/{boardId}/estimation-sessions:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+    get:
+      operationId: listEstimationSessions
+      summary: List the estimation sessions of a board
+      description: |
+        Summaries of the board's sessions in one group, newest first:
+        `ACTIVE` (default; LOBBY, PLACING, MOVING, ROTATING, REVIEW - at most
+        3) or `CLOSED` (DONE, CANCELLED - at most 100 kept). Never items,
+        seats or entries (E17); fetch a session with getEstimationSession. A
+        client calls it when a board opens and when another client's
+        awareness `estimation` counter changes (at most every 5 seconds); it
+        does not poll it. Needs at least the role `VIEWER`; a board in the
+        trash answers 404 `LIBRARY_BOARD_NOT_FOUND`. Phases whose deadline
+        has passed are applied first. At most 30 calls per user and board and
+        minute (429 `TOO_MANY_REQUESTS` with `Retry-After`).
+
+        Guests (S1.8, E8, E9): allowed for guests whose link role is
+        `COMMENTER` or `EDITOR`, on the board of their link or a board in or
+        below the folder of their folder link, and only with `state=ACTIVE`
+        (`CLOSED` answers 403 `FORBIDDEN`). A session in REVIEW is listed for
+        a guest only when their guest session holds a seat in it.
+        VIEWER-link guests: 403 `FORBIDDEN`. Guest limits are also keyed by
+        share: at most 300 calls per share and board and minute.
+      tags: [planning]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/EstimationSessionStateFilter'
+      responses:
+        '200':
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSessionList'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    post:
+      operationId: createEstimationSession
+      summary: Create an estimation session (Magic Estimation or Rotation)
+      description: |
+        Creates a session in `LOBBY` with mode, deck, cards, anonymity and
+        settings fixed for its whole life (E1); the caller becomes its
+        moderator. Needs the role `EDITOR` or `OWNER` and a signed-in user
+        (`COMMENTER`/`VIEWER`: 403 `LIBRARY_BOARD_ACCESS_DENIED`; guests
+        never: 403 `FORBIDDEN`).
+
+        Checks: 1 to 50 cards, each ref at most once and of the right form
+        (`EstimationItemRef`), titles one line without control or format
+        characters, settings as required by the mode (`EstimationSettings`),
+        deck values as in `PokerDeck` - else 400 `VALIDATION_FAILED`. The
+        server cannot read the Yjs document: it does not check that the
+        blocks exist; refs are untrusted hints (E20). A card may be in
+        several sessions or poker rounds at once; the UI only hints at it.
+        At most 3 active sessions per board (409
+        `PLANNING_SESSION_LIMIT_REACHED`). At most 10 creates per user and
+        minute (429 `TOO_MANY_REQUESTS`). Audited (S7.1: session created,
+        with board, session, mode, number of cards and deck kind).
+
+        Lifetime: a board keeps at most 100 closed sessions; when a create
+        would exceed that, the server first prunes the oldest `CANCELLED`,
+        then the oldest `DONE` sessions. A session without activity for 24
+        hours in LOBBY or a running phase (and, at the server's discretion,
+        7 days in REVIEW) becomes `CANCELLED` on the next request that
+        looks at it. Sessions follow the board into the trash (404 while
+        there) and are deleted with everything in them when the board is
+        deleted for good (S7.7).
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/NewEstimationSession'
+      responses:
+        '201':
+          description: Created, in LOBBY.
+          headers:
+            Location:
+              description: URL of the new session (getEstimationSession).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    get:
+      operationId: getEstimationSession
+      summary: Get an estimation session (poll with If-None-Match)
+      description: |
+        The session as the caller sees it (`EstimationSession`: what is
+        visible in which state is described there and at `EstimationItem`).
+        A session of another board answers 404 `PLANNING_SESSION_NOT_FOUND`.
+        Needs at least the role `VIEWER`. Never joins: a caller joins only
+        with joinEstimationSession.
+
+        Live state (no WebSocket message, docs/collab-protocol.md is
+        unchanged): while a session is shown, the client polls this
+        operation every 2 seconds (every second in Magic MOVING), pauses
+        while the page is hidden, and at a deadline (`phaseEndsAt`, counted
+        against `serverTime`) waits a random 0-500 ms before polling. It
+        sends the `ETag` of its last answer in `If-None-Match`: unchanged ->
+        304 without a body, changed -> 200 with the new `ETag`
+        (`W/"<version>"`, weak because the body depends on the caller). A
+        deadline that has passed is applied before the comparison, so a 304
+        never hides a due transition; the comparison also comes after
+        authorisation and the guest rule E9, so a 304 never answers a caller
+        who would get 403 or 404. `If-None-Match: *` counts as no match
+        (200). The client stops polling when the session is DONE or
+        CANCELLED (they never change again). Answers carry `Cache-Control:
+        no-store` and `Vary: Authorization`. Angular: call the generated
+        `PlanningService.getEstimationSession` with `observe: 'response'` to
+        read the `ETag`; a 304 arrives as an `HttpErrorResponse` with
+        `status` 304 and means "unchanged". At most 75 calls per user and
+        session and minute, 304 included (429 `TOO_MANY_REQUESTS` with
+        `Retry-After`; the client backs off).
+
+        Retention (E22): 30 days after a session became DONE its answers no
+        longer contain single values or reasons (`EstimationItemResult`
+        `entries` and `moveTrail` empty); decisions and aggregates stay.
+        Users deleted since read `Deleted user`.
+
+        Guests (S1.8, E9): allowed for guests whose link role is `COMMENTER`
+        or `EDITOR`, for sessions on the board of their link or a board in or
+        below the folder of their folder link: LOBBY and running sessions
+        always; REVIEW, DONE and CANCELLED only when their guest session
+        holds a seat in it, otherwise 404 `PLANNING_SESSION_NOT_FOUND`
+        (`params.sessionId` only). VIEWER-link guests: 403 `FORBIDDEN`.
+        `moderatorId` is left out for guests, `me.moderator` is always
+        false for them, and `me.seatId` is only ever their own seat. Guest limits are also keyed by share: at most 600 calls per
+        share and session and minute.
+      tags: [planning]
+      parameters:
+        - $ref: '../common/common.yaml#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The session.
+          headers:
+            ETag:
+              $ref: '../common/common.yaml#/components/headers/EstimationSessionETag'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/NoStoreCacheControl'
+            Vary:
+              $ref: '../common/common.yaml#/components/headers/VaryAuthorization'
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '304':
+          description: Not modified since the ETag in `If-None-Match`; no body.
+          headers:
+            ETag:
+              $ref: '../common/common.yaml#/components/headers/EstimationSessionETag'
+            Cache-Control:
+              $ref: '../common/common.yaml#/components/headers/NoStoreCacheControl'
+            Vary:
+              $ref: '../common/common.yaml#/components/headers/VaryAuthorization'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/seats/me:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    put:
+      operationId: joinEstimationSession
+      summary: Take a seat in a session (lobby only)
+      description: |
+        Gives the caller a seat (`EstimationSeat`, listed with their display
+        name) so the moderator can pick them at the start. The moderator can
+        pick at most as many seats as the session has cards, so more may
+        join than will take part. Only in `LOBBY` (else 409
+        `PLANNING_SESSION_WRONG_STATE`; a guest without a seat gets 404
+        `PLANNING_SESSION_NOT_FOUND` for a session in REVIEW, DONE or
+        CANCELLED, E9); calling it again while seated changes nothing
+        (204). Raises `version`. Needs the role
+        `COMMENTER`, `EDITOR` or `OWNER` (`VIEWER`: 403
+        `LIBRARY_BOARD_ACCESS_DENIED`). Joins are not audited.
+
+        Capacity (E10): at most 30 seats per session, of them at most 15
+        guests and at most 10 per share link; a caller without a seat in a
+        full session gets 409 `PLANNING_SESSION_FULL` (`params.limit` = the
+        cap that was hit). At most 10 joins and leaves per user and session
+        and minute (429 `TOO_MANY_REQUESTS`).
+
+        Guests (S1.8, E8): allowed for guests whose link role is `COMMENTER`
+        or `EDITOR`, on the board of their link or a board in or below the
+        folder of their folder link; VIEWER-link guests 403 `FORBIDDEN`. A
+        guest joins only through this call, listed under the guest name of
+        their session with `guest: true` (a guest that exchanges the link
+        again is a new seat). Guest limits are also keyed by share: at most
+        30 joins and leaves per share and session and minute.
+
+        Revoking a link (S1.13, E11): in LOBBY its seats are removed; in a
+        running phase they are marked removed and no longer listed, their
+        Rotation entries and reasons are deleted, their Magic placements
+        cleared and moves deleted, and every card they touched is `marked`;
+        removed seats never hold up a round. From REVIEW on the record
+        stands. `version` rises.
+      tags: [planning]
+      responses:
+        '204':
+          description: Seated.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+    delete:
+      operationId: leaveEstimationSession
+      summary: Give up my seat in a session (lobby only)
+      description: |
+        Removes the caller's seat. Only in `LOBBY` (else 409
+        `PLANNING_SESSION_WRONG_STATE`; after the start a seat stays and
+        simply stops entering values; a guest without a seat gets 404
+        `PLANNING_SESSION_NOT_FOUND` for a session in REVIEW, DONE or
+        CANCELLED, E9). Without a seat it changes nothing
+        (204). Raises `version` when a seat was removed. Same callers and
+        limits as joinEstimationSession; guests (COMMENTER or EDITOR link)
+        allowed, VIEWER-link guests 403 `FORBIDDEN`.
+      tags: [planning]
+      responses:
+        '204':
+          description: No seat (any more).
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/start:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    post:
+      operationId: startEstimationSession
+      summary: Start a session with the picked seats
+      description: |
+        Starts the session with the seats in `seatIds` (2 to 30, each a
+        listed seat of this session; see `EstimationStart`); the other
+        joined seats watch. Seats of revoked share links are dropped first
+        (E11). The server assigns each seat a random slot (`SecureRandom`)
+        that never leaves it (E2) and deals the cards evenly: MAGIC goes to
+        `PLACING` (ends after `settings.placingSeconds`), ROTATION to
+        `ROTATING` round 0 (ends after `settings.roundSeconds`). In both
+        modes there may not be more seats than cards, so every seat gets at
+        least one card; for ROTATION `settings.rounds` must not exceed the
+        number of seats (E7); both answer 400 `VALIDATION_FAILED` (field
+        `seatIds`). Only the moderator (else 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`); only in
+        `LOBBY` (else 409 `PLANNING_SESSION_WRONG_STATE`). The `seatIds`
+        checks against the session come after the state check. Raises `version`.
+        At most 120 moderator operations per user and minute (429
+        `TOO_MANY_REQUESTS`). Audited (S7.1: session started, with the
+        number of seats of members and of guests).
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/EstimationStart'
+      responses:
+        '200':
+          description: The started session.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/advance:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    post:
+      operationId: advanceEstimationSession
+      summary: End the current phase or round early
+      description: |
+        Ends the current phase before its deadline: MAGIC `PLACING` ->
+        `MOVING` (ends after `settings.movingSeconds`), `MOVING` ->
+        `REVIEW`; ROTATION round r -> round r + 1, the last round ->
+        `REVIEW`. The body names the state and round the moderator's client
+        believes are current; anything else - also when the deadline passed
+        in between - answers 409 `PLANNING_SESSION_WRONG_STATE` (E14).
+        Transitions never go back; there is no extend or pause (E13).
+        Entering `REVIEW` freezes `marked`, drops seats of revoked share
+        links (E11) and, with `anonymous` true, the mapping of seats to
+        entries and moves (E5). Only the moderator (else 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`). Raises
+        `version`. At most 120 moderator operations per user and minute
+        (429 `TOO_MANY_REQUESTS`).
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/EstimationAdvance'
+      responses:
+        '200':
+          description: The session in its next phase or round.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/finish:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    post:
+      operationId: finishEstimationSession
+      summary: Finish the review
+      description: |
+        Ends a session in `REVIEW` as `DONE` (final; else 409
+        `PLANNING_SESSION_WRONG_STATE`). Cards without a decision stay
+        undecided. Only the moderator (else 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`). Raises
+        `version`. At most 120 moderator operations per user and minute (429
+        `TOO_MANY_REQUESTS`). Audited (S7.1: session finished, with the
+        number of decisions and of overridden ones - never values).
+
+        Writing the results (S7.6, E21): the server never touches the Yjs
+        document. After finishing, the moderator's client - or later any
+        client with edit rights that can read the session - writes each
+        decision into its card as an ordinary editor update, only from a
+        DONE session and only when the block (and kanban card) of the ref
+        exists and has the matching type: a story card's `estimate` when the
+        value is a valid estimate; a kanban card's `estimate`, and `points`
+        when the value is an integer 0 to 999.
+      tags: [planning]
+      responses:
+        '200':
+          description: The finished session.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/cancel:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+    post:
+      operationId: cancelEstimationSession
+      summary: Cancel a session without result
+      description: |
+        Ends a session in any active state (LOBBY, PLACING, MOVING,
+        ROTATING, REVIEW) as `CANCELLED` (final); its entries, reasons and
+        moves are deleted at once (E22). A `DONE` or `CANCELLED` session
+        answers 409 `PLANNING_SESSION_WRONG_STATE`. Only the moderator (else
+        403 `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`). Raises
+        `version`. At most 120 moderator operations per user and minute (429
+        `TOO_MANY_REQUESTS`). Audited (S7.1: session cancelled).
+      tags: [planning]
+      responses:
+        '200':
+          description: The cancelled session.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationSession'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/placement:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationItemId'
+    put:
+      operationId: placeEstimationItem
+      summary: Put a card into a column (Magic Estimation)
+      description: |
+        MAGIC only. In `PLACING` the caller puts one of their own cards
+        (`mine`) into a column, or takes it out with `null`; another seat's
+        card answers 409 `PLANNING_ITEM_NOT_HELD`. In `MOVING` the caller
+        moves any card to another column (`null` not allowed). The value
+        must be a deck value other than `coffee` (400
+        `PLANNING_VALUE_INVALID`, the value is not echoed). Any other state,
+        a ROTATION session, a `state` in the body that is not the current
+        one, or a deadline that has passed answers 409
+        `PLANNING_SESSION_WRONG_STATE` (no grace, E14). The mover is never
+        recorded visibly: no answer, audit event, log or metric names who
+        placed or moved a card (E2, E4).
+
+        Moves (E16): a move by the same seat of the same card within 10
+        seconds replaces its previous move (back to where it came from
+        removes it). Per seat at most 5 moves per card and 3 x the number of
+        cards in total, at most 5000 per session (409
+        `PLANNING_MOVE_LIMIT_REACHED`). In PLACING `version` rises only when
+        the seat's `done` flips (E3); in MOVING on every move.
+
+        Order of refusals (as for every estimation operation): board role (404 LIBRARY_BOARD_NOT_FOUND) -> VIEWER-link guest (403
+        FORBIDDEN) -> session, including E9 for guests (404
+        PLANNING_SESSION_NOT_FOUND) -> role or seat (403) -> state and
+        expected round (409 PLANNING_SESSION_WRONG_STATE) -> card held (409
+        PLANNING_ITEM_NOT_HELD) -> value (400 PLANNING_VALUE_INVALID) ->
+        reason (400 PLANNING_REASON_REQUIRED) -> move limits (409
+        PLANNING_MOVE_LIMIT_REACHED). Only schema-side 400s
+        (VALIDATION_FAILED, MALFORMED_REQUEST) that do not depend on the
+        session may come earlier.
+
+        Who: a caller whose seat takes part (`seated`), else 403
+        `PLANNING_NOT_SEATED`; members need at least the role `COMMENTER`
+        (`VIEWER`: 403 `LIBRARY_BOARD_ACCESS_DENIED`). At most 60
+        placements per user and session and minute (429
+        `TOO_MANY_REQUESTS`). Not audited.
+
+        Guests (S1.8, E8): allowed for guests whose link role is `COMMENTER`
+        or `EDITOR` and who hold a seat taking part; VIEWER-link guests 403
+        `FORBIDDEN`. Guest limits are also keyed by share: at most 300
+        placements per share and session and minute.
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/EstimationPlacement'
+      responses:
+        '204':
+          description: Placed.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/estimate:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationItemId'
+    put:
+      operationId: setRotationEstimate
+      summary: Keep or change the estimate of a card I hold (Rotation)
+      description: |
+        ROTATION only, in `ROTATING`. The caller enters a value for a card
+        they hold in the current round (`mine`): the same value as
+        `currentValue` keeps it (`kept`, a reason is discarded); another
+        value needs a `reason` (400 `PLANNING_REASON_REQUIRED`); a card
+        without `currentValue` needs no reason. The value must be a deck value (400
+        `PLANNING_VALUE_INVALID`, not echoed). The caller may change their
+        own entry until the round ends. A card the caller does not hold now
+        answers 409 `PLANNING_ITEM_NOT_HELD` - the same body whether another
+        seat holds it or the caller holds it in another round (E2). Any
+        other state, a MAGIC session, a `round` in the body that is not the
+        current one, or a deadline that has passed answers 409
+        `PLANNING_SESSION_WRONG_STATE` (no grace, E14).
+
+        Answers the caller's entry only (`myEntry`). Nobody else sees the
+        value or reason before REVIEW (E4); `version` rises only when the
+        seat's `done` flips (E3). With `settings.advanceWhenDone` the round
+        ends early once every non-removed holder is done.
+
+        Order of refusals (as for every estimation operation): board role (404 LIBRARY_BOARD_NOT_FOUND) -> VIEWER-link guest (403
+        FORBIDDEN) -> session, including E9 for guests (404
+        PLANNING_SESSION_NOT_FOUND) -> role or seat (403) -> state and
+        expected round (409 PLANNING_SESSION_WRONG_STATE) -> card held (409
+        PLANNING_ITEM_NOT_HELD) -> value (400 PLANNING_VALUE_INVALID) ->
+        reason (400 PLANNING_REASON_REQUIRED) -> move limits (409
+        PLANNING_MOVE_LIMIT_REACHED). Only schema-side 400s
+        (VALIDATION_FAILED, MALFORMED_REQUEST) that do not depend on the
+        session may come earlier.
+
+        Who: a caller whose seat takes part (`seated`), else 403
+        `PLANNING_NOT_SEATED`; members need at least the role `COMMENTER`
+        (`VIEWER`: 403 `LIBRARY_BOARD_ACCESS_DENIED`). At most 30 estimates
+        per user and session and minute (429 `TOO_MANY_REQUESTS`). Values
+        and reasons are not audited, logged or traced (E12, E23).
+
+        Guests (S1.8, E8): allowed for guests whose link role is `COMMENTER`
+        or `EDITOR` and who hold a seat taking part; VIEWER-link guests 403
+        `FORBIDDEN`. Guest limits are also keyed by share: at most 150
+        estimates per share and session and minute.
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/RotationEstimate'
+      responses:
+        '200':
+          description: The caller's entry for the card in this round.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/EstimationEntry'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/decision:
+    parameters:
+      - $ref: '../common/common.yaml#/components/parameters/BoardId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationSessionId'
+      - $ref: '../common/common.yaml#/components/parameters/EstimationItemId'
+    put:
+      operationId: decideEstimationItem
+      summary: Record the decision for a card
+      description: |
+        Sets (or changes) the decided value of a card in `REVIEW` (else 409
+        `PLANNING_SESSION_WRONG_STATE`). ROTATION: one of the values entered
+        for the card, or any deck value when it has no entry (then
+        `overridden`). MAGIC: any deck value other than `coffee`;
+        `overridden` only when the card is not `marked` and the value
+        differs from its column (a marked card is never overridden). Anything
+        else answers 400 `PLANNING_DECISION_INVALID` (the value is not
+        echoed). Server-enforced (E13). Only the moderator (else 403
+        `LIBRARY_BOARD_ACCESS_DENIED`; guests 403 `FORBIDDEN`). Raises
+        `version`. At most 120 moderator operations per user and minute (429
+        `TOO_MANY_REQUESTS`). An overridden decision is audited (S7.1:
+        decision overridden, with session and card id - never the value).
+      tags: [planning]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/EstimationDecision'
+      responses:
+        '204':
+          description: Decision stored.
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: '../common/common.yaml#/components/responses/Conflict'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+
   # ==========================================================================
   # users - backend module `users`
   # ==========================================================================
@@ -2403,6 +3144,41 @@ paths:
           $ref: '../common/common.yaml#/components/responses/Forbidden'
         '406':
           $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+  /users/me/preferences:
+    put:
+      operationId: updateUserPreferences
+      summary: Change the settings of the signed-in user
+      description: |
+        Replaces the settings of the signed-in user (UserPreferences) and
+        returns them as stored; getCurrentUser returns them from then on, on
+        every device. The last write wins. Not for guests (they keep their
+        choice in the browser only).
+      tags: [users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/UserPreferences'
+      responses:
+        '200':
+          description: The stored settings.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/UserPreferences'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
         '500':
           $ref: '../common/common.yaml#/components/responses/InternalError'
   /users/search:
@@ -2439,3 +3215,83 @@ paths:
           $ref: '../common/common.yaml#/components/responses/TooManyRequests'
         '500':
           $ref: '../common/common.yaml#/components/responses/InternalError'
+
+  # ==========================================================================
+  # gifs - backend module `gifs`: GIF search at GIPHY through the server
+  # (Fable 2026-11-13, G1-G16). Signed-in users only, never guests.
+  # ==========================================================================
+  /gifs/search:
+    post:
+      operationId: searchGifs
+      summary: Search GIFs at GIPHY
+      description: |
+        One page (24) of GIFs for a search text, fetched by the server from
+        GIPHY with the instance's key and content rating (not chosen by the
+        caller). Signed-in users only, never guests (403 `FORBIDDEN`).
+        Without a key on this instance: 404 `GIFS_DISABLED`
+        (`CurrentUser.gifsEnabled`). At most 10 calls per minute and 40 per
+        hour per user (429 `TOO_MANY_REQUESTS`); the instance shares one
+        hourly budget at GIPHY (429 `GIFS_BUDGET_EXHAUSTED`); both with
+        `Retry-After`. GIPHY down or refusing: 503 `GIFS_UNAVAILABLE`.
+        The answer must not be cached by the client (`Cache-Control: no-store`).
+      tags: [gifs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../common/common.yaml#/components/schemas/GifSearch'
+      responses:
+        '200':
+          description: One page of GIFs.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/GifPage'
+        '400':
+          $ref: '../common/common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '415':
+          $ref: '../common/common.yaml#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../common/common.yaml#/components/responses/ServiceUnavailable'
+  /gifs/trending:
+    get:
+      operationId: listTrendingGifs
+      summary: GIFs trending at GIPHY
+      description: |
+        The first 24 trending GIFs (no paging, `hasMore` is false), cached by
+        the server for 30 minutes. Same rules, limits and errors as searchGifs.
+      tags: [gifs]
+      responses:
+        '200':
+          description: The trending GIFs.
+          content:
+            application/json:
+              schema:
+                $ref: '../common/common.yaml#/components/schemas/GifPage'
+        '401':
+          $ref: '../common/common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: '../common/common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: '../common/common.yaml#/components/responses/NotFound'
+        '406':
+          $ref: '../common/common.yaml#/components/responses/NotAcceptable'
+        '429':
+          $ref: '../common/common.yaml#/components/responses/TooManyRequests'
+        '500':
+          $ref: '../common/common.yaml#/components/responses/InternalError'
+        '503':
+          $ref: '../common/common.yaml#/components/responses/ServiceUnavailable'

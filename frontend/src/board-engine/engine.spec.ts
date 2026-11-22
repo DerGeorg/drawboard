@@ -1,7 +1,7 @@
 import { BlockType, BlockTypeRegistry } from './renderer/block-registry';
 import { registerBuiltinBlocks } from './blocks/builtin';
 import { pointerInfo } from './input/events';
-import { LOCAL_ORIGIN } from './model/board-doc';
+import { LOCAL_ORIGIN } from '@apps/drawboard-engine';
 import { TestEngine, createTestEngine } from './testing/helpers';
 import * as Y from 'yjs';
 

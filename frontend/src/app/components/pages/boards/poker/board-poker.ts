@@ -12,8 +12,7 @@ import { firstValueFrom } from 'rxjs';
 import * as Y from 'yjs';
 
 import type { EstimateSource } from '../../../../../board-engine/blocks/story';
-import { STORY_TYPE } from '../../../../../board-engine/blocks/story-model';
-import type { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { STORY_TYPE, type BoardDoc } from '@apps/drawboard-engine';
 import { ApiErrorHandler } from '../../../../services/api-error-handler';
 import { Auth } from '../../../../services/auth';
 import { ERRORS_HANDLED_LOCALLY } from '../../../../services/error-interceptor';

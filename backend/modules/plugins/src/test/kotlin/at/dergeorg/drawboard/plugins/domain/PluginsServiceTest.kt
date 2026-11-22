@@ -1,5 +1,8 @@
 package at.dergeorg.drawboard.plugins.domain
 
+import at.dergeorg.drawboard.plugins.domain.archive.ArchiveUnpacker
+import at.dergeorg.drawboard.plugins.domain.archive.PluginArchive
+import at.dergeorg.drawboard.plugins.domain.archive.UnpackedPlugin
 import at.dergeorg.drawboard.plugins.domain.plugins.PluginSettings
 import at.dergeorg.drawboard.plugins.domain.plugins.UserPseudonyms
 import at.dergeorg.drawboard.plugins.domain.plugins.model.Capability
@@ -18,18 +21,28 @@ import at.dergeorg.drawboard.shared.error.PayloadTooLargeException
 import at.dergeorg.drawboard.shared.error.RateLimitedException
 import at.dergeorg.drawboard.shared.testing.MutableClock
 import at.dergeorg.drawboard.shared.testing.RecordingAuditTrail
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -44,12 +57,16 @@ class PluginsServiceTest {
     private val writer = Uuid.generateV7()
     private val key = ByteArray(32) { 9 }
 
-    private fun service(pluginOrigin: String? = null, installsPerMinute: Int = 100, storageWritesPerMinute: Int = 1000) =
-        PluginsService(
-            repository, files, storage, DirectTransactions,
-            PluginSettings("https://draw.example.org", pluginOrigin, key, installsPerMinute, storageWritesPerMinute),
-            JsonMapper(), audit, clock,
-        )
+    private fun service(
+        pluginOrigin: String? = null,
+        installsPerMinute: Int = 100,
+        storageWritesPerMinute: Int = 1000,
+        archive: ArchiveUnpacker = PluginArchive(),
+    ) = PluginsService(
+        repository, files, storage, DirectTransactions,
+        PluginSettings("https://draw.example.org", pluginOrigin, key, installsPerMinute, storageWritesPerMinute),
+        JsonMapper(), audit, clock, archive,
+    )
 
     private suspend fun PluginsService.installed(zip: ByteArray = Zips.plugin()) = install(InstallPluginCommand(admin, zip))
 
@@ -195,6 +212,68 @@ class PluginsServiceTest {
             assertFailsWith<RateLimitedException>("second upload within a minute") { service.installed() }
             clock.advanceBy(61.seconds)
             service.installed(Zips.plugin(Zips.manifest(version = "1.0.1")))
+        }
+
+        @Test
+        fun `when two uploads arrive at once then their archives are unpacked one after the other`() = runTest {
+            val archive = WatchedArchive(overlapWait = 500.milliseconds)
+            val service = service(archive = archive)
+
+            withContext(Dispatchers.Default) {
+                listOf("org.example.one", "org.example.two")
+                    .map { id -> async { service.installed(Zips.plugin(Zips.manifest(id = id))) } }
+                    .awaitAll()
+            }
+
+            assertEquals(2, archive.calls.get(), "both archives unpacked")
+            assertEquals(1, archive.mostAtOnce.get(), "never two unpacked archives in memory at once (S3)")
+            assertEquals(setOf("org.example.one", "org.example.two"), repository.rows.keys, "both installed")
+        }
+
+        @Test
+        fun `when an upload is installed then its archive is unpacked off the caller's thread`() = runTest {
+            val archive = WatchedArchive(overlapWait = Duration.ZERO)
+
+            service(archive = archive).installed()
+
+            val thread = archive.threads.single()
+            assertTrue(thread.startsWith("DefaultDispatcher-worker"), "unpacked on Dispatchers.Default, not the event loop: $thread")
+        }
+
+        @Test
+        fun `when an archive is refused then the next upload still gets the install lock`() = runTest {
+            val service = service()
+            failure { service.installed(Zips.zip("drawboard-plugin.json" to Zips.manifest().toByteArray())) }
+
+            service.installed()
+
+            assertEquals(listOf("org.example.timer"), repository.rows.keys.toList(), "the second upload is installed")
+        }
+    }
+
+    /**
+     * The real archive, watched: how often and on which threads it unpacks, and how many unpacks ran at the same time. Each
+     * call waits up to [overlapWait] for a second one to come in, so two that are not serialised always overlap.
+     */
+    private class WatchedArchive(private val overlapWait: Duration) : ArchiveUnpacker {
+        private val real = PluginArchive()
+        private val active = AtomicInteger()
+        private val entered = CountDownLatch(2)
+        val calls = AtomicInteger()
+        val mostAtOnce = AtomicInteger()
+        val threads: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        override fun unpack(zip: ByteArray): UnpackedPlugin {
+            calls.incrementAndGet()
+            threads += Thread.currentThread().name
+            mostAtOnce.accumulateAndGet(active.incrementAndGet(), ::maxOf)
+            try {
+                entered.countDown()
+                entered.await(overlapWait.inWholeMilliseconds, TimeUnit.MILLISECONDS)
+                return real.unpack(zip)
+            } finally {
+                active.decrementAndGet()
+            }
         }
     }
 

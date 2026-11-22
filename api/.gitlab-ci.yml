@@ -17,13 +17,13 @@
 # =============================================================================
 
 include:
-  - component: $CI_SERVER_FQDN/ci/components/version@2.17.0
-  - component: $CI_SERVER_FQDN/ci/components/openapi@2.17.0
+  - component: $CI_SERVER_FQDN/ci/components/version@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/openapi@2.20.0
     inputs:
       spec: openapi.yaml
       build-script: scripts/build.sh   # copied unchanged from ci/components examples/contract-build.sh
       breaking-check: enforce
-  - component: $CI_SERVER_FQDN/ci/components/release@2.17.0
+  - component: $CI_SERVER_FQDN/ci/components/release@2.20.0
 
 stages: [version, lint, test, build, package, release]
 

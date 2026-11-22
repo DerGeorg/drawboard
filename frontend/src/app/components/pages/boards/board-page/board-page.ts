@@ -11,22 +11,30 @@ import {
 } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { BoardRole, BoardsService } from '@apps/drawboard-api';
+import { BoardRole, BoardsService, Gif } from '@apps/drawboard-api';
 
+import { SAMPLE_DIAGRAM, byteLength } from '../../../../../board-engine/blocks/mermaid';
 import {
+  GIF_TYPE,
   MAX_MERMAID_BYTES,
   MERMAID_TYPE,
-  SAMPLE_DIAGRAM,
-  byteLength,
-} from '../../../../../board-engine/blocks/mermaid';
+  KANBAN_TYPE,
+  newKanbanProps,
+  STORY_TYPE,
+  newStoryProps,
+  cleanGifAlt,
+  gifBlockSize,
+  isValidGiphyId,
+  type Point,
+} from '@apps/drawboard-engine';
 import { KANBAN_CARD_ACTION } from '../../../../../board-engine/blocks/kanban';
 import { STORY_ESTIMATE_ACTION } from '../../../../../board-engine/blocks/story';
-import { KANBAN_TYPE, newKanbanProps } from '../../../../../board-engine/blocks/kanban-model';
-import { STORY_TYPE, newStoryProps } from '../../../../../board-engine/blocks/story-model';
 import { mermaidRenderer } from '../../../../../board-engine/diagrams/mermaid-renderer';
 import { pdfRenderers } from '../../../../../board-engine/files/pdf-view';
-import type { Point } from '../../../../../board-engine/model/types';
 import { Auth } from '../../../../services/auth';
+import { GifConsentStore } from '../../../../services/gif-consent';
+import { RUNTIME_CONFIG } from '../../../../services/runtime-config';
+import { GifSearch } from '../../../shared/gif-picker/gif-search';
 import { Toasts } from '../../../../services/toasts';
 import type { PluginBlockOption } from '../../../../../board-engine/plugins/plugin-host';
 import { Modal } from '../../../shared/modal/modal';
@@ -42,6 +50,10 @@ import { BoardStoryEditor } from '../board-story-editor/board-story-editor';
 import { BoardPoker } from '../poker/board-poker';
 import { BoardPokerDialog } from '../poker/board-poker-dialog/board-poker-dialog';
 import { BoardPokerRounds } from '../poker/board-poker-rounds/board-poker-rounds';
+import { BoardEstimation } from '../estimation/board-estimation';
+import { EstimationPanel } from '../estimation/estimation-panel/estimation-panel';
+import { EstimationPill } from '../estimation/estimation-pill/estimation-pill';
+import { EstimationSetup } from '../estimation/estimation-setup/estimation-setup';
 import { BoardFiles } from '../board-files';
 import { BoardPlugins } from '../board-plugins';
 import { BoardUploadPanel } from '../board-upload-panel/board-upload-panel';
@@ -61,6 +73,8 @@ type SidePanel =
   | { kind: 'story'; blockId: string }
   | { kind: 'poker'; blockId: string }
   | { kind: 'quick-poker'; roundId: string | undefined }
+  | { kind: 'estimation'; sessionId: string }
+  | { kind: 'estimation-setup' }
   | { kind: 'card'; blockId: string; cardId: string };
 
 /**
@@ -90,10 +104,21 @@ type SidePanel =
     BoardStoryEditor,
     BoardPokerDialog,
     BoardPokerRounds,
+    EstimationPill,
+    EstimationSetup,
+    EstimationPanel,
     Modal,
     GuestMadeWith,
   ],
-  providers: [BoardCollab, BoardFiles, BoardUploads, BoardPlugins, BoardPoker, BoardFollow],
+  providers: [
+    BoardCollab,
+    BoardFiles,
+    BoardUploads,
+    BoardPlugins,
+    BoardPoker,
+    BoardEstimation,
+    BoardFollow,
+  ],
   templateUrl: './board-page.html',
   // the editor fills the window (the app shell drops header and footer on this route)
   host: { class: 'relative block h-dvh overflow-hidden' },
@@ -105,10 +130,16 @@ export class BoardPage {
   protected readonly uploads = inject(BoardUploads);
   protected readonly plugins = inject(BoardPlugins);
   private readonly poker = inject(BoardPoker);
+  private readonly estimation = inject(BoardEstimation);
   /** Following a participant, presenting ("bring everyone to me"). */
   protected readonly follow = inject(BoardFollow);
   private readonly auth = inject(Auth);
   private readonly toasts = inject(Toasts);
+  private readonly gifSearch = inject(GifSearch);
+  private readonly gifConsent = inject(GifConsentStore);
+  /** The frontend switch `GIFS_ENABLED` of this deployment (G3). */
+  private readonly gifsOnInstance =
+    inject(RUNTIME_CONFIG, { optional: true })?.gifsEnabled === true;
   /**
    * Host services of the built-in blocks: signed file URLs of this board, and pdf.js (its own
    * lazy chunk, assets copied to /pdfjs/ by angular.json) for PDFs and converted documents.
@@ -121,6 +152,13 @@ export class BoardPage {
     diagrams: mermaidRenderer(),
     // which story cards have an open planning poker round (the server's pairing)
     estimates: this.poker,
+    // GIFs from GIPHY (G3, G10): the frontend switch, and the viewer's own consent - guests too
+    gifs: {
+      enabled: this.gifsOnInstance,
+      mode: 'live' as const,
+      consent: this.gifConsent,
+      boardKey: () => this.boardId(),
+    },
   };
   /** The side panel on the right: a diagram's source, a kanban card, a story card. */
   protected readonly panel = signal<SidePanel | undefined>(undefined);
@@ -170,6 +208,19 @@ export class BoardPage {
   /** Uploads: editors and owners who are signed in - never guests (S1.9, S4.1). */
   protected readonly canUpload = computed(
     () => this.board.hasValue() && !this.readOnly() && this.guest() === null,
+  );
+
+  /**
+   * The GIF picker: both switches on (frontend `GIFS_ENABLED` and the backend key, G3), a signed-in
+   * editor (never a guest, G5), and the instance did not answer GIFS_DISABLED.
+   */
+  protected readonly gifsAvailable = computed(
+    () =>
+      this.gifsOnInstance &&
+      this.auth.user()?.gifsEnabled === true &&
+      this.guest() === null &&
+      !this.readOnly() &&
+      !this.gifSearch.disabled(),
   );
 
   constructor() {
@@ -222,6 +273,13 @@ export class BoardPage {
     effect(() => {
       const doc = this.doc();
       untracked(() => this.poker.watch(doc));
+    });
+    // estimation sessions: the active sessions of this board (VIEWER-link guests: none)
+    effect(() => {
+      const board = this.loaded();
+      if (board) {
+        untracked(() => this.estimation.open(board.id, board.role));
+      }
     });
     // role or title changed (reload after a share change): plugins see it in their next init
     effect(() => {
@@ -303,6 +361,38 @@ export class BoardPage {
     if (this.poker.access() === 'start' && !this.readOnly()) {
       this.panel.set({ kind: 'quick-poker', roundId: undefined });
     }
+  }
+
+  /** An estimation session (lobby, board, panel or review); VIEWER-link guests never. */
+  @WithSpan('BoardPage.openEstimation')
+  protected openEstimation(sessionId: string): void {
+    if (this.estimation.access() !== 'none') {
+      this.panel.set({ kind: 'estimation', sessionId });
+    }
+  }
+
+  /** The setup of a new estimation session: signed-in editors and owners only. */
+  @WithSpan('BoardPage.newEstimation')
+  protected newEstimation(): void {
+    if (this.estimation.access() === 'create' && !this.readOnly()) {
+      this.panel.set({ kind: 'estimation-setup' });
+    }
+  }
+
+  /** A GIF picked in the picker: a `core.gif` block with the GIF's aspect ratio. */
+  @WithSpan('BoardPage.addGif')
+  protected addGif(gif: Gif): void {
+    const engine = this.engine();
+    if (!engine || !isValidGiphyId(gif.id)) {
+      return;
+    }
+    const alt = cleanGifAlt(gif.title);
+    engine.insertBlock({
+      type: GIF_TYPE,
+      at: engine.visibleCenter(),
+      size: gifBlockSize(gif),
+      props: { giphyId: gif.id, ...(alt ? { alt } : {}) },
+    });
   }
 
   @WithSpan('BoardPage.addKanban')

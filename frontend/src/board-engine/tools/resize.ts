@@ -1,4 +1,4 @@
-import { MIN_BLOCK_SIZE, Point, Rect } from '../model/types';
+import { MIN_BLOCK_SIZE, Point, Rect } from '@apps/drawboard-engine';
 import { HandleId } from './tool';
 
 export const HANDLES: readonly HandleId[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];

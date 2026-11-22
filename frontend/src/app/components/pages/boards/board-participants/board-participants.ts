@@ -1,7 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 
-import type { ProviderState } from '../../../../../board-engine/collab/provider';
-import { PeerPresence, safeColor } from '../../../../../board-engine/presence';
+import { type ProviderState, PeerPresence, safeColor } from '@apps/drawboard-engine';
 import { WithSpan } from '../../../../util/tracing';
 import { Avatar } from '../../../shared/avatar/avatar';
 import { Icon } from '../../../shared/icon/icon';

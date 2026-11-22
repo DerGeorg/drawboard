@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Board, BoardRole } from '@apps/drawboard-api';
 
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
 
 import { all, buttonByLabel, buttonByText, textOf, typeInto } from '../../../../test/dom';
 import { signedInAsAlice } from '../../../../test/fake-auth';
@@ -74,6 +74,22 @@ describe('BoardTitleBar', () => {
 
       expect(textOf(fixture), 'text').toContain('Sprint planning');
       expect(textOf(fixture), 'role').toContain('Owner');
+    });
+
+    it('when a signed-in user looks at the board then the theme button sits next to the menu', async () => {
+      await render();
+
+      expect(el('[data-testid=theme-button]'), 'theme button').not.toBeNull();
+      expect(el('button[aria-label=More]'), 'More menu').not.toBeNull();
+    });
+
+    it('when a guest looks at the board then the theme button is there although the menu is not', async () => {
+      guest.set(true);
+
+      await render();
+
+      expect(el('[data-testid=theme-button]'), 'theme button').not.toBeNull();
+      expect(el('button[aria-label=More]'), 'a guest has no More menu').toBeNull();
     });
 
     it('when the user is only a viewer then the title is plain text', async () => {

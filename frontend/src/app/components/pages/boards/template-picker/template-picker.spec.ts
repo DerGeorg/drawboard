@@ -3,7 +3,7 @@ import { inputBinding, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Board } from '@apps/drawboard-api';
 
-import { BUILTIN_TEMPLATES } from '../../../../../board-engine/templates/builtin-templates';
+import { loadBuiltinTemplates } from '@apps/drawboard-engine';
 import { Toasts } from '../../../../services/toasts';
 import { all, buttonByText, textOf } from '../../../../test/dom';
 import { signedInAsAlice } from '../../../../test/fake-auth';
@@ -172,12 +172,13 @@ describe('TemplatePicker', () => {
   });
 
   describe('choiceTitle', () => {
-    it('when a choice is asked for its title then boards and templates answer and the empty board does not', () => {
+    it('when a choice is asked for its title then boards and templates answer and the empty board does not', async () => {
       expect(choiceTitle(EMPTY_CHOICE), 'empty').toBeUndefined();
       expect(choiceTitle({ kind: 'board', board: aBoard({ title: 'X' }) }), 'board').toBe('X');
-      expect(choiceTitle({ kind: 'builtin', template: BUILTIN_TEMPLATES[3] }), 'built-in').toBe(
-        'Kanban',
-      );
+      expect(
+        choiceTitle({ kind: 'builtin', template: (await loadBuiltinTemplates())[3] }),
+        'built-in',
+      ).toBe('Kanban');
     });
   });
 

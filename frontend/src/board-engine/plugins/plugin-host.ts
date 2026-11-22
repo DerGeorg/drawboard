@@ -1,18 +1,20 @@
-import { BoardDoc } from '../model/board-doc';
-import { BlockData, isBlockEnd } from '../model/types';
-import { BlockType, BlockTypeRegistry, BlockView } from '../renderer/block-registry';
-import { Emitter } from '../util/emitter';
-import { EndReason, FrameConnector, PluginInstance, defaultConnector } from './plugin-instance';
 import {
+  BoardDoc,
+  BlockData,
+  isBlockEnd,
+  BoardTheme,
+  Emitter,
   CAPABILITIES,
   Capability,
   CapabilityName,
-  LIMITS,
+  PLUGIN_LIMITS as LIMITS,
   PLUGIN_ID,
   PluginError,
   isPlainJson,
   jsonBytes,
-} from './protocol';
+} from '@apps/drawboard-engine';
+import { BlockType, BlockTypeRegistry, BlockView } from '../renderer/block-registry';
+import { EndReason, FrameConnector, PluginInstance, defaultConnector } from './plugin-instance';
 
 /** An enabled plugin as `listEnabledPlugins` returns it (contract `EnabledPlugin`). */
 export interface EnabledPluginInfo {
@@ -75,6 +77,8 @@ export interface PluginBoard {
   readonly registry: BlockTypeRegistry;
   readonly readOnly: boolean;
   readonly readOnlyChanged: Emitter<boolean>;
+  /** The theme of the board changed (`PluginSession.colorScheme` then answers the new one). */
+  readonly themeChanged?: Emitter<BoardTheme>;
 }
 
 export interface PluginHostOptions {
@@ -197,6 +201,7 @@ export class PluginHost implements PluginRuntime {
   private readonly maxFrames: number;
   private readonly storageQueues = new Map<string, Promise<unknown>>();
   private readonly offReadOnly: () => void;
+  private readonly offTheme: () => void;
 
   constructor(
     private readonly target: PluginBoard,
@@ -212,6 +217,12 @@ export class PluginHost implements PluginRuntime {
         view.instance?.modeChanged();
       }
     });
+    this.offTheme =
+      target.themeChanged?.on(() => {
+        for (const view of this.views) {
+          view.instance?.themeChanged();
+        }
+      }) ?? (() => undefined);
   }
 
   mode(): 'view' | 'edit' {
@@ -315,6 +326,7 @@ export class PluginHost implements PluginRuntime {
     this.plugins.clear();
     this.stopped.clear();
     this.offReadOnly();
+    this.offTheme();
     this.blockOptionsChanged.clear();
   }
 
@@ -603,7 +615,7 @@ export class PluginBlockView implements BlockView {
     this.root.className = 'be-plugin';
     this.root.style.cssText =
       'width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;' +
-      'border:1px dashed #7c3aed;border-radius:6px;background:#fff;overflow:hidden';
+      'border:1px dashed #7c3aed;border-radius:6px;background:var(--be-surface,#fff);overflow:hidden';
     const badge = d.createElement('div');
     badge.className = 'be-plugin-badge';
     badge.style.cssText =
@@ -614,7 +626,7 @@ export class PluginBlockView implements BlockView {
     this.slot.className = 'be-plugin-slot';
     this.slot.style.cssText =
       'flex:1 1 auto;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;' +
-      'font:12px system-ui,sans-serif;color:#64748b;text-align:center';
+      'font:12px system-ui,sans-serif;color:var(--be-text-3,#64748b);text-align:center';
     this.root.append(badge, this.slot);
     element.appendChild(this.root);
     this.stopObserving = observe(element, (visible) => {

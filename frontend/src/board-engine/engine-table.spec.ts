@@ -1,6 +1,9 @@
-import { parseBoardFile } from './io/board-file';
-import { FRAME_TITLE_HEIGHT } from './model/frames';
-import { TABLE_DEFAULTS, tableOf } from './model/tables';
+import {
+  parseBoardFile,
+  FRAME_TITLE_HEIGHT,
+  TABLE_DEFAULTS,
+  tableOf,
+} from '@apps/drawboard-engine';
 import { TestEngine, createTestEngine } from './testing/helpers';
 
 describe('BoardEngine tables', () => {

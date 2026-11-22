@@ -140,7 +140,21 @@ components:
         - PLANNING_ROUND_LIMIT_REACHED # 409, params: limit (the board already has this many OPEN rounds, 10, quick rounds included)
         - PLANNING_ROUND_CLOSED      # 409, params: roundId, state (REVEALED or CANCELLED) - vote, reveal or cancel on a round that is no longer OPEN
         - PLANNING_ROUND_FULL        # 409, params: roundId, limit - castPokerVote by a non-participant when the round has 200 participants, 50 guests, or 20 guests of the caller's share link
-        - PLANNING_VALUE_INVALID     # 400, params: roundId (the vote is not a value of the round's deck; the value itself is not echoed)
+        - PLANNING_VALUE_INVALID     # 400, params: roundId (the vote is not a value of the round's deck) or sessionId, itemId (an estimation placement or estimate that is not a value of the session's deck, `coffee` or `null` where not allowed); the value itself is never echoed
+        # module planning, subdomain sessions (estimation sessions)
+        - PLANNING_SESSION_NOT_FOUND # 404, params: sessionId, plus itemId when the session exists but the card is not one of it (no such session on this board); also - on every operation, with params sessionId only - a REVIEW, DONE or CANCELLED session for a guest without a seat in it (E9)
+        - PLANNING_SESSION_LIMIT_REACHED # 409, params: limit (the board already has this many active sessions, 3)
+        - PLANNING_SESSION_WRONG_STATE # 409, params: sessionId, state, round (the current ones) - the operation is not allowed in this state, the expected state/round of advance, placement or estimate is not the current one, or the phase's deadline has passed (no grace)
+        - PLANNING_SESSION_FULL      # 409, params: sessionId, limit - joinEstimationSession when the session has 30 seats, 15 guest seats, or 10 seats of the caller's share link
+        - PLANNING_NOT_SEATED        # 403, params: sessionId - placement or estimate by a caller whose seat does not take part (or who has no seat)
+        - PLANNING_ITEM_NOT_HELD     # 409, params: sessionId, itemId - the card is not the caller's in this phase or round; the same body whether another seat holds it or the caller holds it in another round (E2)
+        - PLANNING_REASON_REQUIRED   # 400, params: sessionId, itemId - a Rotation estimate that changes the previous value without a reason
+        - PLANNING_DECISION_INVALID  # 400, params: sessionId, itemId - the decided value is not allowed for this card (Rotation: not one of its entered values; Magic: not a column value); the value itself is not echoed
+        - PLANNING_MOVE_LIMIT_REACHED # 409, params: sessionId, limit - a Magic move beyond 5 per card and seat, 3 x items per seat, or 5000 per session
+        # module gifs
+        - GIFS_DISABLED              # 404, no params - this instance has no GIPHY key: GIF search does not exist here
+        - GIFS_BUDGET_EXHAUSTED      # 429, no params - the hourly GIPHY budget of the whole instance is used up (or GIPHY itself answered 429); see Retry-After
+        - GIFS_UNAVAILABLE           # 503, no params - GIPHY did not answer, answered with an error or refused the key; transient for the caller
 
     # --- paging ------------------------------------------------------------
     # Paging, shared by every "<Resource>Page" schema. OpenAPI has no generics, so
@@ -1685,6 +1699,833 @@ components:
           items:
             $ref: '#/components/schemas/PokerRound'
 
+    # --- planning: estimation sessions -------------------------------------
+    # Schemas of the resource "estimation sessions" (module planning, subdomain
+    # sessions): Magic Estimation and Rotation, moderated sessions over many
+    # cards at once (architecture 3.15, security review 2026-11-19, E1-E24).
+    # Seats, entries, moves, reasons and timers live only on the server, never
+    # in the Yjs document (S7.6, E20). No user id of a participant appears
+    # here; seat ids are session-local random UUIDs. Before REVIEW no answer
+    # names who holds or moved a card, and nothing is published per card that
+    # would reveal the ring (E2-E4). Every object rejects unknown properties.
+    # The deck is `PokerDeck`, a value count is `PokerValueCount` (shared with
+    # planning poker).
+    EstimationMode:
+      type: string
+      description: |
+        MAGIC (Magic Estimation): the cards are dealt evenly; in PLACING
+        everyone silently puts their own cards into a deck column, in MOVING
+        everyone seated may move any card; cards moved often or left in `?`
+        are marked for the review. ROTATION: the cards are dealt evenly and
+        wander in a ring for a fixed number of timed rounds; each holder sees
+        the previous estimate without its author and keeps or changes it
+        (with a reason). Values and reasons become visible only in REVIEW.
+      enum: [MAGIC, ROTATION]
+    EstimationSessionState:
+      type: string
+      description: |
+        LOBBY (created; callers join, nothing is dealt yet), PLACING (MAGIC:
+        each seat places its own cards), MOVING (MAGIC: every seat may move
+        every card), ROTATING (ROTATION: the current round, `round`), REVIEW
+        (everything is visible; the moderator decides per card), DONE
+        (finished; the decisions are final), CANCELLED (ended without result;
+        entries, reasons and moves were deleted at once). Phases end by the
+        server clock (`phaseEndsAt`) or early by the moderator; a session
+        never goes back to an earlier state. DONE and CANCELLED never change
+        again. "Active" means every state but DONE and CANCELLED.
+      enum: [LOBBY, PLACING, MOVING, ROTATING, REVIEW, DONE, CANCELLED]
+    EstimationItemRefKind:
+      type: string
+      description: |
+        What a card of a session refers to in the board's document: STORY (a
+        story card block, field `estimate`) or KANBAN_CARD (a card of a kanban
+        board block, fields `estimate` and `points`).
+      enum: [STORY, KANBAN_CARD]
+    EstimationItemRef:
+      type: object
+      additionalProperties: false
+      description: |
+        Where a card lives in the board's Yjs document. The server cannot
+        read the document: it checks only the form and that no two cards of
+        one session have the same ref (400 VALIDATION_FAILED), and keeps the
+        ids as opaque, untrusted hints (E20). A client writes a decision into
+        the document only when the block (and, for KANBAN_CARD, the card)
+        still exists and has the matching type (E21).
+      required: [kind, blockId]
+      properties:
+        kind:
+          $ref: '#/components/schemas/EstimationItemRefKind'
+        blockId:
+          type: string
+          minLength: 36
+          maxLength: 36
+          # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          description: |
+            Id of the block in the board's Yjs document (a lowercase UUID as
+            the board engine creates it): the story card, or the kanban board
+            that holds the card.
+        cardId:
+          type: string
+          minLength: 36
+          maxLength: 36
+          # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          description: |
+            Id of the card inside the kanban board block (lowercase UUID).
+            Required when `kind` is KANBAN_CARD and forbidden for STORY
+            (else 400 VALIDATION_FAILED, violation field `items[n].ref.cardId`).
+    NewEstimationItem:
+      type: object
+      additionalProperties: false
+      description: One card of a new session (`NewEstimationSession.items`).
+      required: [ref, title]
+      properties:
+        ref:
+          $ref: '#/components/schemas/EstimationItemRef'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # One line, no C0/C1 control characters, at least one non-blank
+          # character. Adjacent repeated classes are disjoint (leading blanks,
+          # then the first non-blank, then the rest), so matching is linear in
+          # the length - no catastrophic backtracking (ReDoS), even though Bean
+          # Validation runs before authorisation and rate limits. Anchored, so
+          # the form is the same for JSON Schema and Java's @Pattern; `\s`
+          # still differs between them for some Unicode spaces (e.g. NBSP), so
+          # the server trims and checks for blank text Unicode-aware, and also
+          # rejects Cc/Cf and U+2028/U+2029.
+          pattern: '^[^\S\x00-\x1F\x7F-\x9F]*[^\s\x00-\x1F\x7F-\x9F][^\x00-\x1F\x7F-\x9F]*$'
+          description: |
+            The card's title when the session is created (a copy; later edits
+            of the card do not change it - the UI shows the live title next
+            to it). Text only, one line, at most 200 characters; the server
+            normalises it to Unicode NFC, removes leading and trailing
+            whitespace and rejects control or format characters (Unicode
+            Cc/Cf) and the line and paragraph separators U+2028/U+2029 with
+            400 VALIDATION_FAILED (E12). Clients render it as
+            plain text, never as HTML or a link.
+    EstimationSettings:
+      type: object
+      additionalProperties: false
+      description: |
+        Timing and rules of a session, fixed at creation (E1) and shown in
+        the lobby before anyone joins. One flat object for both modes (no
+        `oneOf`: the generated Kotlin could not pick a branch without a
+        second discriminator next to `NewEstimationSession.mode`). Which
+        fields a mode needs is checked by the server: a missing required
+        field or a field of the other mode answers 400 VALIDATION_FAILED
+        with a violation per field (`settings.<field>`).
+
+        * MAGIC: `placingSeconds` and `movingSeconds` required,
+          `markThreshold` optional (default 3); `rounds`, `roundSeconds`,
+          `advanceWhenDone` forbidden.
+        * ROTATION: `rounds` and `roundSeconds` required, `advanceWhenDone`
+          optional (default true); `placingSeconds`, `movingSeconds`,
+          `markThreshold` forbidden.
+
+        In an answer the fields of the session's mode are always set, the
+        defaults filled in; the other mode's fields are absent.
+      properties:
+        placingSeconds:
+          type: integer
+          format: int32
+          minimum: 30
+          maximum: 900
+          description: MAGIC only. Length of the PLACING phase in seconds (30-900).
+        movingSeconds:
+          type: integer
+          format: int32
+          minimum: 30
+          maximum: 1800
+          description: MAGIC only. Length of the MOVING phase in seconds (30-1800).
+        markThreshold:
+          type: integer
+          format: int32
+          minimum: 3
+          maximum: 20
+          description: |
+            MAGIC only (3-20). A card is `marked` for the review when it was moved
+            at least this often in MOVING (each seat counts at most 2 moves
+            per card), or when it has no column or sits in `?`. Default 3.
+        rounds:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 10
+          description: |
+            ROTATION only. Number of rounds each card wanders (1-10). At the
+            start it must not exceed the number of seats picked (`seatIds`),
+            so nobody holds a card twice (E7); else 400 VALIDATION_FAILED.
+            Each card gets at most one entry per round, so a session has at
+            most 50 x 10 = 500 entries.
+        roundSeconds:
+          type: integer
+          format: int32
+          minimum: 30
+          maximum: 900
+          description: ROTATION only. Length of one round in seconds (30-900).
+        advanceWhenDone:
+          type: boolean
+          description: |
+            ROTATION only. When true (default), a round ends early as soon as
+            every non-removed seat holding a card in it is `done`.
+    NewEstimationSession:
+      type: object
+      additionalProperties: false
+      description: |
+        Payload of createEstimationSession. Mode, deck, cards, anonymity and
+        settings are fixed at creation; no operation changes them (E1).
+      required: [mode, title, deck, items, settings]
+      properties:
+        mode:
+          $ref: '#/components/schemas/EstimationMode'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          # One line, no C0/C1 control characters, at least one non-blank
+          # character. Adjacent repeated classes are disjoint (leading blanks,
+          # then the first non-blank, then the rest), so matching is linear in
+          # the length - no catastrophic backtracking (ReDoS), even though Bean
+          # Validation runs before authorisation and rate limits. Anchored, so
+          # the form is the same for JSON Schema and Java's @Pattern; `\s`
+          # still differs between them for some Unicode spaces (e.g. NBSP), so
+          # the server trims and checks for blank text Unicode-aware, and also
+          # rejects Cc/Cf and U+2028/U+2029.
+          pattern: '^[^\S\x00-\x1F\x7F-\x9F]*[^\s\x00-\x1F\x7F-\x9F][^\x00-\x1F\x7F-\x9F]*$'
+          description: |
+            Name of the session, e.g. "Sprint 42". Same rules as
+            `NewEstimationItem.title`: text only, one line, at most 200
+            characters, NFC, trimmed, Cc/Cf and U+2028/U+2029 rejected (400
+            VALIDATION_FAILED).
+        deck:
+          $ref: '#/components/schemas/PokerDeck'
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: |
+            The cards to estimate, 1 to 50, in the order they are shown.
+            Each ref at most once per session (400 VALIDATION_FAILED).
+          items:
+            $ref: '#/components/schemas/NewEstimationItem'
+        anonymous:
+          type: boolean
+          default: true
+          description: |
+            True (default): from REVIEW on values and reasons are shown
+            without names, and the server drops the mapping of seats to
+            entries and moves when the session enters REVIEW (E5). False:
+            REVIEW shows the display name with every entry. The mover of a
+            Magic card is never named, in either case.
+        settings:
+          $ref: '#/components/schemas/EstimationSettings'
+    EstimationSessionMe:
+      type: object
+      additionalProperties: false
+      description: The caller's own relation to a session.
+      required: [seated, moderator]
+      properties:
+        seatId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Id of the caller's own seat (`EstimationSeat.id`) once they
+            joined; absent when they hold no seat. Never another seat's id.
+        seated:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether the caller's seat takes part (`EstimationSeat.seated`):
+            in LOBBY every joined seat, from the start only the seats the
+            moderator picked.
+        moderator:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether the caller may start, advance, decide, finish and cancel:
+            the user who created the session while they still have the role
+            EDITOR or OWNER, or the board's OWNER (E13). Always false for
+            guests (they never moderate).
+    EstimationSessionSummary:
+      type: object
+      additionalProperties: false
+      description: |
+        A session as listed by listEstimationSessions: never items, seats or
+        entries (E17). Fetch the session itself with getEstimationSession.
+      required: [id, mode, title, state, round, moderatorName, createdAt, seatCount, itemCount, me]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        mode:
+          $ref: '#/components/schemas/EstimationMode'
+        title:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: The title given at creation (plain text, one line).
+        state:
+          $ref: '#/components/schemas/EstimationSessionState'
+        round:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+          readOnly: true
+          description: As `EstimationSession.round`.
+        moderatorName:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: Display name (else username) of the moderator; `Deleted user` when that user was deleted.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        seatCount:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 30
+          readOnly: true
+          description: Number of listed seats (`EstimationSession.seats`).
+        itemCount:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 50
+          readOnly: true
+          description: Number of cards.
+        me:
+          $ref: '#/components/schemas/EstimationSessionMe'
+    EstimationSessionList:
+      type: object
+      additionalProperties: false
+      description: |
+        Sessions of a board, newest first: the active ones (at most 3 per
+        board) or the closed ones (DONE and CANCELLED, at most 100 kept per
+        board).
+      required: [items]
+      properties:
+        items:
+          type: array
+          readOnly: true
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/EstimationSessionSummary'
+    EstimationSession:
+      type: object
+      additionalProperties: false
+      description: |
+        An estimation session as the caller sees it. Everyone who may see the
+        session sees the same, except their own cards (`EstimationItem.mine`,
+        `column` in PLACING, `currentValue` and `myEntry` in ROTATING) and
+        `me`; the moderator has no privileged view (E13). Before REVIEW
+        nothing names the holder or mover of a card, and progress is
+        published per seat (`EstimationSeat.done`), never per card (E2-E4).
+      required: [id, mode, title, deck, anonymous, settings, state, round, serverTime, moderatorName, createdAt, version, seats, items, me]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        mode:
+          $ref: '#/components/schemas/EstimationMode'
+        title:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: The title given at creation (plain text, one line).
+        deck:
+          $ref: '#/components/schemas/PokerDeck'
+        anonymous:
+          type: boolean
+          readOnly: true
+          description: As given at creation (`NewEstimationSession.anonymous`).
+        settings:
+          $ref: '#/components/schemas/EstimationSettings'
+        state:
+          $ref: '#/components/schemas/EstimationSessionState'
+        round:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+          readOnly: true
+          description: |
+            ROTATION: index of the current round, starting at 0 (0 to
+            `settings.rounds` - 1) in ROTATING; 0 in LOBBY; from REVIEW on the
+            index of the last round. MAGIC: always 0. Together with `state`
+            it is what advanceEstimationSession, placeEstimationItem and
+            setRotationEstimate expect.
+        phaseEndsAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: |
+            When the current phase or round ends by the server clock. Set in
+            PLACING, MOVING and ROTATING only. Clients count down against
+            `serverTime` (not their own clock) and poll at 0; the next
+            request after the deadline applies the transition (E14).
+        serverTime:
+          type: string
+          format: date-time
+          readOnly: true
+          description: The server's clock when the answer was made; the reference for `phaseEndsAt`.
+        moderatorId:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Id of the user who created the session (`CurrentUser.id`).
+            Absent for guests (they must not collect user ids of members).
+        moderatorName:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: Display name (else username) of the moderator; `Deleted user` when that user was deleted.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        startedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the moderator started the session. Absent in LOBBY.
+        closedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the session became DONE or CANCELLED. Absent before.
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: |
+            Raised on join and leave, start, every phase or round change,
+            when a seat's `done` flips, on every Magic move in MOVING, on a
+            decision, finish and cancel, and when seats are removed because
+            their share link was revoked. Not raised by a single placement in
+            PLACING or a Rotation entry unless it flips `done`, nor by
+            changing one's own entry (E3). The `ETag` of getEstimationSession
+            is `W/"<version>"`.
+        seats:
+          type: array
+          readOnly: true
+          maxItems: 30
+          description: |
+            The seats, in the order they joined. Seats removed because their
+            share link was revoked are not listed. At most 30, of them at
+            most 15 guests (10 per share link).
+          items:
+            $ref: '#/components/schemas/EstimationSeat'
+        items:
+          type: array
+          readOnly: true
+          maxItems: 50
+          description: The cards, in the order given at creation.
+          items:
+            $ref: '#/components/schemas/EstimationItem'
+        me:
+          $ref: '#/components/schemas/EstimationSessionMe'
+    EstimationSeat:
+      type: object
+      additionalProperties: false
+      description: |
+        A seat of a session: who joined and whether they take part. Never a
+        user id, never which cards the seat holds or what it entered (E2).
+      required: [id, displayName, guest, seated, done]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: |
+            Session-local random id (not the user id, not a UUIDv7); what
+            startEstimationSession takes in `seatIds`.
+        displayName:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: |
+            Display name (else username) of a member as stored when they
+            joined, `Deleted user` when the user was deleted since; for a
+            guest the guest name of their session (sanitised, at most 64
+            characters).
+        guest:
+          type: boolean
+          readOnly: true
+          description: |
+            True for a guest. Set by the server from the principal type; the
+            UI shows a guest badge, so a guest cannot pass as a member with
+            the same name (S1.10).
+        seated:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether the seat takes part: in LOBBY every joined seat (a
+            candidate for the start), from the start only the seats the
+            moderator picked; the others watch.
+        done:
+          type: boolean
+          readOnly: true
+          description: |
+            Progress of a seated seat in the current phase: PLACING - every
+            own card has a column; ROTATING - every card it holds in this
+            round has an entry. False in every other state and for seats
+            that do not take part. The only progress published before
+            REVIEW (E3).
+    EstimationItem:
+      type: object
+      additionalProperties: false
+      description: |
+        One card of a session as the caller sees it. Which fields are set
+        depends on the state and the caller (E3-E5):
+
+        * `column`: MAGIC; in PLACING only on the caller's own cards
+          (`mine`), in MOVING, REVIEW and DONE for everyone.
+        * `moveCount`, `marked`: MAGIC, in MOVING, REVIEW and DONE (`marked`
+          is frozen when REVIEW starts).
+        * `currentValue`, `myEntry`: ROTATION, only in ROTATING and only on
+          cards the caller holds in the current round.
+        * `result`, `decision`, `overridden`: in REVIEW and DONE.
+
+        In CANCELLED none of `result`, `decision`, `overridden`, `column`,
+        `moveCount` and `marked` is set.
+      required: [id, ref, title, position, mine]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Assigned by the server (UUIDv7).
+        ref:
+          $ref: '#/components/schemas/EstimationItemRef'
+        title:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: The title copied at creation (plain text, one line).
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 49
+          readOnly: true
+          description: Index in `NewEstimationSession.items`, starting at 0.
+        mine:
+          type: boolean
+          readOnly: true
+          description: |
+            True when the card is the caller's to work on now: MAGIC in
+            PLACING - dealt to the caller's seat; ROTATION in ROTATING - held
+            by the caller in the current round. False everywhere else. Never
+            says who holds any other card (E2).
+        column:
+          type: string
+          readOnly: true
+          maxLength: 8
+          description: |
+            MAGIC: the deck value whose column the card sits in (a value of
+            `deck` other than `coffee`; `?` is a parking column). Absent
+            while the card has no column, and for cards of other seats in
+            PLACING.
+        moveCount:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 150
+          readOnly: true
+          description: MAGIC, in MOVING, REVIEW and DONE. How often the card was moved in MOVING (at most 5 per seat); never by whom.
+        marked:
+          type: boolean
+          readOnly: true
+          description: |
+            MAGIC, in MOVING, REVIEW and DONE. True when the card should be discussed:
+            moved at least `settings.markThreshold` times, without a column,
+            in `?`, or touched by a seat that was removed when its share link
+            was revoked. Frozen when REVIEW starts.
+        currentValue:
+          type: string
+          readOnly: true
+          maxLength: 8
+          description: |
+            ROTATION, in ROTATING, only for the holder: the latest value
+            entered for the card in an earlier round - without author,
+            reason, round or history (E4). Absent for the first holder of a
+            card. Nobody else sees it, the moderator and the board's OWNER
+            included.
+        myEntry:
+          $ref: '#/components/schemas/EstimationEntry'
+        result:
+          $ref: '#/components/schemas/EstimationItemResult'
+        decision:
+          type: string
+          readOnly: true
+          maxLength: 8
+          description: |
+            In REVIEW and DONE: the value the moderator decided for the card
+            (decideEstimationItem). Absent until decided; a card may stay
+            undecided when the session is finished.
+        overridden:
+          type: boolean
+          readOnly: true
+          description: |
+            In REVIEW and DONE, with `decision`: true when the decision is
+            not what the session produced - ROTATION: a deck value on a card
+            without any entry; MAGIC: the card is not `marked` AND the value
+            differs from its column. A marked Magic card is never
+            overridden (E13). Audited.
+    EstimationItemResult:
+      type: object
+      additionalProperties: false
+      description: |
+        Outcome of one card, from REVIEW on (E5). Same for everyone who may
+        see the session. Numeric values are the deck values that are decimal
+        numbers (`^[0-9]+(\.[0-9]+)?$`), as in `PokerResult`. 30 days after
+        the session became DONE `entries` and `moveTrail` are empty (single
+        values and reasons are no longer returned, E22); the aggregates and
+        the decision stay. In CANCELLED sessions there is no result.
+      required: [entries, distribution, candidates, moveTrail]
+      properties:
+        entries:
+          type: array
+          readOnly: true
+          maxItems: 10
+          description: |
+            ROTATION: every entry of the card, one per round at most, in a
+            random order stored by the server (never by round, so the ring
+            cannot be computed back). With `anonymous` true without names.
+            MAGIC: empty.
+          items:
+            $ref: '#/components/schemas/EstimationEntry'
+        average:
+          type: number
+          format: double
+          readOnly: true
+          description: |
+            ROTATION: arithmetic mean of the numeric values in `entries`,
+            rounded to two decimals. Absent without a numeric value, and for
+            MAGIC.
+        median:
+          type: number
+          format: double
+          readOnly: true
+          description: |
+            ROTATION: median of the numeric values (mean of the two middle
+            ones for an even count), rounded to two decimals. Absent without
+            a numeric value, and for MAGIC.
+        distribution:
+          type: array
+          readOnly: true
+          maxItems: 20
+          description: |
+            ROTATION: how often each value was entered for the card - only
+            values with at least one entry, in deck order. MAGIC: empty.
+          items:
+            $ref: '#/components/schemas/PokerValueCount'
+        candidates:
+          type: array
+          readOnly: true
+          maxItems: 20
+          description: |
+            The values decideEstimationItem accepts without marking the
+            decision `overridden`, in deck order. ROTATION: the distinct
+            values entered for the card (empty without an entry). MAGIC: for
+            an unmarked card its column; for a marked card every deck value
+            other than `coffee`.
+          items:
+            type: string
+            maxLength: 8
+        moveTrail:
+          type: array
+          readOnly: true
+          maxItems: 151
+          description: |
+            MAGIC: the columns the card went through, oldest first (the
+            placed column, then one value per move) - values only, never
+            who placed or moved it, also with `anonymous` false (E4).
+            ROTATION: empty.
+          items:
+            type: string
+            maxLength: 8
+    EstimationEntry:
+      type: object
+      additionalProperties: false
+      description: |
+        One Rotation entry: as `EstimationItem.myEntry` the caller's own
+        entry for a card in the current round (also the answer of
+        setRotationEstimate), in `EstimationItemResult.entries` one revealed
+        entry. Never an entry id, a round or a time (E5).
+      required: [value, kept]
+      properties:
+        value:
+          type: string
+          readOnly: true
+          maxLength: 8
+          description: The value of the deck that was entered.
+        reason:
+          type: string
+          readOnly: true
+          maxLength: 280
+          description: |
+            Why the holder changed the previous value (plain text, one line;
+            render with `textContent`, never as HTML or a link, E12). Absent
+            when the value was kept or for the first entry of a card.
+        kept:
+          type: boolean
+          readOnly: true
+          description: True when the holder kept the previous value (`currentValue`).
+        displayName:
+          type: string
+          readOnly: true
+          maxLength: 200
+          description: |
+            Only in a result of a session with `anonymous` false: the name of
+            the seat that made the entry (as `EstimationSeat.displayName`).
+            Absent in `myEntry` and in anonymous sessions.
+        guest:
+          type: boolean
+          readOnly: true
+          description: Only together with `displayName`; true when that seat is a guest's.
+    EstimationStart:
+      type: object
+      additionalProperties: false
+      description: Payload of startEstimationSession.
+      required: [seatIds]
+      properties:
+        seatIds:
+          type: array
+          minItems: 2
+          maxItems: 30
+          uniqueItems: true
+          description: |
+            The seats that take part (`EstimationSeat.id`), 2 to 30, each
+            once, each a listed seat of this session, and - in both modes -
+            not more seats than the session has cards (so every seat gets at
+            least one card). Seats of revoked share links are dropped first.
+            An unknown or repeated id, fewer than 2 remaining seats, more
+            seats than cards, or (ROTATION) fewer seats than `settings.rounds`
+            answers 400 VALIDATION_FAILED (field `seatIds`). Joined seats not
+            listed here watch.
+          items:
+            type: string
+            format: uuid
+    EstimationPlacement:
+      type: object
+      additionalProperties: false
+      description: |
+        Payload of placeEstimationItem. `value` is required and nullable
+        (the generated Kotlin cannot tell an absent field from `null`).
+        `state` (recommended) is the phase the client believes is current,
+        PLACING or MOVING; when it is not the current state the placement is
+        refused with 409 PLANNING_SESSION_WRONG_STATE instead of landing in
+        the next phase (E14).
+      required: [value]
+      properties:
+        value:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 8
+          description: |
+            The column to put the card into: a value of the session's deck
+            other than `coffee`, exactly as in `PokerDeck.values`
+            (case-sensitive), else 400 PLANNING_VALUE_INVALID (the value is
+            not echoed). `null` takes an own card out of its column and is
+            allowed only in PLACING (else 400 PLANNING_VALUE_INVALID).
+        state:
+          $ref: '#/components/schemas/EstimationSessionState'
+    RotationEstimate:
+      type: object
+      additionalProperties: false
+      description: Payload of setRotationEstimate.
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 8
+          description: |
+            A value of the session's deck, exactly as in `PokerDeck.values`
+            (case-sensitive), else 400 PLANNING_VALUE_INVALID (the value is
+            not echoed). The same value as `currentValue` keeps it.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 280
+          # One line, no C0/C1 control characters, at least one non-blank
+          # character. Adjacent repeated classes are disjoint (leading blanks,
+          # then the first non-blank, then the rest), so matching is linear in
+          # the length - no catastrophic backtracking (ReDoS), even though Bean
+          # Validation runs before authorisation and rate limits. Anchored, so
+          # the form is the same for JSON Schema and Java's @Pattern; `\s`
+          # still differs between them for some Unicode spaces (e.g. NBSP), so
+          # the server trims and checks for blank text Unicode-aware, and also
+          # rejects Cc/Cf and U+2028/U+2029.
+          pattern: '^[^\S\x00-\x1F\x7F-\x9F]*[^\s\x00-\x1F\x7F-\x9F][^\x00-\x1F\x7F-\x9F]*$'
+          description: |
+            Required when `value` differs from `currentValue` (else 400
+            PLANNING_REASON_REQUIRED); discarded when the value is kept; a
+            card without `currentValue` needs no reason. Text only, one line, at
+            most 280 characters; the server normalises it to NFC, trims it
+            and rejects control or format characters (Unicode Cc/Cf) and
+            U+2028/U+2029 with 400 VALIDATION_FAILED (E12).
+        round:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+          description: |
+            The round the client believes is current (`EstimationSession.round`).
+            Recommended: when it is not the current round the entry is
+            refused with 409 PLANNING_SESSION_WRONG_STATE instead of landing
+            in the next round (E14).
+    EstimationAdvance:
+      type: object
+      additionalProperties: false
+      description: |
+        Payload of advanceEstimationSession: the state and round the
+        moderator's client believes are current. Anything else answers 409
+        PLANNING_SESSION_WRONG_STATE, so a double click or a deadline that
+        passed in between never skips a phase (E14).
+      required: [state, round]
+      properties:
+        state:
+          $ref: '#/components/schemas/EstimationSessionState'
+        round:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+          description: As `EstimationSession.round` (MAGIC always 0).
+    EstimationDecision:
+      type: object
+      additionalProperties: false
+      description: Payload of decideEstimationItem.
+      required: [value]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 8
+          description: |
+            The decided value, exactly as in `PokerDeck.values`
+            (case-sensitive). ROTATION: one of the values entered for this
+            card (`EstimationItemResult.candidates`), or any deck value when
+            the card has no entry (then `overridden`). MAGIC: any deck value
+            other than `coffee`; `overridden` only when the card is not
+            `marked` and the value differs from its column. Anything else answers 400 PLANNING_DECISION_INVALID
+            (the value is not echoed).
+
     # --- users -------------------------------------------------------------
     # Schemas of the resource "users".
     CurrentUser:
@@ -1692,7 +2533,7 @@ components:
       description: |
         The signed-in user. The profile is refreshed from the access token's
         claims on every call of getCurrentUser.
-      required: [id, username, admin, guestLinksEnabled]
+      required: [id, username, admin, guestLinksEnabled, gifsEnabled, theme]
       properties:
         id:
           type: string
@@ -1724,6 +2565,32 @@ components:
             account (`DRAWBOARD_GUESTS_ENABLED`, S1.14). When false, the UI
             offers only links for signed-in users; a GUESTS link would be
             answered with 403.
+        gifsEnabled:
+          type: boolean
+          description: |
+            Whether this instance has a GIPHY API key, i.e. searchGifs and
+            listTrendingGifs work. When false they answer 404 `GIFS_DISABLED`
+            and the UI offers no GIF search. Whether GIF blocks are displayed
+            is decided by the frontend's own runtime flag, not by this field.
+        theme:
+          $ref: '#/components/schemas/ColorTheme'
+    ColorTheme:
+      type: string
+      description: |
+        Light or dark appearance of the app and the board canvas, chosen by
+        the user: SYSTEM follows the operating system, LIGHT and DARK fix it.
+        Only the view changes; the colours stored in a board stay the same
+        for everyone. New users start with SYSTEM.
+      enum: [SYSTEM, LIGHT, DARK]
+    UserPreferences:
+      type: object
+      description: |
+        Settings of the signed-in user that follow them to every device.
+        updateUserPreferences replaces them as a whole.
+      required: [theme]
+      properties:
+        theme:
+          $ref: '#/components/schemas/ColorTheme'
     UserSummary:
       type: object
       description: |
@@ -1752,6 +2619,66 @@ components:
           maxItems: 20
           items:
             $ref: '#/components/schemas/UserSummary'
+    # --- gifs ----------------------------------------------------------------
+    GifSearch:
+      type: object
+      description: A GIF search. Sent in the body so the search text never appears in a URL.
+      required: [q]
+      properties:
+        q:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[^\u0000-\u001F\u007F]+$'
+          description: Search text. Trimmed and whitespace-collapsed by the server; at least 2 characters after that.
+        page:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 9
+          default: 0
+          description: Page of 24 results.
+        lang:
+          type: string
+          pattern: '^[a-z]{2}$'
+          description: Language of the search text (ISO 639-1). Default `en`.
+    Gif:
+      type: object
+      description: |
+        One GIF at GIPHY. No URLs: the client builds the image URL from the
+        id and a fixed base. Width and height are those of the original and
+        only give the aspect ratio.
+      required: [id, title, width, height]
+      properties:
+        id:
+          type: string
+          pattern: '^[A-Za-z0-9]{1,64}$'
+        title:
+          type: string
+          maxLength: 200
+          description: Plain text, may be empty. Never markup.
+        width:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 4096
+        height:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 4096
+    GifPage:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/Gif'
+        hasMore:
+          type: boolean
+          description: False on the last page GIPHY has, and always on page 9.
   parameters:
     # Reusable parameters. Parameter schemas stay primitive (no objects, no enums
     # inline) so they never produce a generated model.
@@ -1966,6 +2893,36 @@ components:
         default: OPEN
         # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
         pattern: '^(OPEN|REVEALED|CANCELLED)$'
+    EstimationSessionId:
+      name: sessionId
+      in: path
+      required: true
+      description: Id of the estimation session (`EstimationSession.id`).
+      schema:
+        type: string
+        format: uuid
+    EstimationItemId:
+      name: itemId
+      in: path
+      required: true
+      description: Id of a card of the session (`EstimationItem.id`).
+      schema:
+        type: string
+        format: uuid
+    EstimationSessionStateFilter:
+      name: state
+      in: query
+      required: false
+      description: |
+        `ACTIVE` (default): sessions in LOBBY, PLACING, MOVING, ROTATING or
+        REVIEW. `CLOSED`: sessions in DONE or CANCELLED. A string with a
+        pattern rather than an enum because parameter schemas stay primitive
+        in this contract.
+      schema:
+        type: string
+        default: ACTIVE
+        # Anchored on purpose: means the same for JSON Schema and Java's @Pattern.
+        pattern: '^(ACTIVE|CLOSED)$'
     IfNoneMatch:
       name: If-None-Match
       in: header
@@ -2016,7 +2973,8 @@ components:
       schema:
         type: integer
         format: int64
-    # Response headers of getPokerRound (polling with If-None-Match).
+    # Response headers of getPokerRound and getEstimationSession (polling
+    # with If-None-Match).
     VaryAuthorization:
       description: Always `Authorization` - the answer depends on the caller.
       schema:
@@ -2028,10 +2986,18 @@ components:
         `If-None-Match`; `*` counts as no match.
       schema:
         type: string
+    EstimationSessionETag:
+      description: |
+        `W/"<version>"` of the session (`EstimationSession.version`). Weak,
+        because the body depends on the caller (`me`, own cards). Send it
+        back unchanged in `If-None-Match`; `*` counts as no match.
+      schema:
+        type: string
     NoStoreCacheControl:
       description: |
         Always `no-store`: the answer is per caller and changes while a round
-        is open; the browser must not cache it, so a 304 reaches the script.
+        or session runs; the browser must not cache it, so a 304 reaches the
+        script.
       schema:
         type: string
   responses:
@@ -2042,7 +3008,8 @@ components:
         The request is invalid (VALIDATION_FAILED, MALFORMED_REQUEST), or a
         domain rule named by the operation (PLUGINS_ARCHIVE_INVALID,
         PLUGINS_MANIFEST_INVALID, PLUGINS_CAPABILITY_NOT_REQUESTED,
-        PLANNING_VALUE_INVALID).
+        PLANNING_VALUE_INVALID, PLANNING_REASON_REQUIRED,
+        PLANNING_DECISION_INVALID).
       content:
         application/problem+json:
           schema:
@@ -2064,7 +3031,8 @@ components:
       description: |
         The caller may see the resource but not do this with it (FORBIDDEN,
         LIBRARY_BOARD_ACCESS_DENIED), the operation is not open to guests
-        (FORBIDDEN), a share link's password is missing or wrong
+        (FORBIDDEN), the caller has no seat taking part in an estimation
+        session (PLANNING_NOT_SEATED), a share link's password is missing or wrong
         (LIBRARY_SHARE_PASSWORD_REQUIRED, LIBRARY_SHARE_PASSWORD_INVALID), an
         admin operation called by a non-admin (FORBIDDEN), or a signed file
         URL does not verify (FILES_URL_INVALID).
@@ -2078,7 +3046,8 @@ components:
         LIBRARY_BOARD_NOT_FOUND, LIBRARY_FOLDER_NOT_FOUND,
         LIBRARY_USER_NOT_FOUND, LIBRARY_SHARE_NOT_FOUND,
         COLLAB_VERSION_NOT_FOUND, FILES_FILE_NOT_FOUND,
-        PLUGINS_PLUGIN_NOT_FOUND, PLANNING_ROUND_NOT_FOUND).
+        PLUGINS_PLUGIN_NOT_FOUND, PLANNING_ROUND_NOT_FOUND,
+        PLANNING_SESSION_NOT_FOUND).
       content:
         application/problem+json:
           schema:
@@ -2098,7 +3067,10 @@ components:
         domain conflicts named by the operation (LIBRARY_FOLDER_CYCLE,
         COLLAB_SNAPSHOT_NOT_REQUESTED, PLUGINS_VERSION_EXISTS,
         PLANNING_ROUND_ALREADY_OPEN, PLANNING_ROUND_LIMIT_REACHED,
-        PLANNING_ROUND_CLOSED, PLANNING_ROUND_FULL).
+        PLANNING_ROUND_CLOSED, PLANNING_ROUND_FULL,
+        PLANNING_SESSION_LIMIT_REACHED, PLANNING_SESSION_WRONG_STATE,
+        PLANNING_SESSION_FULL, PLANNING_ITEM_NOT_HELD,
+        PLANNING_MOVE_LIMIT_REACHED).
       content:
         application/problem+json:
           schema:
@@ -2140,10 +3112,26 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorModel'
     TooManyRequests:
-      description: Rate limit of this caller exceeded (TOO_MANY_REQUESTS). Retry after the time in Retry-After.
+      description: |
+        Rate limit exceeded: of this caller (TOO_MANY_REQUESTS) or, for GIF
+        search, of the whole instance at GIPHY (GIFS_BUDGET_EXHAUSTED). Retry
+        after the time in Retry-After.
       headers:
         Retry-After:
           description: Seconds until the next request can succeed.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+    ServiceUnavailable:
+      description: An upstream service this operation needs is not available (e.g. GIFS_UNAVAILABLE). Retry later.
+      headers:
+        Retry-After:
+          description: Seconds until a retry makes sense, when known.
           schema:
             type: integer
             format: int32

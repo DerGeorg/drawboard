@@ -1,10 +1,10 @@
-import { BlockData } from '../model/types';
 import {
+  BlockData,
   Capability,
   CapabilityName,
   EVENTS,
   Envelope,
-  LIMITS,
+  PLUGIN_LIMITS as LIMITS,
   PAYLOADS,
   PLUGIN_API_VERSION,
   PluginError,
@@ -14,7 +14,7 @@ import {
   jsonBytes,
   parseEnvelope,
   withinBound,
-} from './protocol';
+} from '@apps/drawboard-engine';
 import type { PluginRuntime, ValidPlugin } from './plugin-host';
 
 /** Why an instance ended; decides the placeholder text. */
@@ -97,6 +97,11 @@ export class PluginInstance {
 
   modeChanged(): void {
     this.send('mode.changed', { mode: this.runtime.mode() });
+  }
+
+  /** The board's colour scheme changed: the plugin may restyle itself. */
+  themeChanged(): void {
+    this.send('theme.changed', { theme: { colorScheme: this.runtime.session.colorScheme() } });
   }
 
   /** Ends the instance: the frame is removed at once (S3.10), the port closed. */

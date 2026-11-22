@@ -1,11 +1,10 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 
-import { BoardDoc } from '../model/board-doc';
+import { BoardDoc, DrawboardProvider } from '@apps/drawboard-engine';
 import { FakeCollabServer } from '../testing/fake-collab-server';
 import { TestEngine, createTestEngine } from '../testing/helpers';
 import { bindPresence } from './presence-binding';
-import { DrawboardProvider } from './provider';
 
 describe('bindPresence', () => {
   let t: TestEngine;

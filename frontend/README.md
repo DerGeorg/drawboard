@@ -37,7 +37,8 @@ src/
     environment.ts           image build (dev AND prod) - no URLs
     environment.development.ts   ng serve: inline runtime config for the local dev stack
   board-engine/              the whiteboard engine: plain TypeScript, no Angular, no RxJS
-                             (ESLint enforces it). model/ (Y.Doc schema), renderer/ (DOM + SVG
+                             (ESLint enforces it); the DOM-free core (model, file format, collab protocol,
+                             templates) is the package @apps/drawboard-engine. renderer/ (DOM + SVG
                              layers), tools/, input/, text/ (text editing), blocks/ (built-in
                              block types: sticky, text, shape, file, mermaid, kanban, story),
                              collab/
@@ -145,7 +146,7 @@ guest link become **guests**:
 - **Import** (editor menu): a `.drawboard` or a plain `board.json` becomes a **new** board
   (`createBoard`, then the normal collaboration traffic writes the document in acknowledged
   pieces below the 1 MiB frame limit; a failed import deletes the half-filled board). Limits
-  (S5.5), all enforced in `board-engine/io/`: ZIP <= 200 MB, unpacked <= 500 MB and <= 100 MB
+  (S5.5), all enforced in `@apps/drawboard-engine` (`io/`): ZIP <= 200 MB, unpacked <= 500 MB and <= 100 MB
   per entry, <= 1000 entries, no `..`/absolute/backslash paths, `board.json` <= 20 MB (counted
   while inflating), known `schemaVersion`, per block type schema (unknown types are refused),
   hex colours only, finite coordinates, <= 20 000 blocks. **`snapshot.yjs` is never read** (not
@@ -158,7 +159,7 @@ guest link become **guests**:
 
 ## Zoom
 
-From **2 % to 800 %** (`board-engine/camera.ts`, Miro-like). The zoom pill at the bottom right
+From **2 % to 800 %** (`@apps/drawboard-engine`, `camera.ts`, Miro-like). The zoom pill at the bottom right
 zooms out, shows the level (click = 100 %), zooms in and fits the whole board.
 
 | Keys             | What                         |
@@ -201,7 +202,7 @@ Like Miro: a click on someone's avatar in the participants pill opens their menu
   "X is presenting - you're following" with **Stop** and **Ignore**; stopping is local and
   final for that summon. I see "You are presenting - n following: ..." and **End**; when I end,
   my followers stop with a notice.
-- **Awareness payload** (`board-engine/collab/awareness-state.ts`), next to cursor and
+- **Awareness payload** (`@apps/drawboard-engine`, `collab/awareness-state.ts`), next to cursor and
   selection: `viewport {x, y, zoom}` (centre, rounded to world units, zoom to 4 decimals;
   sent with the rest of the state, at most 10 per second), `following <client id>`,
   `summon {id, targets: "all" | client ids}`. No free text: every name shown comes from the
@@ -242,7 +243,7 @@ Like Miro: select on the canvas, then
   `{ drawboard: "clipboard", version: 1, sourceBoard, content: <board.json> }`, plus a
   `text/plain` fallback with the block texts in reading order. So pasting works across boards
   and tabs of the same browser, and into other programs as text.
-- **The clipboard is untrusted input** (`board-engine/io/clipboard.ts`): at most 512 KB (so one paste stays below the 1 MiB Yjs update limit) (checked
+- **The clipboard is untrusted input** (`@apps/drawboard-engine`, `io/clipboard.ts`): at most 512 KB (so one paste stays below the 1 MiB Yjs update limit) (checked
   before parsing), 2000 blocks, 2000 connectors, 2000 strokes; the content runs through the
   same validators as `.drawboard` import (per block type, `Object.hasOwn` lookups, hex colours
   only, finite coordinates, references). Block types that are neither built in nor of a plugin
@@ -258,7 +259,7 @@ Like Miro: select on the canvas, then
 ## Frames
 
 `core.frame` (tool **F**, toolbar _Frame_): an area with a title that holds other blocks, e.g. to
-model a system or to move a group of cards at once. Rules (`board-engine/model/frames.ts`):
+model a system or to move a group of cards at once. Rules (`@apps/drawboard-engine`, `model/frames.ts`):
 
 - **Membership:** a block belongs to the innermost frame under its centre after it was created,
   moved, pasted or inserted (`parent` in the Y.Doc); dragging it out clears it. Drawing a frame
@@ -285,7 +286,7 @@ model a system or to move a group of cards at once. Rules (`board-engine/model/f
 
 ## Tables
 
-Georg's idea - "many frames inside a parent frame" - taken literally (`board-engine/model/tables.ts`):
+Georg's idea - "many frames inside a parent frame" - taken literally (`@apps/drawboard-engine`, `model/tables.ts`):
 a table is a `core.frame` with `props.table = { rows, cols, colWidths, rowHeights }`, and its
 cells are `core.frame` children with `props.cell = { row, col }`; row 0 is the header row (titled
 "Column 1", ...; other cells may get titles too). No `core.table` type: every frame rule
@@ -454,7 +455,7 @@ negative tests in the pipeline, audit events).
 
 ## Kanban
 
-`core.kanban` (architecture 3.10, `board-engine/blocks/kanban.ts` + `kanban-model.ts`) is a
+`core.kanban` (architecture 3.10, `board-engine/blocks/kanban.ts` + `kanban-model.ts` (model in `@apps/drawboard-engine`)) is a
 built-in, trusted block that edits its own data in place: the engine hands trusted block types a
 `BlockHost` (board, undo steps, selection, requests to the app); plugin blocks never see it.
 Toolbar: _Kanban_ adds one with three columns.
@@ -496,7 +497,7 @@ validated field by field with the limits above (S5.5); `duplicate` clones the ne
 
 ## Story cards
 
-`core.story` (`blocks/story.ts` + `story-model.ts`): a scrum story with title, description,
+`core.story` (`blocks/story.ts` + `story-model.ts` (model in `@apps/drawboard-engine`)): a scrum story with title, description,
 acceptance criteria and estimate. Toolbar: _Story card_ adds one and opens its side panel;
 double-click or Enter on a selected story opens the panel again. Title and description are
 edited live (every keystroke the smallest Y.Text edit, so concurrent typing merges); criteria
@@ -579,21 +580,22 @@ the image's nginx renders from environment variables at container start
 (`deploy/nginx/default.conf.template`); `main.ts` loads it before bootstrap. `ng serve` uses
 the inline config of `environment.development.ts` instead.
 
-| Variable                           | Default                                 | Meaning                                                                                                                                        |
-| ---------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_ENVIRONMENT`                  | `unset`                                 | `local`, `dev`, `prod` - header badge (not on prod); `dev`/`prod` also add `upgrade-insecure-requests` to the CSP                              |
-| `BACKEND_URL`                      | `http://drawboard-backend:18081`        | target of the `/api` proxy                                                                                                                     |
-| `OIDC_ISSUER`                      | - (required)                            | issuer URL of the provider (`.../.well-known/openid-configuration` below it); its origin is added to the CSP                                   |
-| `OIDC_CLIENT_ID`                   | `drawboard-web`                         | public SPA client (code flow + PKCE)                                                                                                           |
-| `OIDC_SCOPE`                       | `openid profile email`                  | scopes requested at login                                                                                                                      |
-| `FARO_RECEIVER_URL`                | - (Faro off)                            | Alloy `faro.receiver`, e.g. `http://192.0.2.4:12347`; set = Faro on                                                                          |
-| `FARO_APP_NAME` / `FARO_NAMESPACE` | `drawboard-frontend` / `drawboard`      | `service.name` / `service.namespace`                                                                                                           |
-| `FARO_SAMPLING_RATE`               | `1`                                     | share of page loads that send telemetry                                                                                                        |
-| `APP_VERSION`                      | build argument                          | image version: footer, Faro release (source-map key)                                                                                           |
-| `FILES_ORIGIN`                     | - (app origin)                          | own origin of the signed file URLs (= backend `DRAWBOARD_FILES_ORIGIN`): `/config.json` `filesOrigin`, CSP `img-src`/`media-src`/`connect-src` |
-| `PLUGIN_ORIGIN`                    | - (app origin)                          | own origin of plugin assets and frames (= backend `DRAWBOARD_PLUGIN_ORIGIN`, S3.4): `/config.json` `pluginOrigin`, CSP `frame-src`             |
-| `ABOUT_URL`                        | `https://drawboard.dergeorg.at`         | product site: "Host your own" in the footer, About dialog and guest line (`/config.json` `aboutUrl`); empty = promotion hidden                 |
-| `SOURCE_URL`                       | `https://github.com/DerGeorg/drawboard` | where this instance offers its source (AGPL-3.0 section 13): footer and About dialog (`/config.json` `sourceUrl`); empty or invalid = default  |
+| Variable                           | Default                                 | Meaning                                                                                                                                         |
+| ---------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENVIRONMENT`                  | `unset`                                 | `local`, `dev`, `prod` - header badge (not on prod); `dev`/`prod` also add `upgrade-insecure-requests` to the CSP                               |
+| `BACKEND_URL`                      | `http://drawboard-backend:18081`        | target of the `/api` proxy                                                                                                                      |
+| `OIDC_ISSUER`                      | - (required)                            | issuer URL of the provider (`.../.well-known/openid-configuration` below it); its origin is added to the CSP                                    |
+| `OIDC_CLIENT_ID`                   | `drawboard-web`                         | public SPA client (code flow + PKCE)                                                                                                            |
+| `OIDC_SCOPE`                       | `openid profile email`                  | scopes requested at login                                                                                                                       |
+| `FARO_RECEIVER_URL`                | - (Faro off)                            | Alloy `faro.receiver`, e.g. `http://192.0.2.4:12347`; set = Faro on                                                                           |
+| `FARO_APP_NAME` / `FARO_NAMESPACE` | `drawboard-frontend` / `drawboard`      | `service.name` / `service.namespace`                                                                                                            |
+| `FARO_SAMPLING_RATE`               | `1`                                     | share of page loads that send telemetry                                                                                                         |
+| `APP_VERSION`                      | build argument                          | image version: footer, Faro release (source-map key)                                                                                            |
+| `FILES_ORIGIN`                     | - (app origin)                          | own origin of the signed file URLs (= backend `DRAWBOARD_FILES_ORIGIN`): `/config.json` `filesOrigin`, CSP `img-src`/`media-src`/`connect-src`  |
+| `PLUGIN_ORIGIN`                    | - (app origin)                          | own origin of plugin assets and frames (= backend `DRAWBOARD_PLUGIN_ORIGIN`, S3.4): `/config.json` `pluginOrigin`, CSP `frame-src`              |
+| `GIFS_ENABLED`                     | `false`                                 | exactly `true`: GIFs from GIPHY (G3, G12): `/config.json` `gifsEnabled` and `https://media.giphy.com` in the CSP `img-src`; anything else = off |
+| `ABOUT_URL`                        | `https://drawboard.dergeorg.at`         | product site: "Host your own" in the footer, About dialog and guest line (`/config.json` `aboutUrl`); empty = promotion hidden                  |
+| `SOURCE_URL`                       | `https://github.com/DerGeorg/drawboard` | where this instance offers its source (AGPL-3.0 section 13): footer and About dialog (`/config.json` `sourceUrl`); empty or invalid = default   |
 
 `ABOUT_URL` and `SOURCE_URL` must be absolute `https://` URLs; the image bakes in the defaults
 above. An invalid value falls back to the default (nginx passes only URL characters on). An

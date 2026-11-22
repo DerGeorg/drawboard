@@ -7,6 +7,10 @@ import at.dergeorg.drawboard.shared.testing.RecordingAuditTrail
 import at.dergeorg.drawboard.shared.testing.TestUsers.ALICE
 import at.dergeorg.drawboard.shared.testing.TestUsers.BOB
 import at.dergeorg.drawboard.shared.testing.version
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme
+import at.dergeorg.drawboard.shared.error.DomainException
+import at.dergeorg.drawboard.shared.error.ErrorCode
+import kotlin.test.assertFailsWith
 import at.dergeorg.drawboard.users.testing.UserProfileFixtures.BOB_ID
 import at.dergeorg.drawboard.users.testing.UserProfileFixtures.aSyncFromLoginCommand
 import at.dergeorg.drawboard.users.testing.UserProfileFixtures.aUserProfile
@@ -96,6 +100,70 @@ class UsersServiceTest {
             val profile = serviceWith(repository).syncFromLogin(aSyncFromLoginCommand())
 
             assertEquals(aUserProfile(), profile, "the stored profile, untouched by the lost update")
+        }
+    }
+
+    @Nested
+    inner class ChangeTheme {
+
+        @Test
+        fun `when syncing given a login seen for the first time then the theme is SYSTEM`() = runTest {
+            val profile = serviceWith(InMemoryUserProfileRepository()).syncFromLogin(aSyncFromLoginCommand())
+
+            assertEquals(ColorTheme.SYSTEM, profile.theme, "new users follow the operating system")
+        }
+
+        @Test
+        fun `when changing the theme then it is stored without an audit event`() = runTest {
+            val repository = InMemoryUserProfileRepository(aUserProfile())
+
+            val profile = serviceWith(repository).changeTheme(aUserProfile().id, ColorTheme.DARK)
+
+            assertEquals(ColorTheme.DARK, profile.theme, "returned theme")
+            assertEquals(1, profile.version, "version raised by the update")
+            assertEquals(listOf(profile), repository.all, "stored profiles")
+            assertTrue(audit.events.isEmpty(), "a display setting is not audited")
+        }
+
+        @Test
+        fun `when changing the theme given the stored one then nothing is written`() = runTest {
+            val stored = aUserProfile(theme = ColorTheme.LIGHT)
+            val repository = InMemoryUserProfileRepository(stored)
+
+            val profile = serviceWith(repository).changeTheme(stored.id, ColorTheme.LIGHT)
+
+            assertEquals(stored, profile, "unchanged profile, same version")
+        }
+
+        @Test
+        fun `when syncing a login after the theme was changed then the theme stays`() = runTest {
+            val repository = InMemoryUserProfileRepository(aUserProfile(theme = ColorTheme.DARK))
+
+            val profile = serviceWith(repository).syncFromLogin(aSyncFromLoginCommand())
+
+            assertEquals(ColorTheme.DARK, profile.theme, "a claims refresh never resets the theme")
+        }
+
+        @Test
+        fun `when a concurrent update wins once then the change is applied on top of it`() = runTest {
+            val repository = InMemoryUserProfileRepository(aUserProfile())
+            repository.failNextUpdate = true
+
+            val profile = serviceWith(repository).changeTheme(aUserProfile().id, ColorTheme.DARK)
+
+            assertEquals(ColorTheme.DARK, profile.theme, "retried after the lost update")
+        }
+
+        @Test
+        fun `when concurrent updates keep winning then CONFLICT`() = runTest {
+            val repository = InMemoryUserProfileRepository(aUserProfile())
+            repository.failAllUpdates = true
+
+            val failure = assertFailsWith<DomainException>("three lost updates in a row") {
+                serviceWith(repository).changeTheme(aUserProfile().id, ColorTheme.DARK)
+            }
+
+            assertEquals(ErrorCode.CONFLICT, failure.errorCode, "error code")
         }
     }
 

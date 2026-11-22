@@ -63,6 +63,7 @@ internal class SecurityConfig {
             if (swaggerUiEnabled) authorize(API_DOCUMENTATION, permitAll)
             // --- users ---
             authorize(pathMatchers(GET, "/api/users/me"), signedIn) // getCurrentUser
+            authorize(pathMatchers(PUT, "/api/users/me/preferences"), signedIn) // updateUserPreferences
             authorize(pathMatchers(GET, "/api/users/search"), signedIn) // searchUsers
             // --- boards (listed before the one-segment patterns: "shared" must not be read as a board id) ---
             authorize(pathMatchers(GET, "/api/boards/shared"), signedIn) // listSharedWithMe
@@ -143,6 +144,24 @@ internal class SecurityConfig {
             authorize(pathMatchers(PUT, "/api/boards/*/poker-rounds/*/vote"), signedInOrGuest) // castPokerVote
             authorize(pathMatchers(POST, "/api/boards/*/poker-rounds/*/reveal"), signedIn) // revealPokerRound
             authorize(pathMatchers(POST, "/api/boards/*/poker-rounds/*/cancel"), signedIn) // cancelPokerRound
+            // --- planning, estimation sessions (3.15, E8): guests with a COMMENTER or EDITOR link may list (ACTIVE only), read, join,
+            // leave, place and estimate; the service turns VIEWER-link guests away (403) and applies E9. Create and every moderator
+            // operation (start, advance, decide, finish, cancel) are for signed-in editors and owners, never for guests ---
+            authorize(pathMatchers(GET, "/api/boards/*/estimation-sessions"), signedInOrGuest) // listEstimationSessions
+            authorize(pathMatchers(POST, "/api/boards/*/estimation-sessions"), signedIn) // createEstimationSession
+            authorize(pathMatchers(GET, "/api/boards/*/estimation-sessions/*"), signedInOrGuest) // getEstimationSession
+            authorize(pathMatchers(PUT, "/api/boards/*/estimation-sessions/*/seats/me"), signedInOrGuest) // joinEstimationSession
+            authorize(pathMatchers(DELETE, "/api/boards/*/estimation-sessions/*/seats/me"), signedInOrGuest) // leaveEstimationSession
+            authorize(pathMatchers(POST, "/api/boards/*/estimation-sessions/*/start"), signedIn) // startEstimationSession
+            authorize(pathMatchers(POST, "/api/boards/*/estimation-sessions/*/advance"), signedIn) // advanceEstimationSession
+            authorize(pathMatchers(POST, "/api/boards/*/estimation-sessions/*/finish"), signedIn) // finishEstimationSession
+            authorize(pathMatchers(POST, "/api/boards/*/estimation-sessions/*/cancel"), signedIn) // cancelEstimationSession
+            authorize(pathMatchers(PUT, "/api/boards/*/estimation-sessions/*/items/*/placement"), signedInOrGuest) // placeEstimationItem
+            authorize(pathMatchers(PUT, "/api/boards/*/estimation-sessions/*/items/*/estimate"), signedInOrGuest) // setRotationEstimate
+            authorize(pathMatchers(PUT, "/api/boards/*/estimation-sessions/*/items/*/decision"), signedIn) // decideEstimationItem
+            // --- gifs (3.14, G5): signed-in users only; a guest is 403 even with an EDITOR link (S1.8 unchanged) ---
+            authorize(pathMatchers(POST, "/api/gifs/search"), signedIn) // searchGifs
+            authorize(pathMatchers(GET, "/api/gifs/trending"), signedIn) // listTrendingGifs
             // --- fail closed: everything not listed above ---
             authorize(anyExchange, denyAll)
         }

@@ -2,9 +2,9 @@ import { inputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc, createTable, tableOf } from '@apps/drawboard-engine';
 import { pointerInfo } from '../../../../../board-engine/input/events';
-import { createTable, tableOf } from '../../../../../board-engine/model/tables';
+import { Theme } from '../../../../services/theme';
 import { all, buttonByLabel } from '../../../../test/dom';
 import { BoardContextToolbar } from './board-context-toolbar';
 
@@ -54,6 +54,8 @@ describe('BoardContextToolbar', () => {
     engine.destroy();
     board.destroy();
     container.remove();
+    window.localStorage.clear();
+    delete document.documentElement.dataset['theme'];
   });
 
   describe('visibility', () => {
@@ -175,6 +177,22 @@ describe('BoardContextToolbar', () => {
         buttonByLabel(fixture, 'Colour #bae6fd').getAttribute('aria-pressed'),
         'picked swatch is pressed',
       ).toBe('true');
+    });
+
+    it('when the theme is dark then the swatches show the drawn colours and the shape keeps its own', async () => {
+      await render();
+      const id = addShape();
+      await TestBed.inject(Theme).set('DARK');
+      await select(id);
+
+      const swatch = (label: string): string =>
+        (buttonByLabel(fixture, label).querySelector('span') as HTMLElement).style.background;
+      expect(swatch('Fill'), 'white fill').toBe('rgb(30, 41, 59)');
+      expect(swatch('Stroke'), 'default ink').toBe('rgb(226, 232, 240)');
+      expect(board.getBlock(id)?.props, 'stored colours').toMatchObject({
+        fill: '#ffffff',
+        stroke: '#0f172a',
+      });
     });
 
     it('when a shape is selected then fill, stroke and width apply to it', async () => {

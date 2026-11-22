@@ -1,7 +1,9 @@
 package at.dergeorg.drawboard.planning.domain
 
 import at.dergeorg.drawboard.planning.common.PlanningModule
-import at.dergeorg.drawboard.planning.domain.rounds.KeyedLocks
+import at.dergeorg.drawboard.planning.domain.common.KeyedLocks
+import at.dergeorg.drawboard.planning.domain.common.Seat
+import at.dergeorg.drawboard.planning.domain.common.SeatCaps
 import at.dergeorg.drawboard.planning.domain.rounds.PlanningSettings
 import at.dergeorg.drawboard.planning.domain.rounds.RoundResults
 import at.dergeorg.drawboard.planning.domain.rounds.RoundRules
@@ -60,6 +62,7 @@ internal class PlanningService(
 ) : PlanningUseCase {
 
     private val events = DomainEvents(PlanningModule.NAME)
+    private val seatCaps = SeatCaps(settings.maxParticipants, settings.maxGuests, settings.maxGuestsPerShare)
     private val roundLocks = KeyedLocks()
     private val boardLocks = KeyedLocks()
 
@@ -313,11 +316,7 @@ internal class PlanningService(
 
     /** The caps of a round for a caller who is not a participant yet: 409 `PLANNING_ROUND_FULL` names the one that was hit. */
     private fun requireRoom(round: StoredRound, current: List<StoredParticipant>, who: Principal) {
-        if (who is Principal.Guest) {
-            if (current.count { it.shareId == who.shareId } >= settings.maxGuestsPerShare) full(round, settings.maxGuestsPerShare)
-            if (current.count { it.guest } >= settings.maxGuests) full(round, settings.maxGuests)
-        }
-        if (current.size >= settings.maxParticipants) full(round, settings.maxParticipants)
+        seatCaps.hit(who, current.map { Seat(it.guest, it.shareId) })?.let { full(round, it) }
     }
 
     private fun full(round: StoredRound, limit: Int): Nothing {

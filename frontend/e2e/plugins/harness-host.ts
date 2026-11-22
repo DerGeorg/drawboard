@@ -3,7 +3,7 @@ import '../../src/trusted-types'; // first, as in main.ts
 // (postMessage of the port into the frame), bundled by esbuild in sandbox.spec.ts. No Angular,
 // no backend: the spec serves this page, the frame document and the hostile plugin itself.
 import { BoardEngine } from '../../src/board-engine/engine';
-import { BoardDoc } from '../../src/board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
 import { PluginHost } from '../../src/board-engine/plugins/plugin-host';
 
 declare global {

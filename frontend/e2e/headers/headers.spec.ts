@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // the same checker as `npm run check:headers`
-import { checkNginxTemplate } from '../../scripts/check-headers.mjs';
+import { GIPHY_ORIGIN, checkNginxTemplate, gifsState } from '../../scripts/check-headers.mjs';
 
 /**
  * The security headers of the frontend's nginx (deploy/nginx/default.conf.template) against
@@ -18,6 +18,94 @@ test.describe('nginx security headers (S7.5)', () => {
 
     expect(errors, 'no deviation from S7.5').toEqual([]);
     expect(notes, 'no open note').toEqual([]);
+  });
+
+  test('when GIFS_ENABLED is true then img-src names GIPHY and nothing else changes (G12)', () => {
+    const on = gifsState(TEMPLATE, 'true');
+    const off = gifsState(TEMPLATE, 'false');
+
+    expect(on.imgSrc, 'img-src with GIFs').toContain(GIPHY_ORIGIN);
+    expect(
+      on.imgSrc.filter((s: string) => s.includes('giphy')),
+      'exactly one GIPHY source',
+    ).toEqual([GIPHY_ORIGIN]);
+    expect(on.flag, '/config.json with GIFs').toBe('true');
+    expect(off.csp, 'the CSP without GIFs never names GIPHY').not.toContain('giphy');
+    expect(off.flag, '/config.json without GIFs').toBe('false');
+    // every other directive is the same in both states
+    const others = [...(on.directives as Map<string, string[]>)].filter(
+      ([name]) => name !== 'img-src',
+    );
+    for (const [name, sources] of others) {
+      expect(off.directives.get(name), name).toEqual(sources);
+    }
+    expect(
+      TEMPLATE.match(/giphy/gi) ?? [],
+      'GIPHY is named in comments and one map',
+    ).not.toHaveLength(0);
+  });
+
+  test('when GIFS_ENABLED is anything but true then GIFs stay off (G3, fail closed)', () => {
+    for (const value of [
+      '',
+      'false',
+      'TRUE',
+      'True',
+      '1',
+      'yes',
+      'true ',
+      ' true',
+      'truee',
+      '$x',
+    ]) {
+      const state = gifsState(TEMPLATE, value);
+      expect(state.csp, `CSP for "${value}"`).not.toContain('giphy');
+      expect(state.flag, `config for "${value}"`).toBe('false');
+    }
+  });
+
+  test('when the GIF rules are weakened then the check fails with the reason', () => {
+    const cases: [string, (t: string) => string, string][] = [
+      [
+        'any value switches GIFs on',
+        (t) =>
+          t.replace('"~^true$" "https://media.giphy.com";', 'default "https://media.giphy.com";'),
+        'must not put GIPHY into the CSP',
+      ],
+      [
+        'GIPHY in connect-src',
+        (t) =>
+          t.replace(
+            "connect-src 'self' $oidc_origin",
+            "connect-src 'self' https://media.giphy.com",
+          ),
+        'connect-src must not name GIPHY',
+      ],
+      [
+        'a wildcard host for GIPHY',
+        (t) => t.replace('"https://media.giphy.com";', '"https://*.giphy.com";'),
+        'img-src may name exactly',
+      ],
+      [
+        'the config flag is hard-wired',
+        (t) => t.replace('"gifsEnabled":$gifs_enabled_json', '"gifsEnabled":true'),
+        '/config.json must carry',
+      ],
+      [
+        'the host is written into the CSP itself',
+        (t) =>
+          t.replace(
+            "img-src 'self' blob: data: $files_origin $gifs_img_src",
+            "img-src 'self' blob: data: $files_origin https://media.giphy.com",
+          ),
+        'must be written in the map $gifs_img_src and nowhere else',
+      ],
+    ];
+    for (const [name, mutate, message] of cases) {
+      const changed = mutate(TEMPLATE);
+      expect(changed, `${name}: the mutation applies`).not.toBe(TEMPLATE);
+      expect(checkNginxTemplate(changed).errors.join('\n'), name).toContain(message);
+    }
   });
 
   test('when a header is weakened then the check fails with the reason', () => {
@@ -138,6 +226,25 @@ test.describe('nginx security headers (S7.5)', () => {
         'query in the files log',
         (t) => t.replace('"$request_method $uri $server_protocol"', '"$request"'),
         'files_no_query must not contain the query string',
+      ],
+      [
+        'the card id in the estimation log',
+        (t) =>
+          t.replace(
+            '"$request_method $estimation_log_uri $server_protocol"',
+            '"$request_method $uri $server_protocol"',
+          ),
+        'log_format estimation_no_item must log $estimation_log_uri',
+      ],
+      [
+        'estimation routes logged in full',
+        (t) => t.replace(/^\s*access_log \S+ main if=\$estimation_log_full;\n/m, ''),
+        'must log estimation placements and estimates with estimation_no_item only',
+      ],
+      [
+        'the card segment not masked',
+        (t) => t.replace('"$estimation_head/-/$estimation_op"', '$uri'),
+        'map $estimation_log_uri must mask the card',
       ],
       [
         'a location drops the headers',

@@ -21,6 +21,7 @@ export const ICONS = {
   connector: 'M5 19L19 5M10 5h9v9',
   pen: 'M4 20l1-4L16 5l3 3L8 19z',
   emoji: 'M12 3a9 9 0 100 18 9 9 0 000-18zM8.5 14a4 4 0 007 0M9 9.5h.01M15 9.5h.01',
+  gif: 'M3 6h18v12H3zM10.5 10.5H9a1.5 1.5 0 000 3h1.5V12H9.5M13 10v4M16.5 10H15v4M15 12h1.5',
   eraser: 'M4 16l9-9 6 6-6 6H8zM9 12l6 6',
   undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',
   redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 000 12h3',
@@ -61,6 +62,9 @@ export const ICONS = {
     'M10 4a2 2 0 014 0v2h4v4h-2a2 2 0 000 4h2v4h-4v-2a2 2 0 00-4 0v2H6v-4h2a2 2 0 000-4H6V6h4z',
   settings:
     'M12 9a3 3 0 100 6 3 3 0 000-6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
+  sun: 'M12 8a4 4 0 100 8 4 4 0 000-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
+  moon: 'M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z',
+  system: 'M3 5h18v11H3zM8 20h8M12 16v4',
 } as const;
 
 export type IconName = keyof typeof ICONS;

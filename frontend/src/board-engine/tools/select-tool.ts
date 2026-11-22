@@ -1,6 +1,8 @@
+import { StoryDropHint } from '../blocks/kanban';
+import { DropCandidates, dropStories, planStoryDrop } from '../blocks/kanban-drop';
 import { KeyInfo, PointerInfo } from '../input/events';
-import { BoardDoc } from '../model/board-doc';
 import {
+  BoardDoc,
   FRAME_TITLE_HEIGHT,
   FrameTree,
   adoptInto,
@@ -8,11 +10,15 @@ import {
   isFrame,
   topLevelOf,
   withDescendants,
-} from '../model/frames';
-import { cellsToTables, isTableCell, resizeCell, resizeTable } from '../model/tables';
-import { Point, Rect } from '../model/types';
+  cellsToTables,
+  isTableCell,
+  resizeCell,
+  resizeTable,
+  Point,
+  Rect,
+  normalizeRect,
+} from '@apps/drawboard-engine';
 import { itemBounds, itemsInRect } from '../scene';
-import { normalizeRect } from '../util/geometry';
 import { HandleId, Tool, ToolContext, ToolId } from './tool';
 import { handleCursor, resizeRect } from './resize';
 
@@ -78,6 +84,10 @@ export class SelectTool implements Tool {
   readonly id: ToolId = 'select';
   cursor = 'default';
   private mode: Mode = { kind: 'idle' };
+  /** The highlight of the kanban column story cards would be dropped into. */
+  private readonly dropHint = new StoryDropHint();
+  /** The kanbans of the current drag, found once. */
+  private candidates: DropCandidates = {};
 
   constructor(private readonly ctx: ToolContext) {}
 
@@ -142,6 +152,7 @@ export class SelectTool implements Tool {
         }
         ctx.board.moveItems(m.ids, dx, dy);
         this.mode = { ...m, last: e.world, moved: true };
+        this.showDrop(e);
         return;
       }
       case 'frame-press': {
@@ -180,13 +191,23 @@ export class SelectTool implements Tool {
     }
   }
 
-  pointerUp(): void {
+  pointerUp(e: PointerInfo): void {
     const m = this.mode;
     if (m.kind === 'frame-press') {
       this.ctx.selection.set([m.id]);
     } else if (m.kind === 'move' && m.moved) {
-      // in the same undo step as the move: the moved blocks join the frame they were dropped on
-      rehome(this.ctx.board, m.ids);
+      const selected = this.ctx.selection.list();
+      const drop = planStoryDrop(this.ctx, selected, e.screen, true, this.candidates);
+      this.dropHint.clear();
+      if (drop.kind === 'blocked') {
+        this.ctx.notify(drop.notice);
+      }
+      // story cards dropped into a kanban column become its cards (one undo step of their
+      // own); otherwise the moved blocks join the frame they were dropped on, in the same undo
+      // step as the move
+      if (drop.kind !== 'accept' || !dropStories(this.ctx, selected, drop)) {
+        rehome(this.ctx.board, m.ids);
+      }
     } else if (m.kind === 'resize' && isFrame(this.ctx.board.getBlock(m.id))) {
       // a resized frame takes in what it now covers; children outside stay children (Miro)
       adoptInto(this.ctx.board, m.id);
@@ -291,7 +312,25 @@ export class SelectTool implements Tool {
     };
   }
 
+  /** While story cards are dragged over a kanban column: outline it and show the position. */
+  private showDrop(e: PointerInfo): void {
+    const drop = planStoryDrop(
+      this.ctx,
+      this.ctx.selection.list(),
+      e.screen,
+      false,
+      this.candidates,
+    );
+    if (drop.kind === 'accept') {
+      this.dropHint.show(drop.root, drop.target);
+    } else {
+      this.dropHint.clear();
+    }
+  }
+
   private finish(): void {
+    this.dropHint.clear();
+    this.candidates = {};
     this.mode = { kind: 'idle' };
     this.ctx.setHints({});
     this.ctx.stopCapturing();

@@ -1,6 +1,10 @@
 import { BoardEngine } from '../engine';
-import { ViewportState, encodeViewport, sameViewport } from './awareness-state';
-import { DrawboardProvider } from './provider';
+import {
+  ViewportState,
+  encodeViewport,
+  sameViewport,
+  DrawboardProvider,
+} from '@apps/drawboard-engine';
 
 /**
  * Connects an engine and a provider: the engine's cursor, selection and viewport (centre and

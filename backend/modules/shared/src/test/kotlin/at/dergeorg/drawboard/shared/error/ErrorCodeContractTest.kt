@@ -25,6 +25,8 @@ class ErrorCodeContractTest {
             ErrorCode.NOT_FOUND, ErrorCode.METHOD_NOT_ALLOWED, ErrorCode.NOT_ACCEPTABLE, ErrorCode.CONFLICT,
             ErrorCode.UNSUPPORTED_MEDIA_TYPE, ErrorCode.INTERNAL_ERROR, ErrorCode.BAD_GATEWAY,
             ErrorCode.GATEWAY_TIMEOUT, ErrorCode.PAYLOAD_TOO_LARGE, ErrorCode.TOO_MANY_REQUESTS,
+            // Published by the contract (2.3.0) without a subdomain: the module `gifs` has no other subdomain than search.
+            ErrorCode.GIFS_DISABLED, ErrorCode.GIFS_UNAVAILABLE,
         )
 
         val badlyNamed = ErrorCode.entries.filterNot { it in platformCodes }.map { it.name }

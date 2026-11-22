@@ -1,8 +1,17 @@
-import { Camera, visibleWorldRect } from '../camera';
-import { BoardDoc } from '../model/board-doc';
-import { FrameTree, isFrame } from '../model/frames';
-import { BlockData, BoardChange, Rect, Size } from '../model/types';
-import { rectsIntersect } from '../util/geometry';
+import {
+  Camera,
+  visibleWorldRect,
+  BoardDoc,
+  FrameTree,
+  isFrame,
+  BlockData,
+  BoardChange,
+  Rect,
+  Size,
+  rectsIntersect,
+  BOARD_THEME_VARS,
+  BoardTheme,
+} from '@apps/drawboard-engine';
 import { BlockHost, BlockTypeRegistry, BlockView } from './block-registry';
 import { applyGrid } from '../grid';
 import { Overlay, OverlayState } from './overlay';
@@ -51,6 +60,7 @@ export class Renderer {
   private simple = false;
   /** Blocks mounted since the start: tests check that panning does not remount anything. */
   private mounts = 0;
+  private theme: BoardTheme = 'light';
 
   constructor(
     private readonly container: HTMLElement,
@@ -59,7 +69,9 @@ export class Renderer {
     private readonly isReadOnly: () => boolean,
     /** Write access for trusted built-in block types (never plugins). */
     private readonly blockHost?: BlockHost,
+    theme: BoardTheme = 'light',
   ) {
+    this.theme = theme;
     const doc = container.ownerDocument;
     this.world = doc.createElement('div');
     this.world.className = 'be-world';
@@ -77,6 +89,7 @@ export class Renderer {
     this.world.append(this.framesLayer, this.svgLayer.svg, this.blocksLayer);
     this.overlay = new Overlay(doc, board);
     container.append(this.world, this.overlay.svg);
+    this.applyTheme();
     this.applyCamera();
     this.offRegistry = registry.changed.on((types) => this.remountTypes(types));
   }
@@ -90,6 +103,47 @@ export class Renderer {
         this.mount(block);
       }
     }
+  }
+
+  get currentTheme(): BoardTheme {
+    return this.theme;
+  }
+
+  /**
+   * Shows the board in `theme`: the chrome variables change on the container, every mounted block
+   * gets `update` (content colours are mapped, see theme.ts) and connectors and strokes are drawn
+   * again. The document is not touched.
+   */
+  setTheme(theme: BoardTheme): void {
+    if (theme === this.theme) {
+      return;
+    }
+    this.theme = theme;
+    this.applyTheme();
+    // a copy: a simple box is unmounted and mounted again below
+    for (const [id, m] of [...this.mounted]) {
+      const block = this.board.getBlock(id);
+      if (!block) {
+        continue;
+      }
+      if (m.simple) {
+        // a simple box is one element: build it again with the colour of the new theme
+        this.unmount(id);
+        this.mount(block);
+      } else {
+        this.update(id, block);
+      }
+    }
+    this.svgLayer.setTheme(theme);
+  }
+
+  /** The `--be-*` variables of the theme on the container (blocks and the editor read them). */
+  private applyTheme(): void {
+    const style = this.container.style;
+    for (const [name, value] of Object.entries(BOARD_THEME_VARS[this.theme])) {
+      style.setProperty(name, value);
+    }
+    this.container.dataset['beTheme'] = this.theme;
   }
 
   get mountedCount(): number {
@@ -265,7 +319,7 @@ export class Renderer {
         renderSimple(
           el,
           block,
-          (b) => simpleFillOf(this.registry.get(b.type), b),
+          (b) => simpleFillOf(this.registry.get(b.type), b, this.theme),
           (b) => this.board.textOf(b.id),
         ),
         true,
@@ -281,6 +335,7 @@ export class Renderer {
         block,
         text: () => this.board.textOf(block.id),
         readOnly: this.isReadOnly(),
+        theme: () => this.theme,
         ...(type.trusted ? { host: this.blockHost } : {}),
       });
     } catch {
@@ -357,7 +412,7 @@ function placeholder(host: HTMLElement, type: string): BlockView {
   box.className = 'be-placeholder';
   box.style.cssText =
     'width:100%;height:100%;box-sizing:border-box;border:2px dashed #94a3b8;border-radius:6px;' +
-    'display:flex;align-items:center;justify-content:center;font:12px system-ui,sans-serif;color:#64748b;text-align:center;padding:8px';
+    'display:flex;align-items:center;justify-content:center;font:12px system-ui,sans-serif;color:var(--be-text-3,#64748b);text-align:center;padding:8px';
   const plugin = type.startsWith('core.') ? undefined : type.slice(0, type.lastIndexOf('.'));
   box.textContent = plugin
     ? `Plugin: ${plugin} - not available. The block keeps its data.`

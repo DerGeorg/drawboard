@@ -1,14 +1,17 @@
-import { BoardDoc } from './model/board-doc';
-import { FrameTree, isFrame } from './model/frames';
-import { ConnectorData, Point, Rect } from './model/types';
-import { HitResult } from './tools/tool';
 import {
+  BoardDoc,
+  FrameTree,
+  isFrame,
+  ConnectorData,
+  Point,
+  Rect,
   distanceToPolyline,
   distanceToSegment,
   pointsBounds,
   rectContains,
   rectsIntersect,
-} from './util/geometry';
+} from '@apps/drawboard-engine';
+import { HitResult } from './tools/tool';
 
 /** Where a connector is drawn: both resolved end points, or undefined if an end block is gone. */
 export function connectorEndpoints(board: BoardDoc, c: ConnectorData): [Point, Point] | undefined {

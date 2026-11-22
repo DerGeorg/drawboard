@@ -1,0 +1,47 @@
+<div class="tooltip tooltip-bottom" data-tip="Theme">
+  <button
+    type="button"
+    class="btn btn-square btn-sm btn-ghost"
+    aria-label="Theme"
+    aria-haspopup="menu"
+    [attr.aria-expanded]="open()"
+    data-testid="theme-button"
+    (click)="toggle()"
+  >
+    <drawboard-icon [name]="icon()" />
+  </button>
+</div>
+
+@if (open()) {
+  <button
+    type="button"
+    class="fixed inset-0 z-10 cursor-default"
+    tabindex="-1"
+    aria-hidden="true"
+    (click)="close()"
+  ></button>
+  <div
+    class="float-panel absolute top-full right-0 z-20 mt-2 w-44 p-1"
+    role="menu"
+    aria-label="Theme"
+    data-testid="theme-menu"
+  >
+    <drawboard-theme-switch (chosen)="close()" />
+    @if (canForgetGifs()) {
+      <button
+        type="button"
+        role="menuitem"
+        class="panel-item"
+        data-testid="forget-gifs"
+        (click)="forgetGifs()"
+      >
+        Forget GIF consent
+      </button>
+    }
+    @if (gifsHalfOn()) {
+      <p class="px-2 py-1 text-xs text-(--color-st-grey)" role="note" data-testid="gifs-half-on">
+        GIF search is half switched on: backend key and frontend GIFS_ENABLED disagree.
+      </p>
+    }
+  </div>
+}

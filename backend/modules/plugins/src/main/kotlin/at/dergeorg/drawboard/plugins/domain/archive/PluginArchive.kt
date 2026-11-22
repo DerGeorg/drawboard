@@ -3,13 +3,18 @@ package at.dergeorg.drawboard.plugins.domain.archive
 import at.dergeorg.drawboard.shared.error.DomainException
 import at.dergeorg.drawboard.shared.error.ErrorCode
 import java.io.ByteArrayInputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
 /** The files of an accepted plugin ZIP: path -> bytes, exactly as in the archive (directories are not kept). */
 internal class UnpackedPlugin(val files: Map<String, ByteArray>)
+
+/** Checks a plugin ZIP and returns its files, or refuses it (`PLUGINS_ARCHIVE_INVALID`); [PluginArchive] is the one in use. */
+internal fun interface ArchiveUnpacker {
+    fun unpack(zip: ByteArray): UnpackedPlugin
+}
 
 /** Why a ZIP was refused: the `reason` codes of `PLUGINS_ARCHIVE_INVALID`, and the entry to blame where there is one. */
 internal enum class ArchiveProblem {
@@ -38,8 +43,10 @@ private const val MAX_SHOWN_PATH = 255
 /**
  * Reads a plugin ZIP with every rule of S3.9 and docs/plugin-protocol.md - NOTHING is ever extracted to a file system:
  * the entries are held in memory and served by exact path match later, so a path can not escape anything. The limits
- * are counted WHILE unpacking (the sizes in the headers are what an attacker writes), the paths and file types checked
- * entry by entry, links refused, and a name used twice (ignoring case) is refused too.
+ * are counted WHILE unpacking (the sizes in the headers are what an attacker writes) - the data of directory entries
+ * too, which is never kept but costs the same to inflate -, the paths and file types checked entry by entry, links
+ * refused, and a name used twice (ignoring case) is refused too. A ZIP the JDK can not read (also one cut off inside
+ * a header) is NOT_A_ZIP.
  *
  * Order of the checks, as in the contract: the 20 MB cap of the upload itself is the caller's (413); here the entry
  * count, the unpacked size, the paths, the file types; the manifest and entry checks follow in the service.
@@ -47,53 +54,78 @@ private const val MAX_SHOWN_PATH = 255
 internal class PluginArchive(
     private val maxEntries: Int = MAX_ENTRIES,
     private val maxUnpackedBytes: Long = MAX_UNPACKED_BYTES,
-) {
+) : ArchiveUnpacker {
 
-    fun unpack(zip: ByteArray): UnpackedPlugin {
+    init {
+        require(maxUnpackedBytes <= Int.MAX_VALUE) { "an unpacked file must fit into one byte array" }
+    }
+
+    /**
+     * Two passes over the archive, so memory stays bounded whatever the ZIP claims: the first one checks every entry and
+     * only COUNTS the unpacked bytes (one small buffer, the archive is refused at the first byte above the limit), the
+     * second one reads the accepted files into arrays of exactly the counted length - no growing buffer, no copy.
+     */
+    override fun unpack(zip: ByteArray): UnpackedPlugin {
         if (!looksLikeZip(zip)) refuse(ArchiveProblem.NOT_A_ZIP)
         rejectLinks(zip)
         val files = try {
-            ZipInputStream(ByteArrayInputStream(zip)).use { readEntries(it) }
-        } catch (_: ZipException) {
+            val sizes = ZipInputStream(ByteArrayInputStream(zip)).use { checkEntries(it) }
+            ZipInputStream(ByteArrayInputStream(zip)).use { readEntries(it, sizes) }
+        } catch (_: IOException) {
             refuse(ArchiveProblem.NOT_A_ZIP)
         }
         return UnpackedPlugin(files)
     }
 
-    /** Every entry, checked as it is read: count, path, duplicates, file type, and the unpacked bytes of all together. */
-    private fun readEntries(input: ZipInputStream): Map<String, ByteArray> {
-        val files = LinkedHashMap<String, ByteArray>()
+    /**
+     * Every entry, checked as it is read: count, path, duplicates, file type, and the unpacked bytes of all together -
+     * a directory's data counts as well, or `nextEntry` would inflate it without any limit. Returns the unpacked size of
+     * every file, in archive order; nothing of the content is kept.
+     */
+    private fun checkEntries(input: ZipInputStream): Map<String, Int> {
+        val sizes = LinkedHashMap<String, Int>()
         val names = HashSet<String>()
+        val buffer = ByteArray(BUFFER)
         var unpacked = 0L
         var entries = 0
         generateSequence { input.nextEntry }.forEach { entry ->
             if (++entries > maxEntries) refuse(ArchiveProblem.TOO_MANY_ENTRIES)
             checkPath(entry.name)
             if (!names.add(entry.name.trimEnd('/').lowercase())) refuse(ArchiveProblem.UNSAFE_PATH, entry.name)
-            if (!entry.isDirectory) {
-                checkType(entry.name)
-                val data = readLimited(input, maxUnpackedBytes - unpacked)
-                unpacked += data.size
-                files[entry.name] = data
-            }
+            if (!entry.isDirectory) checkType(entry.name)
+            val size = countLimited(input, buffer, maxUnpackedBytes - unpacked)
+            unpacked += size
+            if (!entry.isDirectory) sizes[entry.name] = size.toInt()
         }
         if (entries == 0) refuse(ArchiveProblem.NOT_A_ZIP)
-        return files
+        return sizes
     }
 
-    /** At most [remaining] bytes of the current entry; one more is the end of the allowance (UNPACKED_TOO_LARGE). */
-    private fun readLimited(input: ZipInputStream, remaining: Long): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
-        val buffer = ByteArray(BUFFER)
+    /** The bytes of the current entry, counted and dropped: one more than [remaining] is the end of the allowance (UNPACKED_TOO_LARGE). */
+    private fun countLimited(input: ZipInputStream, buffer: ByteArray, remaining: Long): Long {
         var total = 0L
         while (true) {
             val read = input.read(buffer)
-            if (read < 0) break
+            if (read < 0) return total
             total += read
             if (total > remaining) refuse(ArchiveProblem.UNPACKED_TOO_LARGE)
-            out.write(buffer, 0, read)
         }
-        return out.toByteArray()
+    }
+
+    /**
+     * The files counted by [checkEntries], each read into an array of its counted size. The same bytes unpack to the same
+     * entries again; should they not (they can not), the archive is refused instead of read past the counted size.
+     */
+    private fun readEntries(input: ZipInputStream, sizes: Map<String, Int>): Map<String, ByteArray> {
+        val files = LinkedHashMap<String, ByteArray>()
+        generateSequence { input.nextEntry }.filterNot { it.isDirectory }.forEach { entry ->
+            val size = sizes[entry.name] ?: refuse(ArchiveProblem.NOT_A_ZIP)
+            val data = ByteArray(size)
+            if (input.readNBytes(data, 0, size) != size || input.read() >= 0) refuse(ArchiveProblem.NOT_A_ZIP)
+            files[entry.name] = data
+        }
+        if (files.keys != sizes.keys) refuse(ArchiveProblem.NOT_A_ZIP)
+        return files
     }
 
     private fun checkPath(name: String) {

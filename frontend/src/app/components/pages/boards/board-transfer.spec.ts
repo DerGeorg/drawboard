@@ -2,8 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { strToU8, zipSync } from 'fflate';
 
-import { ARCHIVE_LIMITS, exportArchive } from '../../../../board-engine/io/archive';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
+import { ARCHIVE_LIMITS, exportArchive, BoardDoc } from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { signedInAsAlice } from '../../../test/fake-auth';
 import { aBoard } from '../../../test/fixtures';

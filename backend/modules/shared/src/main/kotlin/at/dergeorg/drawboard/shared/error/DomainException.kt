@@ -46,3 +46,14 @@ class RateLimitedException(val retryAfterSeconds: Long) :
 /** A body or upload is larger than the operation accepts: [ErrorCode.PAYLOAD_TOO_LARGE] (413) with the limit in bytes. */
 class PayloadTooLargeException(limitBytes: Long) :
     DomainException(ErrorCode.PAYLOAD_TOO_LARGE, mapOf("limit" to limitBytes.toString()))
+
+/**
+ * A domain exception the caller may retry after [retryAfterSeconds] (the `Retry-After` header of the answer): the hourly budget of
+ * an instance for an upstream service is used up, or the upstream service is down. [RateLimitedException] is the same for the
+ * limits of one caller, with its own code.
+ */
+class RetryAfterException(errorCode: ErrorCode, val retryAfterSeconds: Long) : DomainException(errorCode) {
+    init {
+        require(retryAfterSeconds >= 1) { "a retry needs a positive delay" }
+    }
+}

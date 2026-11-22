@@ -1,0 +1,80 @@
+@if (available()) {
+  <div class="relative">
+    <button
+      type="button"
+      class="float-panel btn btn-sm gap-2 rounded-full px-3"
+      aria-haspopup="true"
+      title="Estimation sessions: Magic Estimation and Rotation"
+      [attr.aria-expanded]="menu()"
+      data-testid="estimation-pill"
+      (click)="toggle()"
+    >
+      @if (sessions().length > 0) {
+        <span class="size-2 animate-pulse rounded-full bg-teal-600" aria-hidden="true"></span>
+        {{ sessions().length }} {{ sessions().length === 1 ? 'session' : 'sessions' }}
+      } @else {
+        Sessions
+      }
+      @if (estimation.inEstimation()) {
+        <span class="badge badge-xs st-badge-green" data-testid="in-estimation">in estimation</span>
+      }
+    </button>
+    @if (menu()) {
+      <ul
+        class="menu float-panel absolute top-full left-1/2 z-20 mt-2 w-72 -translate-x-1/2 p-1"
+        aria-label="Estimation sessions"
+      >
+        @for (s of sessions(); track s.id) {
+          <li>
+            <button type="button" (click)="pick(s)">
+              <span class="flex min-w-0 flex-col items-start">
+                <span class="w-full truncate">{{ s.title }}</span>
+                <span class="text-xs text-(--color-st-grey)"
+                  >{{ modes[s.mode] }} · {{ states[s.state] }} · {{ s.itemCount }}
+                  {{ s.itemCount === 1 ? 'card' : 'cards' }}</span
+                >
+              </span>
+              @if (inSession(s)) {
+                <span class="badge badge-xs st-badge-green shrink-0">in estimation</span>
+              }
+            </button>
+          </li>
+        } @empty {
+          <li class="menu-disabled">
+            <span class="text-sm text-(--color-st-grey)">No active sessions.</span>
+          </li>
+        }
+        @if (canSeeClosed()) {
+          <li class="border-t border-(--color-st-white-darker) pt-1">
+            <button type="button" [attr.aria-expanded]="showClosed()" (click)="toggleClosed()">
+              Finished sessions
+            </button>
+          </li>
+          @if (showClosed()) {
+            @for (s of estimation.closed() ?? []; track s.id) {
+              <li>
+                <button type="button" (click)="pick(s)">
+                  <span class="truncate">{{ s.title }}</span>
+                  <span class="text-xs text-(--color-st-grey)">{{ states[s.state] }}</span>
+                </button>
+              </li>
+            } @empty {
+              <li class="menu-disabled">
+                <span class="text-sm text-(--color-st-grey)">
+                  {{ estimation.closed() ? 'No finished sessions.' : 'Loading…' }}
+                </span>
+              </li>
+            }
+          }
+        }
+        @if (canCreate()) {
+          <li class="border-t border-(--color-st-white-darker) pt-1">
+            <button type="button" data-testid="new-estimation-session" (click)="startNew()">
+              New estimation session
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+}

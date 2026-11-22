@@ -1,7 +1,6 @@
 import { BoardEngine } from '../board-engine/engine';
-import { BoardDoc } from '../board-engine/model/board-doc';
+import { BoardDoc, PluginError as HostError } from '@apps/drawboard-engine';
 import { BoardRoleName, PluginHost, PluginServices } from '../board-engine/plugins/plugin-host';
-import { PluginError as HostError } from '../board-engine/plugins/protocol';
 import {
   FrameWindow,
   MessageEventLike,

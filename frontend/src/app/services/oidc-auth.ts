@@ -140,6 +140,8 @@ export class OidcAuth extends Auth {
         displayName: me.displayName || me.username,
         admin: me.admin,
         guestLinksEnabled: me.guestLinksEnabled,
+        gifsEnabled: me.gifsEnabled === true,
+        theme: me.theme,
       });
     } catch {
       // already reported by the error interceptor (toast with request id)

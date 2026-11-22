@@ -1,4 +1,4 @@
-import { CLIPBOARD_MIME, WEB_CLIPBOARD_MIME } from '../io/clipboard';
+import { CLIPBOARD_MIME, WEB_CLIPBOARD_MIME } from '@apps/drawboard-engine';
 import { InputController, InputTarget, isEditableTarget, keyInfo } from './input-controller';
 
 function fakeTarget(): InputTarget & Record<string, ReturnType<typeof vi.fn>> {

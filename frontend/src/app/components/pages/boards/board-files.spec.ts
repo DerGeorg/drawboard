@@ -2,7 +2,7 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { BoardFile, BoardFileConversion, BoardFileKind, FileUrl } from '@apps/drawboard-api';
 
-import type { FileState } from '../../../../board-engine/files/file-source';
+import type { FileState } from '@apps/drawboard-engine';
 import { signedInAsAlice } from '../../../test/fake-auth';
 import { SPRINT_BOARD_ID } from '../../../test/fixtures';
 import { expectRequest, provideHttpTesting } from '../../../test/http-testing';

@@ -59,7 +59,7 @@ services:
       retries: 30
 
   tempo:
-    image: grafana/tempo:3.1.0
+    image: grafana/tempo:3.1.1
     user: "10001:10001"
     command: ["-target=all", "-config.file=/etc/tempo/tempo.yml"]
     ports:
@@ -84,7 +84,7 @@ services:
     restart: "no"
 
   loki:
-    image: grafana/loki:3.7.8
+    image: grafana/loki:3.7.10
     command: ["-config.file=/etc/loki/loki.yml"]
     ports:
       - "13100:3100"
@@ -115,7 +115,7 @@ services:
       retries: 30
 
   grafana:
-    image: grafana/grafana:12.4.12
+    image: grafana/grafana:13.3.1
     environment:
       # local only. Grafana 12.4 only allows the Viewer role for anonymous
       # users ("auth.anonymous.org_role is deprecated, only viewer role is

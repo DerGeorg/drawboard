@@ -4,8 +4,7 @@ import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { Board, BoardsService } from '@apps/drawboard-api';
 
-import type { BuiltinTemplate } from '../../../../../board-engine/templates/builtin-templates';
-import { loadBuiltinTemplates } from '../../../../../board-engine/templates/load-builtin-templates';
+import { type BuiltinTemplate, loadBuiltinTemplates } from '@apps/drawboard-engine';
 import { ERRORS_HANDLED_LOCALLY } from '../../../../services/error-interceptor';
 import { WithSpan } from '../../../../util/tracing';
 import { LoadError } from '../../../shared/load-error/load-error';

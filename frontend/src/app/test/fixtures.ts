@@ -53,6 +53,8 @@ export function aCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser 
     email: 'alice@example.test',
     admin: false,
     guestLinksEnabled: false,
+    gifsEnabled: false,
+    theme: 'SYSTEM',
     ...overrides,
   };
 }

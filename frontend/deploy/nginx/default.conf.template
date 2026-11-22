@@ -46,6 +46,21 @@ map "${PLUGIN_ORIGIN}" $plugin_origin {
   default                                     "";
 }
 
+# GIFs from GIPHY (architecture 3.14, Fable G3/G12): GIFS_ENABLED exactly `true` (nothing else:
+# not TRUE, not 1, not "true ") switches two things on together - `"gifsEnabled":true` in
+# /config.json and the one CSP source https://media.giphy.com in img-src. Every other value,
+# empty or unset included, leaves both off (fail closed). No other host, no other directive.
+# (A regular expression on purpose: exact map keys match case-insensitively, `TRUE` must not.)
+map "${GIFS_ENABLED}" $gifs_img_src {
+  "~^true$" "https://media.giphy.com";
+  default   "";
+}
+
+map "${GIFS_ENABLED}" $gifs_enabled_json {
+  "~^true$" "true";
+  default   "false";
+}
+
 # Product site and source link (AGPL-3.0 section 13): ABOUT_URL and SOURCE_URL, absolute https URLs,
 # only in /config.json (never in the CSP: they are plain links). The value ends up inside a JSON
 # string, so only URL characters get through - no quote, backslash, space or `$`. Empty stays
@@ -134,6 +149,9 @@ map "${APP_ENVIRONMENT}" $csp_upgrade {
 #    external embeds exist (S5.4: the embed allowlist is empty = off).
 #  - img-src, media-src, connect-src: signed file URLs (images, videos, pdf.js fetching a PDF)
 #    are same-origin, or on the files origin when the deployment has one (S7.5).
+#  - img-src additionally names https://media.giphy.com with GIFS_ENABLED=true and only then
+#    (G12): GIF blocks hotlink the image from there after the viewer agreed. No wildcard, no
+#    other directive (not connect-src: the image is loaded with an <img>, not fetched).
 #  - /files/ and /plugin-assets/ get no CSP, X-Frame-Options or Cache-Control from here: the
 #    backend sends its own (S4.5; the generated plugin frame document carries the sandbox CSP
 #    with frame-ancestors, S3.3) and a second, stricter header from nginx would break them.
@@ -148,7 +166,7 @@ map "${APP_ENVIRONMENT}" $csp_upgrade {
 map $header_uri $content_security_policy {
   /silent-renew.html "default-src 'none'; script-src 'self'; frame-ancestors 'self'";
   ~^/(files|plugin-assets)/ "";
-  default              "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: $files_origin; media-src 'self' blob: $files_origin; font-src 'self'; connect-src 'self' $oidc_origin $files_origin; worker-src 'self' blob:; frame-src 'self' $oidc_origin $plugin_origin; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular dompurify drawboard default$csp_upgrade";
+  default              "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: $files_origin $gifs_img_src; media-src 'self' blob: $files_origin; font-src 'self'; connect-src 'self' $oidc_origin $files_origin; worker-src 'self' blob:; frame-src 'self' $oidc_origin $plugin_origin; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types angular dompurify drawboard default$csp_upgrade";
 }
 
 # X-Frame-Options DENY everywhere except the one file the app embeds in its own hidden iframe.
@@ -181,6 +199,30 @@ limit_conn_zone $server_name        zone=files_total:1m;
 log_format files_no_query '$remote_addr - [$time_local] "$request_method $uri $server_protocol" '
                           '$status $body_bytes_sent "$http_user_agent"';
 
+# Estimation sessions (architecture 3.15, E2): a placement or an estimate names the card in its
+# path (/items/{itemId}/placement|estimate). Next to the client address that would tell who
+# holds or moves which card, so the access log of these two routes writes "-" for the card.
+# $uri is the path alone (no query); no referrer. Chosen per request by the two `access_log ...
+# if=` lines of the server block - not in a location, so a 502/504 answered by @bad_gateway
+# (another location) is masked as well.
+map $uri $estimation_log_uri {
+  "~^(?<estimation_head>/api/boards/[^/]+/estimation-sessions/[^/]+/items)/[^/]+/(?<estimation_op>placement|estimate)$" "$estimation_head/-/$estimation_op";
+  default                                                                                                               "";
+}
+
+map $estimation_log_uri $estimation_log_full {
+  ""      1;
+  default 0;
+}
+
+map $estimation_log_uri $estimation_log_masked {
+  ""      0;
+  default 1;
+}
+
+log_format estimation_no_item '$remote_addr - [$time_local] "$request_method $estimation_log_uri $server_protocol" '
+                              '$status $body_bytes_sent "$http_user_agent"';
+
 server {
   listen       8080;
   server_name  _;
@@ -198,6 +240,12 @@ server {
 
   gzip on;
   gzip_types text/css application/javascript application/json image/svg+xml;
+
+  # The image's access log (format `main` of its nginx.conf), except for the two estimation
+  # routes that name a card: those with the card masked (log_format estimation_no_item).
+  # /files/ and /healthz keep their own lines.
+  access_log /var/log/nginx/access.log main if=$estimation_log_full;
+  access_log /var/log/nginx/access.log estimation_no_item if=$estimation_log_masked;
 
   # Plugin origin split (S3.4, maps above): refused before any location is chosen. The server-level
   # add_header lines below apply to this answer.
@@ -226,7 +274,7 @@ server {
   # Runtime config - the ONLY place where dev and prod differ. Same image everywhere.
   location = /config.json {
     default_type application/json;
-    return 200 '{"environment":"${APP_ENVIRONMENT}","version":"${APP_VERSION}","apiBaseUrl":"/api","oidcIssuer":"${OIDC_ISSUER}","oidcClientId":"${OIDC_CLIENT_ID}","oidcScope":"${OIDC_SCOPE}","filesOrigin":"$files_origin","pluginOrigin":"$plugin_origin","aboutUrl":"$about_url","sourceUrl":"$source_url","faro":{"collectorUrl":"$faro_collector_url","appName":"${FARO_APP_NAME}","namespace":"${FARO_NAMESPACE}","samplingRate":"${FARO_SAMPLING_RATE}"}}';
+    return 200 '{"environment":"${APP_ENVIRONMENT}","version":"${APP_VERSION}","apiBaseUrl":"/api","oidcIssuer":"${OIDC_ISSUER}","oidcClientId":"${OIDC_CLIENT_ID}","oidcScope":"${OIDC_SCOPE}","filesOrigin":"$files_origin","pluginOrigin":"$plugin_origin","gifsEnabled":$gifs_enabled_json,"aboutUrl":"$about_url","sourceUrl":"$source_url","faro":{"collectorUrl":"$faro_collector_url","appName":"${FARO_APP_NAME}","namespace":"${FARO_NAMESPACE}","samplingRate":"${FARO_SAMPLING_RATE}"}}';
   }
 
   # Same-origin API. Answers (status, body, X-Request-Id, Location, ETag, WWW-Authenticate)
@@ -296,6 +344,15 @@ server {
       client_max_body_size 21m;
       proxy_request_buffering off;
       proxy_read_timeout 60s;
+    }
+
+    # Estimation: placement and estimate. Their access log line masks the card (server block,
+    # log_format estimation_no_item); nginx's error lines quote the whole request line, so only
+    # `crit` and worse here (an unreachable backend shows up on the other /api/ routes). Headers,
+    # limits and error pages are those of /api/ (inherited).
+    location ~ ^/api/boards/[^/]+/estimation-sessions/[^/]+/items/[^/]+/(placement|estimate)$ {
+      proxy_pass $backend;
+      error_log /var/log/nginx/error.log crit;
     }
 
     # Collaboration WebSocket. The one-time ticket travels in Sec-WebSocket-Protocol: the access

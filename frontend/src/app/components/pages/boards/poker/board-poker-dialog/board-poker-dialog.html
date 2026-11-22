@@ -79,31 +79,11 @@
           />
           <drawboard-field-errors [id]="`${ids}-title-errors`" [field]="startForm.title" />
         </div>
-        <div>
-          <label [for]="`${ids}-deck`" class="text-xs font-medium">Deck</label>
-          <select [id]="`${ids}-deck`" class="select select-sm w-full" [formField]="startForm.deck">
-            <option value="FIBONACCI">Fibonacci: 0, 1, 2, 3, 5, 8, 13, 21, ?, ☕</option>
-            <option value="TSHIRT">T-shirt: XS, S, M, L, XL, ?</option>
-            <option value="CUSTOM">Custom</option>
-          </select>
-        </div>
-        @if (startForm.deck().value() === 'CUSTOM') {
-          <div>
-            <label [for]="`${ids}-custom`" class="text-xs font-medium"
-              >Values, separated by commas</label
-            >
-            <input
-              [id]="`${ids}-custom`"
-              type="text"
-              class="st-input"
-              autocomplete="off"
-              placeholder="1, 2, 4, 8, 16, ?"
-              [formField]="startForm.custom"
-              [attr.aria-describedby]="`${ids}-custom-errors`"
-            />
-            <drawboard-field-errors [id]="`${ids}-custom-errors`" [field]="startForm.custom" />
-          </div>
-        }
+        <drawboard-deck-picker
+          [deck]="startForm.deck"
+          [custom]="startForm.custom"
+          [idPrefix]="ids"
+        />
         <button
           type="submit"
           class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
@@ -175,8 +155,7 @@
             </div>
             <p class="text-center text-xs" aria-live="polite" data-testid="my-vote">
               @if (myVote(); as mine) {
-                You voted <strong>{{ display(mine) }}</strong
-                >. You can change it until the reveal.
+                You voted <strong>{{ display(mine) }}</strong>. You can change it until the reveal.
               } @else {
                 You have not voted yet.
               }

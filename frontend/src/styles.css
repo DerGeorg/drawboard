@@ -156,10 +156,12 @@ html:root {
   /* Green text on its own 20 % tint needs to be darker than on the page (5.16:1). */
   --color-st-green-on-surface: color-mix(in srgb, var(--color-st-green-def) 85%, black);
 
-  /* The board canvas stays light in both modes: the colors of the drawing (sticky, stroke,
-     shape) are content, stored in the board and the same for every participant, so the paper
-     under them must not change with the viewer's theme. Not redefined for dark mode. */
+  /* The paper of the board canvas and the dots on it (also the placeholder of board cards).
+     The colors of the drawing (sticky, stroke, shape) are content, stored in the board and the
+     same for every participant; only how they are shown follows the theme (the engine maps the
+     default ink and white fills, see theme.ts in @apps/drawboard-engine). Redefined for dark mode below. */
   --color-board-paper: #f7f7f5;
+  --color-board-dot: rgba(15, 23, 42, 0.28);
 
   /* Terminal areas stay dark in both modes: a white command line looks wrong. */
   --color-st-terminal: #16191d;
@@ -215,6 +217,8 @@ html:root {
     --color-grey: #a8b0b8;
     --color-green: #2bbd84;
     --color-red: #f07171;
+    --color-board-paper: #0f172a;
+    --color-board-dot: rgba(226, 232, 240, 0.3);
     color-scheme: dark;
   }
 }
@@ -244,6 +248,8 @@ html[data-theme='dark'] {
   --color-grey: #a8b0b8;
   --color-green: #2bbd84;
   --color-red: #f07171;
+  --color-board-paper: #0f172a;
+  --color-board-dot: rgba(226, 232, 240, 0.3);
   color-scheme: dark;
 }
 
@@ -805,47 +811,14 @@ main > *:not(router-outlet) {
 /* =============================================================================
    FLOATING CHROME - the panels that hover over the canvas (tool column, top pills,
    zoom control, contextual toolbar, flyouts, menus). One look in one place: a rounded
-   white surface with a soft shadow. It does NOT follow the theme: the canvas paper under it
-   is light in both modes (the drawing's colours are content), so the chrome on top of it is
-   light too - dark panels on light paper looked like holes.
+   surface with a soft shadow. It follows the theme with the rest of the app: the canvas
+   paper under it is dark in the dark theme, and so are the panels.
    ========================================================================== */
 @utility float-panel {
   border-radius: var(--radius-2xl);
-  background-color: #ffffff;
-  color: #1b1f24;
-  color-scheme: light;
-  border: var(--border-size-xs) solid #e3e5e8;
-  /* the light values of every token that dark mode switches (see the dark blocks above),
-     so text, icons and badges inside a panel are drawn for a light background */
-  --color-st-white: #f4f5f6;
-  --color-st-white-dark: #e8eaec;
-  --color-st-white-darker: #d5d8dc;
-  --color-st-surface: #ffffff;
-  --color-st-card: #f4f5f6;
-  --alpha-st-badge-primary: 12%;
-  --color-st-primary: #1b1f24;
-  --color-st-primary-transparent: rgba(27, 31, 36, 0.1);
-  --color-st-primary-rgb: 27, 31, 36;
-  --color-st-grey: #5f656b;
-  --color-st-grey-transparent: rgba(95, 101, 107, 0.1);
-  --color-st-grey-rgb: 95, 101, 107;
-  --color-st-green-def: #0a7a51;
-  --color-st-green-def-transparent: rgba(10, 122, 81, 0.1);
-  --color-st-green-def-rgb: 10, 122, 81;
-  --color-st-red: #c1292e;
-  --color-st-red-transparent: rgba(193, 41, 46, 0.1);
-  --color-st-red-rgb: 193, 41, 46;
-  --color-st-black: #0d0f11;
-  --color-st-green-on-surface: color-mix(in srgb, var(--color-st-green-def) 85%, black);
-  --color-st-yellow-on-surface: #8a5a00;
-  --color-grey: #5f656b;
-  --color-green: #0a7a51;
-  --color-red: #c1292e;
-  /* DaisyUI's light theme (node_modules/daisyui/theme/light.css): buttons and inputs */
-  --color-base-100: oklch(100% 0 0);
-  --color-base-200: oklch(98% 0 0);
-  --color-base-300: oklch(95% 0 0);
-  --color-base-content: oklch(21% 0.006 285.885);
+  background-color: var(--color-st-surface);
+  color: var(--color-st-black);
+  border: var(--border-size-xs) solid var(--color-st-white-darker);
   box-shadow:
     0 1px 2px rgb(0 0 0 / 0.06),
     0 8px 24px -6px rgb(0 0 0 / 0.2);

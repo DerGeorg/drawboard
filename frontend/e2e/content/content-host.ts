@@ -1,14 +1,18 @@
 import '../../src/trusted-types'; // first, as in main.ts: the Trusted Types policies
 // The rich-content side of content.spec.ts: the real Mermaid renderer and the real pdf.js view,
 // bundled by esbuild with their lazy chunks and run under the production CSP.
-import { MERMAID_TYPE } from '../../src/board-engine/blocks/mermaid';
 import { mermaidRenderer } from '../../src/board-engine/diagrams/mermaid-renderer';
 import { BoardEngine } from '../../src/board-engine/engine';
-import type { FileSource } from '../../src/board-engine/files/file-source';
+import {
+  type FileSource,
+  BoardDoc,
+  KANBAN_TYPE,
+  MERMAID_TYPE,
+  newKanbanProps,
+  STORY_TYPE,
+  newStoryProps,
+} from '@apps/drawboard-engine';
 import { pdfRenderers } from '../../src/board-engine/files/pdf-view';
-import { BoardDoc } from '../../src/board-engine/model/board-doc';
-import { KANBAN_TYPE, newKanbanProps } from '../../src/board-engine/blocks/kanban-model';
-import { STORY_TYPE, newStoryProps } from '../../src/board-engine/blocks/story-model';
 
 const FILE_ID = '0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f';
 const files: FileSource = {

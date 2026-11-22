@@ -1,5 +1,6 @@
 package at.dergeorg.drawboard.users.domain.users.requires.impl
 
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme
 import at.dergeorg.drawboard.users.domain.users.model.UserProfile
 import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.Version
@@ -23,6 +24,7 @@ internal data class UserProfileEntity(
     val groups: List<String>,
     val firstLoginAt: Instant,
     val lastLoginAt: Instant,
+    val theme: ColorTheme,
     /** `null` for a profile that is not stored yet; the insert sets the first version. */
     @Version val version: Long? = null,
 )
@@ -37,6 +39,7 @@ internal fun UserProfileEntity.toDomain() = UserProfile(
     groups = groups,
     firstLoginAt = firstLoginAt,
     lastLoginAt = lastLoginAt,
+    theme = theme,
     version = checkNotNull(version) { "user profile $id has no version" },
 )
 
@@ -51,5 +54,6 @@ internal fun UserProfile.toEntity(version: Long?) = UserProfileEntity(
     groups = groups,
     firstLoginAt = firstLoginAt,
     lastLoginAt = lastLoginAt,
+    theme = theme,
     version = version,
 )

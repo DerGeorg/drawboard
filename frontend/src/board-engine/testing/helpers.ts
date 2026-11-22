@@ -1,8 +1,6 @@
 import { BoardEngine, EngineOptions } from '../engine';
 import { PointerInfo, pointerInfo } from '../input/events';
-import { BoardDoc } from '../model/board-doc';
-import { Point } from '../model/types';
-import { screenToWorld, worldToScreen } from '../camera';
+import { BoardDoc, Point, screenToWorld, worldToScreen } from '@apps/drawboard-engine';
 
 /** An engine on a detached-from-layout container (jsdom has no layout: the viewport is unmeasured). */
 export interface TestEngine {

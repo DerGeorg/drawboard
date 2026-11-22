@@ -29,6 +29,10 @@
 #   DRAWBOARD_PLUGIN_PSEUDONYM_KEY / _FILE                 required: secret of the pseudonymous user ids plugins see (S3.8)
 #   DRAWBOARD_PLUGIN_ORIGIN (optional)                     origin plugin assets are served from (S3.4); without it the app origin
 #   DRAWBOARD_UPLOAD_SPOOL_DIR (default: the JVM temp dir)  directory multipart uploads are spooled to; put it on a volume of its own (README, "Uploads")
+#   DRAWBOARD_GIPHY_API_KEY / _FILE (optional)             the GIPHY key of this installation (3.14, G1); _FILE wins (secret file). Missing, blank or
+#                                                          an empty file = GIF search is off. A key that is not 16-64 letters and digits stops the start
+#   DRAWBOARD_GIPHY_RATING (default g)                     g | pg | pg-13: the content rating of every search (G6); anything else (r too) stops the start
+#   DRAWBOARD_GIPHY_HOURLY_BUDGET (default 90)             calls to GIPHY per hour for the whole instance (G7); a new GIPHY key is a beta key with 100
 #   FILES_* / PLUGINS_*  (optional)                        limits of the file storage and the plugins, see FilesProperties / PluginsProperties
 #   COLLAB_*  (optional)                                   limits of the collaboration, see CollabProperties (e.g. COLLAB_MAX_LOG_BYTES)
 #   OTEL_EXPORTER_OTLP_ENDPOINT                            e.g. http://alloy:4318 - traces and metrics (OTLP/HTTP)
@@ -126,6 +130,14 @@ files:
   clamav-timeout-seconds: ${DRAWBOARD_CLAMAV_TIMEOUT_SECONDS:60}
   clamav-fail-closed: ${DRAWBOARD_CLAMAV_FAIL_CLOSED:false}  # true: an upload that could not be scanned is refused
 
+gifs:
+  # GIF search at GIPHY through the server (module gifs, 3.14). The key is a secret (a file in deployment, G1); it never leaves the
+  # backend. No call to GIPHY at the start. The address of GIPHY is a constant of the adapter - there is deliberately no setting for it.
+  api-key: ${DRAWBOARD_GIPHY_API_KEY:}
+  api-key-file: ${DRAWBOARD_GIPHY_API_KEY_FILE:}
+  rating: ${DRAWBOARD_GIPHY_RATING:g}
+  hourly-budget: ${DRAWBOARD_GIPHY_HOURLY_BUDGET:90}
+
 drawboard:
   public-url: ${DRAWBOARD_PUBLIC_URL}        # required: startup fails without it (S2.2)
   trash-retention-days: ${DRAWBOARD_TRASH_RETENTION_DAYS:30}    # S7.7: purged for good this long after the deletion
@@ -144,6 +156,11 @@ server:
   shutdown: graceful
 
 logging:
+  level:
+    # Pinned on purpose: at DEBUG Spring's codecs log every decoded JSON body ("Decoded [...]"), i.e. search texts, share
+    # passwords, guest names. Raise them only for a short, local look and never where real users are.
+    org.springframework.http.codec: INFO
+    org.springframework.core.codec: INFO
   structured:
     format:
       console: ecs                          # one JSON line per event on stdout, incl. traceId, spanId, requestId

@@ -1,5 +1,10 @@
 @if (board(); as doc) {
-  <drawboard-board-canvas class="absolute inset-0" [board]="doc" [readOnly]="true" />
+  <drawboard-board-canvas
+    class="absolute inset-0"
+    [board]="doc"
+    [readOnly]="true"
+    [services]="services"
+  />
 
   <div
     class="float-panel absolute top-3 left-3 z-10 flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center gap-2 p-2 pl-3"

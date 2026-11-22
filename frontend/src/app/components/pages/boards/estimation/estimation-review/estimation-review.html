@@ -1,0 +1,176 @@
+<div class="flex flex-col gap-3" data-testid="estimation-review">
+  <p class="text-sm">
+    @if (done()) {
+      Finished: {{ decidedCount() }} of {{ session().items.length }} cards decided.
+    } @else {
+      Review: everyone sees the same. {{ decidedCount() }} of {{ session().items.length }} decided.
+    }
+  </p>
+
+  @if (message(); as text) {
+    <p role="alert" class="text-sm text-(--color-st-red)">{{ text }}</p>
+  }
+
+  @if (canWrite() && writable().length > 0) {
+    <button
+      type="button"
+      class="btn btn-sm st-btn-primary-yellow"
+      data-testid="write-all"
+      (click)="writeAll()"
+    >
+      Write {{ writable().length }} {{ writable().length === 1 ? 'decision' : 'decisions' }} to the
+      cards
+    </button>
+  }
+
+  <ul class="flex flex-col gap-3">
+    @for (card of cards(); track card.item.id) {
+      <li
+        class="flex flex-col gap-2 rounded-xl border border-(--color-st-white-darker) bg-(--color-st-card) p-3"
+        data-testid="review-card"
+      >
+        <div class="flex items-start gap-2">
+          <button
+            type="button"
+            class="min-w-0 flex-1 cursor-pointer text-left font-semibold hover:underline"
+            [attr.aria-label]="`Show ${card.title} on the board`"
+            (click)="show(card)"
+          >
+            {{ card.title }}
+          </button>
+          @if (card.item.marked) {
+            <span class="badge badge-xs st-badge-red shrink-0">marked</span>
+          }
+          @if (card.item.decision; as decision) {
+            <span
+              class="badge badge-sm st-badge-yellow shrink-0 font-bold"
+              data-testid="decision"
+              >{{ display(decision) }}</span
+            >
+            @if (card.item.overridden) {
+              <span class="badge badge-xs badge-ghost shrink-0" data-testid="overridden"
+                >overridden</span
+              >
+            }
+          }
+        </div>
+        @if (card.storedTitle; as stored) {
+          <p class="-mt-1 text-xs text-(--color-st-grey)">Was: {{ stored }}</p>
+        }
+
+        @if (card.item.result; as result) {
+          @if (magic()) {
+            <p class="text-sm" data-testid="magic-result">
+              Column: <strong>{{ card.item.column ? display(card.item.column) : 'none' }}</strong> ·
+              moved {{ card.item.moveCount ?? 0 }}×
+            </p>
+            @if (result.moveTrail.length > 0) {
+              <p class="text-xs text-(--color-st-grey)" data-testid="move-trail">
+                Went through: {{ result.moveTrail.join(' → ') }}
+              </p>
+            }
+          } @else {
+            <p class="text-sm" data-testid="stats">
+              Average <strong>{{ result.average ?? '–' }}</strong> · median
+              <strong>{{ result.median ?? '–' }}</strong>
+            </p>
+            @if (result.distribution.length > 0) {
+              <ul class="flex flex-col gap-0.5" aria-label="Distribution">
+                @for (d of result.distribution; track d.value) {
+                  <li class="flex items-center gap-2 text-xs">
+                    <span class="w-8 text-right font-bold">{{ display(d.value) }}</span>
+                    <span class="h-2 flex-1 rounded-full bg-(--color-st-white-darker)">
+                      <span
+                        class="block h-full rounded-full bg-(--color-st-yellow)"
+                        [style.width]="width(d.count, card.item)"
+                      ></span>
+                    </span>
+                    <span class="w-4">{{ d.count }}</span>
+                  </li>
+                }
+              </ul>
+            }
+            @if (result.entries.length > 0) {
+              <ul class="flex flex-col gap-1" data-testid="entries">
+                @for (entry of result.entries; track $index) {
+                  <li class="rounded-lg bg-(--color-st-surface) px-2 py-1 text-sm">
+                    <strong>{{ display(entry.value) }}</strong>
+                    @if (entry.kept) {
+                      <span class="text-xs text-(--color-st-grey)"> kept</span>
+                    }
+                    @if (entry.displayName; as name) {
+                      <span class="text-xs text-(--color-st-grey)">
+                        · {{ name }}{{ entry.guest ? ' (guest)' : '' }}</span
+                      >
+                    }
+                    @if (entry.reason; as reason) {
+                      <span class="block text-xs break-words" data-testid="reason">{{
+                        reason
+                      }}</span>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+          }
+        }
+
+        @if (canDecide()) {
+          <div role="group" aria-label="Decide" class="flex flex-wrap gap-1">
+            @for (choice of card.choices; track choice.value) {
+              <button
+                type="button"
+                class="btn btn-xs min-w-8"
+                [class]="choice.override ? 'btn-ghost' : 'btn-outline'"
+                [attr.aria-pressed]="card.item.decision === choice.value"
+                [attr.title]="
+                  choice.override ? 'Differs from the result: marked as overridden' : null
+                "
+                [disabled]="busy()"
+                (click)="decide(card, choice.value)"
+              >
+                {{ display(choice.value) }}
+              </button>
+            }
+          </div>
+        }
+
+        @if (done() && card.item.decision !== undefined) {
+          @if (card.write; as w) {
+            @if (w.ok) {
+              <p class="text-xs" data-testid="write-state">
+                On the card now: {{ w.live.estimate ?? 'no estimate' }}
+                @if (onCard(card)) {
+                  <span class="text-(--color-st-green-on-surface)"> · written</span>
+                } @else if (canWrite()) {
+                  <button type="button" class="btn btn-xs btn-ghost" (click)="write(card)">
+                    Write {{ display(card.item.decision!) }}
+                  </button>
+                }
+              </p>
+            } @else {
+              <p class="text-xs text-(--color-st-grey)" data-testid="write-state">
+                @if (w.reason === 'missing') {
+                  This card is gone or changed: the decision is not written.
+                } @else {
+                  Kanban cards take whole numbers from 0 to 999 only: not written.
+                }
+              </p>
+            }
+          }
+        }
+      </li>
+    }
+  </ul>
+
+  @if (canDecide()) {
+    <button
+      type="button"
+      class="btn btn-sm st-btn-primary-yellow self-end"
+      [disabled]="busy()"
+      (click)="finish()"
+    >
+      Finish session
+    </button>
+  }
+</div>

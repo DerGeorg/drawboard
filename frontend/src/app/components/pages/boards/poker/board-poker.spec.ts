@@ -4,12 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { BoardRole, GrantRole, PokerRoundState } from '@apps/drawboard-api';
 
-import {
-  STORY_TYPE,
-  StoryModel,
-  newStoryProps,
-} from '../../../../../board-engine/blocks/story-model';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { STORY_TYPE, StoryModel, newStoryProps, BoardDoc } from '@apps/drawboard-engine';
 import { Toasts } from '../../../../services/toasts';
 import { FakeAuth, provideFakeAuth } from '../../../../test/fake-auth';
 import { SPRINT_BOARD_ID } from '../../../../test/fixtures';

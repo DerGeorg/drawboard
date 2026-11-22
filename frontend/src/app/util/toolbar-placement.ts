@@ -1,4 +1,4 @@
-import type { Rect, Size } from '../../board-engine/model/types';
+import type { Rect, Size } from '@apps/drawboard-engine';
 
 /** Approximate height of the contextual toolbar (one row of small buttons plus padding). */
 export const TOOLBAR_HEIGHT = 48;

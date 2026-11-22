@@ -9,20 +9,20 @@
 
 [versions]
 java = "25"
-spring-boot = "4.1.1"
-kotlin = "2.3.21"                        # must equal <kotlin.version> of the Boot BOM
+spring-boot = "4.1.2"
+kotlin = "2.4.20"                        # must equal <kotlin.version> of the Boot BOM
 # OpenTelemetry instrumentation next to Boot's OTel SDK: pick the release built on the same
 # opentelemetry-api as <opentelemetry.version> in the Boot BOM (Boot 4.1.1 -> 1.62.0 -> 2.28.x).
 opentelemetry-instrumentation = "2.28.1"
 springdoc = "3.1.1"
 archunit = "1.5.1"
-mockk = "1.14.11"
+mockk = "1.14.12"
 springmockk = "5.0.1"
 bucket4j = "8.22.0"
 tika = "4.2.0"                         # Apache-2.0: only tika-core (magic-byte detector, no parsers) detects the type of uploads (S4.2)
 bouncycastle = "1.86"                    # Argon2 of Spring Security needs it (link passwords, S1.11)
 # The API contract (drawboard-api repository). This version IS the contract the backend implements.
-drawboard-api = "2.1.0"
+drawboard-api = "3.0.0"
 
 [libraries]
 # --- build-logic classpath: the plugins as libraries, so convention plugins apply them without a version ---

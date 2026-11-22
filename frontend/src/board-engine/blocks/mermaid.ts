@@ -1,10 +1,5 @@
-import { BlockData } from '../model/types';
+import { MAX_MERMAID_BYTES, MERMAID_TYPE, BlockData, BoardTheme } from '@apps/drawboard-engine';
 import { BlockType, BlockView } from '../renderer/block-registry';
-
-export const MERMAID_TYPE = 'core.mermaid';
-
-/** Largest diagram source (UTF-8 bytes) that is rendered or accepted by the editor (S5.1). */
-export const MAX_MERMAID_BYTES = 50_000;
 
 /** Wait this long after the last keystroke before rendering again. */
 export const RENDER_DELAY_MS = 250;
@@ -17,7 +12,8 @@ export const SAMPLE_DIAGRAM = 'flowchart LR\n  Idea --> Plan --> Build --> Ship'
  * renderer, S5.1). Rejects with an Error whose message is shown to the user as text.
  */
 export interface DiagramRenderer {
-  render(source: string): Promise<Node>;
+  /** `theme` picks Mermaid's own light or dark theme (default light). */
+  render(source: string, theme?: BoardTheme): Promise<Node>;
 }
 
 export function byteLength(text: string): number {
@@ -38,7 +34,7 @@ export function createMermaidBlock(renderer?: DiagramRenderer): BlockType {
     defaultProps: {},
     opensEditor: true,
     render(host, ctx) {
-      return new MermaidView(host, ctx.block, ctx.text, renderer);
+      return new MermaidView(host, ctx.block, ctx.text, renderer, ctx.theme);
     },
   };
 }
@@ -46,6 +42,7 @@ export function createMermaidBlock(renderer?: DiagramRenderer): BlockType {
 class MermaidView implements BlockView {
   private readonly box: HTMLElement;
   private source: string | undefined;
+  private shownTheme: BoardTheme | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private destroyed = false;
@@ -55,13 +52,14 @@ class MermaidView implements BlockView {
     block: BlockData,
     private readonly text: () => string,
     private readonly renderer: DiagramRenderer | undefined,
+    private readonly theme: () => BoardTheme,
   ) {
     this.box = host.ownerDocument.createElement('div');
     this.box.className = 'be-mermaid';
     this.box.style.cssText =
       'width:100%;height:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;' +
-      'overflow:hidden;background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:8px;' +
-      'font:12px system-ui,sans-serif;color:#334155';
+      'overflow:hidden;background:var(--be-surface,#fff);border:1px solid var(--be-border-soft,#e2e8f0);border-radius:6px;padding:8px;' +
+      'font:12px system-ui,sans-serif;color:var(--be-text-strong,#334155)';
     host.appendChild(this.box);
     this.refresh(block, true);
   }
@@ -78,10 +76,13 @@ class MermaidView implements BlockView {
 
   private refresh(_block: BlockData, first: boolean): void {
     const source = this.text();
-    if (source === this.source) {
+    const theme = this.theme();
+    // a theme change draws the same source again, in Mermaid's theme of the new colour scheme
+    if (source === this.source && theme === this.shownTheme) {
       return;
     }
     this.source = source;
+    this.shownTheme = theme;
     clearTimeout(this.timer);
     if (source.trim() === '') {
       this.message('Empty diagram. Double-click to write it.');
@@ -99,13 +100,13 @@ class MermaidView implements BlockView {
       this.message('Rendering diagram…');
     }
     // off the main path: never inside the transaction that changed the text
-    this.timer = setTimeout(() => void this.render(source), first ? 0 : RENDER_DELAY_MS);
+    this.timer = setTimeout(() => void this.render(source, theme), first ? 0 : RENDER_DELAY_MS);
   }
 
-  private async render(source: string): Promise<void> {
+  private async render(source: string, theme: BoardTheme): Promise<void> {
     const generation = ++this.generation;
     try {
-      const node = await (this.renderer as DiagramRenderer).render(source);
+      const node = await (this.renderer as DiagramRenderer).render(source, theme);
       if (!this.destroyed && generation === this.generation) {
         this.box.replaceChildren(this.diagram(node));
       }
@@ -133,7 +134,7 @@ class MermaidView implements BlockView {
   private message(text: string, error = false): void {
     const p = this.box.ownerDocument.createElement('div');
     p.className = error ? 'be-mermaid-error' : 'be-mermaid-message';
-    p.style.cssText = `white-space:pre-wrap;text-align:center;color:${error ? '#b91c1c' : '#64748b'}`;
+    p.style.cssText = `white-space:pre-wrap;text-align:center;color:${error ? 'var(--be-danger,#b91c1c)' : 'var(--be-text-3,#64748b)'}`;
     p.textContent = text;
     this.box.replaceChildren(p);
   }

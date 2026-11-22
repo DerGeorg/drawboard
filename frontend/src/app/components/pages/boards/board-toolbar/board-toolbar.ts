@@ -9,13 +9,22 @@ import {
   signal,
 } from '@angular/core';
 
-import { STICKY_COLORS } from '../../../../../board-engine/blocks/sticky';
+import { Gif } from '@apps/drawboard-api';
+
+import {
+  STICKY_COLORS,
+  displayColor,
+  FILL_COLORS,
+  STROKE_COLORS,
+  STROKE_WIDTHS,
+} from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { FILL_COLORS, STROKE_COLORS, STROKE_WIDTHS } from '../../../../../board-engine/palette';
 import type { PluginBlockOption } from '../../../../../board-engine/plugins/plugin-host';
 import { ToolId } from '../../../../../board-engine/tools/tool';
+import { Theme } from '../../../../services/theme';
 import { WithSpan } from '../../../../util/tracing';
 import { EmojiPicker } from '../../../shared/emoji-picker/emoji-picker';
+import { GifPicker } from '../../../shared/gif-picker/gif-picker';
 import { Icon } from '../../../shared/icon/icon';
 import { IconName } from '../../../shared/icon/icons';
 import { ACCEPTED_EXTENSIONS, UPLOAD_LIMITS_TEXT } from '../board-uploads';
@@ -88,7 +97,7 @@ const READ_ONLY_GROUPS: ReadonlySet<GroupId> = new Set(['select', 'hand']);
  */
 @Component({
   selector: 'drawboard-board-toolbar',
-  imports: [Icon, EmojiPicker],
+  imports: [Icon, EmojiPicker, GifPicker],
   templateUrl: './board-toolbar.html',
   host: {
     '(document:pointerdown)': 'closeFlyoutOnOutside($event)',
@@ -98,6 +107,7 @@ const READ_ONLY_GROUPS: ReadonlySet<GroupId> = new Set(['select', 'hand']);
 })
 export class BoardToolbar {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly theme = inject(Theme);
 
   readonly engine = input<BoardEngine>();
   readonly readOnly = input(false);
@@ -111,12 +121,22 @@ export class BoardToolbar {
   readonly kanban = output();
   /** The story card button: the page adds a story card and opens it. */
   readonly story = output();
+  /**
+   * Signed-in editors on an instance with GIFs (frontend switch and backend key, G3) - never
+   * guests (G5): shows the GIF button.
+   */
+  readonly gifsAvailable = input(false);
+  /** The board's id: the key of the viewer's "Load" consent in the GIF picker. */
+  readonly boardKey = input('');
+  /** A GIF was picked in the GIF picker: the page adds a block. */
+  readonly gif = output<Gif>();
   /** Block types of the enabled plugins (sandboxed, S3.2). */
   readonly pluginBlocks = input<readonly PluginBlockOption[]>([]);
   /** A plugin block type was picked: the page adds one. */
   readonly pluginBlock = output<PluginBlockOption>();
 
   protected readonly pluginMenu = signal(false);
+  protected readonly gifMenu = signal(false);
 
   protected readonly accept = ACCEPTED_EXTENSIONS.join(',');
   protected readonly uploadLimits = UPLOAD_LIMITS_TEXT;
@@ -207,6 +227,7 @@ export class BoardToolbar {
     if (!this.isActive(group)) {
       engine.setTool(this.toolOf(group));
     }
+    this.gifMenu.set(false);
     this.flyout.set(group.flyout && this.flyout() !== group.flyout ? group.flyout : undefined);
   }
 
@@ -249,6 +270,11 @@ export class BoardToolbar {
     this.engine()?.setDrawStyle({ size });
   }
 
+  /** The colour a swatch shows: the stored colour as it is drawn in the current theme. */
+  protected shade(color: string): string {
+    return displayColor(color, this.theme.resolved());
+  }
+
   /** Complete class strings (Tailwind finds them): a colour swatch, ringed when it is the current one. */
   protected swatchClass(active: boolean, shape: string): string {
     const base =
@@ -267,6 +293,18 @@ export class BoardToolbar {
   protected addPluginBlock(option: PluginBlockOption): void {
     this.pluginMenu.set(false);
     this.pluginBlock.emit(option);
+  }
+
+  @WithSpan('BoardToolbar.toggleGifs')
+  protected toggleGifs(): void {
+    this.flyout.set(undefined);
+    this.gifMenu.update((open) => !open);
+  }
+
+  @WithSpan('BoardToolbar.pickGif')
+  protected pickGif(gif: Gif): void {
+    this.gifMenu.set(false);
+    this.gif.emit(gif);
   }
 
   @WithSpan('BoardToolbar.addDiagram')
@@ -297,12 +335,14 @@ export class BoardToolbar {
   protected closeFlyout(): void {
     this.flyout.set(undefined);
     this.pluginMenu.set(false);
+    this.gifMenu.set(false);
   }
 
   protected closeFlyoutOnOutside(event: Event): void {
     if (!this.host.nativeElement.contains(event.target as Node)) {
       this.flyout.set(undefined);
       this.pluginMenu.set(false);
+      this.gifMenu.set(false);
     }
   }
 

@@ -1,14 +1,15 @@
-import { FileSource, NO_FILES } from '../files/file-source';
+import { FileSource, NO_FILES } from '@apps/drawboard-engine';
 import { BlockType, BlockTypeRegistry } from '../renderer/block-registry';
 import { emojiBlock } from './emoji';
 import { FileRenderers, createFileBlock } from './file';
+import { GifServices, createGifBlock } from './gif';
 import { frameBlock } from './frame';
 import { STICKY_OUT, createKanbanBlock } from './kanban';
+import { storyFromCard } from './kanban-story';
 import { DiagramRenderer, createMermaidBlock } from './mermaid';
 import { shapeBlock } from './shape';
 import { stickyBlock } from './sticky';
 import { EstimateSource, createStoryBlock } from './story';
-import { STORY_TYPE, newStoryProps } from './story-model';
 import { textBlock } from './text';
 
 /**
@@ -23,6 +24,11 @@ export interface BuiltinServices {
   diagrams?: DiagramRenderer;
   /** Open planning poker rounds per story card; without it no card shows "estimating". */
   estimates?: EstimateSource;
+  /**
+   * GIFs from GIPHY (3.14): the instance switch, the viewer's consent, the view's mode. Without
+   * it a GIF block is a placeholder and loads nothing.
+   */
+  gifs?: GifServices;
 }
 
 /**
@@ -40,6 +46,7 @@ export function registerBuiltinBlocks(
   register(textBlock);
   register(shapeBlock);
   register(emojiBlock);
+  register(createGifBlock(services.gifs));
   register(frameBlock);
   register(createFileBlock(services.files ?? NO_FILES, services.fileRenderers));
   register(createMermaidBlock(services.diagrams));
@@ -47,15 +54,7 @@ export function registerBuiltinBlocks(
   register(
     createKanbanBlock({
       ...STICKY_OUT,
-      alternative: (card, at) => ({
-        type: STORY_TYPE,
-        x: at.x - 150,
-        y: at.y - 110,
-        w: 300,
-        h: 220,
-        props: { ...newStoryProps(), estimate: card.points === null ? null : String(card.points) },
-        text: card.title,
-      }),
+      alternative: storyFromCard,
     }),
   );
   register(createStoryBlock(services.estimates));

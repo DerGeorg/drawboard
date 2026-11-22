@@ -9,12 +9,17 @@ import {
 import { Board, FilesService, PluginsService } from '@apps/drawboard-api';
 import { firstValueFrom } from 'rxjs';
 
-import { FILE_TYPE } from '../../../../board-engine/blocks/file';
-import type { FileState } from '../../../../board-engine/files/file-source';
-import { CopyResult, importableCopy } from '../../../../board-engine/io/board-copy';
-import { BoardFile, ImportError, boardToFile } from '../../../../board-engine/io/board-file';
-import type { BoardDoc } from '../../../../board-engine/model/board-doc';
-import type { BuiltinTemplate } from '../../../../board-engine/templates/builtin-templates';
+import {
+  FILE_TYPE,
+  type FileState,
+  CopyResult,
+  importableCopy,
+  BoardFile,
+  ImportError,
+  boardToFile,
+  type BoardDoc,
+  type BuiltinTemplate,
+} from '@apps/drawboard-engine';
 import { ERRORS_HANDLED_LOCALLY } from '../../../services/error-interceptor';
 import { Toasts } from '../../../services/toasts';
 import { ApiError } from '../../../util/api-error';

@@ -2,9 +2,8 @@ import { inputBinding, outputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import * as Y from 'yjs';
 
-import { MAX_MERMAID_BYTES, MERMAID_TYPE } from '../../../../../board-engine/blocks/mermaid';
+import { MAX_MERMAID_BYTES, MERMAID_TYPE, BoardDoc } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
 import { buttonByLabel, textOf } from '../../../../test/dom';
 import { BoardDiagramEditor } from './board-diagram-editor';
 

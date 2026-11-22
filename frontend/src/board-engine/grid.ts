@@ -1,4 +1,4 @@
-import { Camera } from './camera';
+import { Camera } from '@apps/drawboard-engine';
 
 /** Distance of the dots in world units at zoom 1. */
 export const GRID_SPACING = 24;

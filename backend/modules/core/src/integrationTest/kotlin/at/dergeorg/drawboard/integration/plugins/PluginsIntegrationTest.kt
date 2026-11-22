@@ -66,7 +66,9 @@ import kotlin.uuid.Uuid
         "management.otlp.metrics.export.enabled=false",
     ],
 )
-@AutoConfigureWebTestClient(timeout = "PT30S")
+// 2 min: the UNPACKED_TOO_LARGE case unpacks 51 MiB before it is refused, which took over 30 s
+// on a busy runner (timeout on blocking read)
+@AutoConfigureWebTestClient(timeout = "PT2M")
 @AutoConfigureTracing
 @ContextConfiguration(initializers = [PostgresTestcontainerInitializer::class])
 class PluginsIntegrationTest(

@@ -1,5 +1,5 @@
 <section
-  class="float-panel flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 p-3"
+  class="float-panel flex max-h-[calc(100dvh-6rem)] w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto p-3"
   [attr.aria-labelledby]="`${ids}-title`"
   data-testid="kanban-card"
 >
@@ -72,6 +72,81 @@
       </div>
     </div>
 
+    <div>
+      <label [for]="`${ids}-description`" class="text-xs font-medium">Description</label>
+      <textarea
+        [id]="`${ids}-description`"
+        class="textarea h-24 w-full text-sm"
+        [formField]="cardForm.description"
+        [attr.aria-describedby]="`${ids}-description-errors`"
+      ></textarea>
+      <drawboard-field-errors [id]="`${ids}-description-errors`" [field]="cardForm.description" />
+    </div>
+
+    <section [attr.aria-labelledby]="`${ids}-criteria`">
+      <h3 [id]="`${ids}-criteria`" class="text-xs font-medium">Acceptance criteria</h3>
+      <ul class="mt-1 flex flex-col gap-1">
+        @for (criterion of criteria(); track criterion.id) {
+          <li class="flex items-center gap-2" data-testid="criterion">
+            <input
+              #done
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              [attr.aria-label]="`Criterion ${$index + 1} done`"
+              [checked]="criterion.done"
+              [disabled]="readOnly()"
+              (change)="toggleCriterion(criterion.id, done.checked)"
+            />
+            <input
+              #text
+              type="text"
+              class="st-input flex-1"
+              autocomplete="off"
+              [attr.aria-label]="`Criterion ${$index + 1}`"
+              [maxLength]="storyLimits.maxCriterion"
+              [readOnly]="readOnly()"
+              [value]="criterion.text"
+              (change)="rewordCriterion(criterion.id, text.value)"
+            />
+            @if (!readOnly()) {
+              <button
+                type="button"
+                class="btn btn-square btn-xs btn-ghost"
+                [attr.aria-label]="`Remove criterion ${$index + 1}`"
+                (click)="removeCriterion(criterion.id)"
+              >
+                <drawboard-icon name="trash" />
+              </button>
+            }
+          </li>
+        }
+      </ul>
+      @if (!readOnly() && !criterionFull()) {
+        <div class="mt-2 flex items-center gap-2">
+          <label [for]="`${ids}-new-criterion`" class="sr-only">New acceptance criterion</label>
+          <input
+            #newCriterion
+            [id]="`${ids}-new-criterion`"
+            type="text"
+            class="st-input flex-1"
+            autocomplete="off"
+            placeholder="Add a criterion"
+            [maxLength]="storyLimits.maxCriterion"
+            (keydown.enter)="
+              $event.preventDefault(); addCriterion(newCriterion.value); newCriterion.value = ''
+            "
+          />
+          <button
+            type="button"
+            class="btn btn-sm btn-ghost"
+            (click)="addCriterion(newCriterion.value); newCriterion.value = ''"
+          >
+            Add
+          </button>
+        </div>
+      }
+    </section>
+
     <fieldset>
       <legend class="text-xs font-medium">Labels</legend>
       <div class="mt-1 flex flex-wrap gap-2">
@@ -90,6 +165,12 @@
       </div>
     </fieldset>
 
+    @if (saveError(); as message) {
+      <p class="text-xs text-(--color-st-red)" role="alert" data-testid="save-error">
+        {{ message }}
+      </p>
+    }
+
     <div class="flex flex-wrap items-center gap-2">
       <button type="submit" class="btn btn-sm st-btn-primary-yellow" [disabled]="readOnly()">
         Save
@@ -103,6 +184,14 @@
         (click)="moveToCanvas()"
       >
         Move to canvas
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-ghost"
+        [disabled]="readOnly()"
+        (click)="moveToCanvasAsStory()"
+      >
+        As story card
       </button>
       <button
         type="button"

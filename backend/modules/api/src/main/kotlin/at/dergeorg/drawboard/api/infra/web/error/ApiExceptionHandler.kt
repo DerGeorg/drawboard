@@ -9,6 +9,7 @@ import at.dergeorg.drawboard.shared.error.ErrorCode
 import at.dergeorg.drawboard.shared.error.FieldViolationsException
 import at.dergeorg.drawboard.shared.error.PayloadTooLargeException
 import at.dergeorg.drawboard.shared.error.RateLimitedException
+import at.dergeorg.drawboard.shared.error.RetryAfterException
 import at.dergeorg.drawboard.shared.logging.AppLogger
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.MessageSourceResolvable
@@ -55,7 +56,10 @@ internal class ApiExceptionHandler(
     fun handleDomain(exception: DomainException, exchange: ServerWebExchange): ResponseEntity<ErrorModel> {
         val code = exception.errorCode
         val logged = ERROR_MESSAGE to exception.message
-        if (code.status >= SERVER_ERROR) {
+        if (exception is RetryAfterException && code.status >= SERVER_ERROR) {
+            // an upstream service is down: the module logged the cause (a fixed word); a stack trace per request would only add noise
+            log.warn(REQUEST_REJECTED, exchange.problemFields(code.status, code, logged))
+        } else if (code.status >= SERVER_ERROR) {
             log.error(REQUEST_FAILED, exception, exchange.problemFields(code.status, code, logged))
             exchange.recordServerError(exception)
         } else {
@@ -67,7 +71,7 @@ internal class ApiExceptionHandler(
         val model = problems.create(code, exchange, detail = detail, params = exception.params, violations = violations)
         return respond(
             model,
-            retryAfter = (exception as? RateLimitedException)?.retryAfterSeconds,
+            retryAfter = (exception as? RateLimitedException)?.retryAfterSeconds ?: (exception as? RetryAfterException)?.retryAfterSeconds,
             contentRangeOf = (exception as? RangeNotSatisfiableException)?.size,
         )
     }

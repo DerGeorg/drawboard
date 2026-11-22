@@ -3,14 +3,18 @@ package at.dergeorg.drawboard.api.domain.users
 import at.dergeorg.drawboard.api.common.SignedInUsers
 import at.dergeorg.drawboard.api.domain.users.users.provides.UsersApiUseCase
 import at.dergeorg.drawboard.api.common.DrawboardProperties
+import at.dergeorg.drawboard.contract.model.ColorTheme
 import at.dergeorg.drawboard.contract.model.CurrentUser
+import at.dergeorg.drawboard.contract.model.UserPreferences
 import at.dergeorg.drawboard.contract.model.UserSummary
 import at.dergeorg.drawboard.contract.model.UserSummaryList
+import at.dergeorg.drawboard.gifs.domain.search.provides.GifSearchUseCase
 import at.dergeorg.drawboard.shared.error.InvalidField
 import at.dergeorg.drawboard.shared.error.ValidationFailedException
 import at.dergeorg.drawboard.shared.security.RateRule
 import at.dergeorg.drawboard.shared.security.WindowRateLimiter
 import at.dergeorg.drawboard.users.domain.users.provides.UserProfilesUseCase
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme as StoredTheme
 import io.opentelemetry.instrumentation.annotations.WithSpan
 import org.springframework.stereotype.Service
 import kotlin.time.Clock
@@ -22,6 +26,7 @@ internal class UsersApiService(
     private val signedIn: SignedInUsers,
     private val profiles: UserProfilesUseCase,
     private val properties: DrawboardProperties,
+    private val gifs: GifSearchUseCase,
     clock: Clock,
 ) : UsersApiUseCase {
 
@@ -35,9 +40,22 @@ internal class UsersApiService(
             username = profile.username,
             admin = signedIn.isAdmin(),
             guestLinksEnabled = properties.guestsEnabled,
+            gifsEnabled = gifs.isEnabled(),
             displayName = profile.displayName,
             email = profile.email,
+            theme = profile.theme.toContract(),
         )
+    }
+
+    /**
+     * Replaces the settings of the caller; the profile is created first if this is their first call (like for a board
+     * route). The answer is what was stored.
+     */
+    @WithSpan
+    override suspend fun updateUserPreferences(preferences: UserPreferences): UserPreferences {
+        val profile = signedIn.profile()
+        val stored = profiles.changeTheme(profile.id, preferences.theme.toStored())
+        return UserPreferences(theme = stored.theme.toContract())
     }
 
     /**
@@ -57,6 +75,10 @@ internal class UsersApiService(
         val hits = profiles.search(term, MAX_HITS).map { UserSummary(id = it.id, username = it.username, displayName = it.displayName) }
         return UserSummaryList(items = hits)
     }
+
+    private fun StoredTheme.toContract() = ColorTheme.valueOf(name)
+
+    private fun ColorTheme.toStored() = StoredTheme.valueOf(name)
 
     private companion object {
         const val SEARCHES_PER_MINUTE = 30

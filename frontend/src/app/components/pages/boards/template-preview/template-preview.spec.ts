@@ -1,7 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { inputBinding, signal } from '@angular/core';
 
-import type { BoardFile } from '../../../../../board-engine/io/board-file';
+import type { BoardFile } from '@apps/drawboard-engine';
+import { Theme } from '../../../../services/theme';
 import { all } from '../../../../test/dom';
 import { TemplatePreview } from './template-preview';
 
@@ -33,10 +34,32 @@ describe('TemplatePreview', () => {
   let fixture: ComponentFixture<TemplatePreview>;
 
   beforeEach(async () => {
+    source.set(file([frame('a', 0), frame('b', 120)]));
     fixture = TestBed.createComponent(TemplatePreview, {
       bindings: [inputBinding('file', source)],
     });
     await fixture.whenStable();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+    delete document.documentElement.dataset['theme'];
+  });
+
+  describe('theme', () => {
+    it('when the theme is dark then a white frame is drawn dark, a pastel one stays and the outline is soft', async () => {
+      source.set(file([{ ...frame('a', 0), props: { fill: '#ffffff' } }, frame('b', 120)]));
+
+      await TestBed.inject(Theme).set('DARK');
+      await fixture.whenStable();
+
+      const boxes = all(fixture, 'rect');
+      expect(
+        boxes.map((b) => b.getAttribute('fill')),
+        'fills',
+      ).toEqual(['#1e293b', '#ecfdf5']);
+      expect(boxes[0].getAttribute('stroke'), 'outline').toBe('#334155');
+    });
   });
 
   describe('picture', () => {

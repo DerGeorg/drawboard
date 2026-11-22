@@ -1,4 +1,4 @@
-import { FileLinks, FileMeta, FileSource, FileState } from '../files/file-source';
+import { FileLinks, FileMeta, FileSource, FileState } from '@apps/drawboard-engine';
 
 export const FILE_ID = '0192f5e0-7c1a-7b3e-8f00-2a1b3c4d5e6f';
 

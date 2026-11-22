@@ -34,8 +34,7 @@
           <ul class="mt-1 list-disc pl-5">
             @for (v of f.violations; track $index) {
               <li>
-                <code>{{ v.field }}</code
-                >: {{ v.message }}
+                <code>{{ v.field }}</code>: {{ v.message }}
               </li>
             }
           </ul>

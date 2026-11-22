@@ -1,10 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { BoardRole } from '@apps/drawboard-api';
 
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
+import { BoardDoc, type CollabRole, type PeerPresence } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../board-engine/engine';
-import type { CollabRole } from '../../../../board-engine/collab/frames';
-import type { PeerPresence } from '../../../../board-engine/presence';
 import { Toasts } from '../../../services/toasts';
 import { FakeAuth, provideFakeAuth } from '../../../test/fake-auth';
 import { provideHttpTesting } from '../../../test/http-testing';

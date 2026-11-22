@@ -8,47 +8,56 @@ import {
   screenToWorld,
   setZoomAt,
   zoomAt,
-} from './camera';
-import { BuiltinServices, registerBuiltinBlocks } from './blocks/builtin';
-import { SHAPE_TYPE } from './blocks/shape';
-import { STICKY_COLORS, STICKY_TYPE } from './blocks/sticky';
-import { TEXT_TYPE } from './blocks/text';
-import { InputController, InputTarget } from './input/input-controller';
-import { KeyInfo, PointerInfo, WheelInfo } from './input/events';
-import { ImportError } from './io/board-file';
-import {
+  SHAPE_TYPE,
+  STICKY_COLORS,
+  STICKY_TYPE,
+  TEXT_TYPE,
+  ImportError,
   ClipboardContent,
   PASTE_OFFSET,
   PasteResult,
   copyToClipboard,
   parseClipboard,
   pasteClipboard,
-} from './io/clipboard';
-import { BoardDoc } from './model/board-doc';
-import { MAX_TEXT_LENGTH, Point, Rect, Size } from './model/types';
-import { LocalPresence, PeerPresence } from './presence';
-import { BlockHost, BlockRequest, BlockTypeRegistry } from './renderer/block-registry';
-import { HANDLE_SIZE, Overlay } from './renderer/overlay';
-import { Renderer } from './renderer/renderer';
-import { blockAt, hitTest, itemBounds } from './scene';
-import { SelectionState } from './selection';
-import { applyTextDiff, startTextEditor, TextEditSession } from './text/text-editor';
-import { HandTool } from './tools/hand-tool';
-import { deleteWithContents, duplicateWithContents } from './tools/select-tool';
-import {
+  BoardDoc,
+  MAX_TEXT_LENGTH,
+  Point,
+  Rect,
+  Size,
+  LocalPresence,
+  PeerPresence,
+  applyTextDiff,
   FRAME_TYPE,
   FrameTree,
   assignParents,
   isFrame,
   removeFramesKeepContents,
-} from './model/frames';
-import { addColumn, addRow, cellOf, removeColumn, removeRow, tableOf } from './model/tables';
+  addColumn,
+  addRow,
+  cellOf,
+  removeColumn,
+  removeRow,
+  tableOf,
+  BoardTheme,
+  Emitter,
+  unionRects,
+} from '@apps/drawboard-engine';
+import { BuiltinServices, registerBuiltinBlocks } from './blocks/builtin';
+import { EstimateSource } from './blocks/story';
+import { InputController, InputTarget } from './input/input-controller';
+import { KeyInfo, PointerInfo, WheelInfo } from './input/events';
+import { BlockHost, BlockRequest, BlockTypeRegistry } from './renderer/block-registry';
+import { HANDLE_SIZE, Overlay } from './renderer/overlay';
+import { Renderer } from './renderer/renderer';
+import { blockAt, hitTest, itemBounds } from './scene';
+import { SelectionState } from './selection';
+import { startTextEditor, TextEditSession } from './text/text-editor';
+import { HandTool } from './tools/hand-tool';
+import { deleteWithContents, duplicateWithContents } from './tools/select-tool';
 import { READ_ONLY_TOOLS, TOOL_SHORTCUTS, createTools } from './tools';
 import { HANDLES, handlePosition } from './tools/resize';
 import { HandleId, HitResult, OverlayHints, Tool, ToolContext, ToolId } from './tools/tool';
 import { History, HistoryState } from './undo';
-import { Emitter } from './util/emitter';
-import { unionRects } from './util/geometry';
 
 /**
  * Where the current selection is on screen (CSS pixels relative to the container): the anchor
@@ -59,6 +68,8 @@ export type SelectionAnchor = Rect | null;
 
 export interface EngineOptions {
   readOnly?: boolean;
+  /** The theme to start in (default light); change it later with `setTheme`. */
+  theme?: BoardTheme;
   /** Registry with the block types; built-ins are registered if omitted. */
   registry?: BlockTypeRegistry;
   /** Host services of the built-in blocks (files); used when `registry` is omitted. */
@@ -151,6 +162,8 @@ export class BoardEngine implements InputTarget, ToolContext {
   readonly textEditAnchorChanged = new Emitter<SelectionAnchor>();
   /** The read-only flag changed (plugins switch between view and edit mode). */
   readonly readOnlyChanged = new Emitter<boolean>();
+  /** The board is shown in another theme (`setTheme`); the document did not change. */
+  readonly themeChanged = new Emitter<BoardTheme>();
   /** A block whose type has an editor of its own was double-clicked (id of the block). */
   readonly blockOpened = new Emitter<string>();
   /** A trusted block asks the host app for something (open a kanban card, ...). */
@@ -186,6 +199,7 @@ export class BoardEngine implements InputTarget, ToolContext {
   private lastAnchor: SelectionAnchor = null;
   private lastEditAnchor: SelectionAnchor = null;
   private readonly boardId: string | null;
+  private readonly estimateSource: EstimateSource | undefined;
   /** The previous paste: the same content at the same spot steps by PASTE_OFFSET. */
   private lastPaste: { key: string; at: Point; count: number } | undefined;
   private glideTarget: Camera | undefined;
@@ -198,6 +212,7 @@ export class BoardEngine implements InputTarget, ToolContext {
   ) {
     this._readOnly = options.readOnly ?? false;
     this.boardId = options.boardId ?? null;
+    this.estimateSource = options.services?.estimates;
     this.registry =
       options.registry ?? registerBuiltinBlocks(new BlockTypeRegistry(), options.services);
     container.style.cssText +=
@@ -213,7 +228,14 @@ export class BoardEngine implements InputTarget, ToolContext {
       select: (ids) => this.selection.set([...ids]),
       request: (request) => this.blockRequested.emit(request),
     };
-    this.renderer = new Renderer(container, board, this.registry, () => this._readOnly, blockHost);
+    this.renderer = new Renderer(
+      container,
+      board,
+      this.registry,
+      () => this._readOnly,
+      blockHost,
+      options.theme ?? 'light',
+    );
     this.history = new History(board);
     this.tools = createTools(this);
     this.hand = new HandTool(this);
@@ -264,6 +286,34 @@ export class BoardEngine implements InputTarget, ToolContext {
 
   get readOnly(): boolean {
     return this._readOnly;
+  }
+
+  get estimates(): EstimateSource | undefined {
+    return this.estimateSource;
+  }
+
+  clientAt(screen: Point): Point {
+    const r = this.container.getBoundingClientRect();
+    return { x: screen.x + r.left, y: screen.y + r.top };
+  }
+
+  /** The theme the board is shown in. */
+  get theme(): BoardTheme {
+    return this.renderer.currentTheme;
+  }
+
+  /**
+   * Shows the board in `theme` (light or dark): the canvas chrome and the colours of the
+   * content are drawn for it, every block renders again. Display only: the document keeps its
+   * colours, nothing is written to Yjs and there is no undo step.
+   */
+  setTheme(theme: BoardTheme): void {
+    if (theme === this.renderer.currentTheme) {
+      return;
+    }
+    this.renderer.setTheme(theme);
+    this.themeChanged.emit(theme);
+    this.requestRender();
   }
 
   setReadOnly(readOnly: boolean): void {

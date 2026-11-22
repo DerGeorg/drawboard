@@ -1,5 +1,6 @@
 import { Signal } from '@angular/core';
 
+import type { ThemeMode } from '../util/theme-mode';
 import type { GuestUser } from './guest-session';
 
 /** The signed-in user as the backend knows them (GET /api/users/me). */
@@ -13,6 +14,10 @@ export interface AuthUser {
   readonly admin: boolean;
   /** The instance allows share links for guests without an account (`CurrentUser.guestLinksEnabled`). */
   readonly guestLinksEnabled: boolean;
+  /** This instance has a GIPHY key: GIF search works (`CurrentUser.gifsEnabled`, G3). */
+  readonly gifsEnabled: boolean;
+  /** The saved colour theme choice of the profile (`CurrentUser.theme`). */
+  readonly theme: ThemeMode;
 }
 
 /**

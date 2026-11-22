@@ -3,6 +3,9 @@ package at.dergeorg.drawboard.users.domain
 import at.dergeorg.drawboard.shared.auditing.AuditTrail
 import at.dergeorg.drawboard.shared.auditing.DomainEvents
 import at.dergeorg.drawboard.users.common.UsersModule
+import at.dergeorg.drawboard.shared.error.DomainException
+import at.dergeorg.drawboard.shared.error.ErrorCode
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme
 import at.dergeorg.drawboard.users.domain.users.model.UserProfile
 import at.dergeorg.drawboard.users.domain.users.provides.SyncFromLoginCommand
 import at.dergeorg.drawboard.users.domain.users.provides.UserProfilesUseCase
@@ -43,6 +46,22 @@ internal class UsersService(
         )
         // A concurrent login of the same user was faster: its profile is just as current as ours would be.
         return profiles.update(refreshed) ?: currentProfile(command)
+    }
+
+    /**
+     * Not audited (a display setting). No surrounding transaction on purpose: every attempt reads and writes on its own,
+     * so a profile changed in between (typically a login refreshing the claims) is read again and the theme is set on
+     * top of it - the last write wins.
+     */
+    @WithSpan
+    override suspend fun changeTheme(@SpanAttribute("user.id") id: Uuid, theme: ColorTheme): UserProfile {
+        repeat(THEME_ATTEMPTS) {
+            val stored = checkNotNull(profiles.findById(id)) { "user profile $id does not exist" }
+            if (stored.theme == theme) return stored
+            val changed = profiles.update(stored.copy(theme = theme))
+            if (changed != null) return changed
+        }
+        throw DomainException(ErrorCode.CONFLICT)
     }
 
     @WithSpan
@@ -92,5 +111,6 @@ internal class UsersService(
 
     private companion object {
         const val PROFILE = "profile"
+        const val THEME_ATTEMPTS = 3
     }
 }

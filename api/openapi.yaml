@@ -44,6 +44,13 @@ info:
     getPokerRound (open rounds; closed ones only when they took part) and
     castPokerVote; VIEWER-link guests get 403 FORBIDDEN on every planning
     poker operation, and no guest may create, reveal or cancel a round.
+    Likewise for estimation sessions: guests whose link role is COMMENTER
+    or EDITOR may call listEstimationSessions (state ACTIVE only),
+    getEstimationSession (LOBBY and running sessions; REVIEW, DONE and
+    CANCELLED only when they hold a seat), joinEstimationSession,
+    leaveEstimationSession, placeEstimationItem and setRotationEstimate;
+    VIEWER-link guests get 403 FORBIDDEN on every estimation operation, and
+    no guest may create, start, advance, decide, finish or cancel a session.
   # Never maintained by hand: the bundle step of scripts/build.sh stamps the
   # version it was given in VERSION (the pipeline passes the one
   # semantic-release computed).
@@ -87,12 +94,20 @@ tags:
       admins), the list a board host loads, and a plugin's storage on a
       board. The manifest and the sandbox protocol between host and plugin
       are described in docs/plugin-protocol.md of this repository.
+  - name: gifs
+    description: |
+      GIF search at GIPHY through the server (module `gifs`, section 3.14):
+      the instance's own key stays on the server, signed-in users only,
+      off without a key. The board stores only GIPHY ids (block `core.gif`).
   - name: planning
     description: |
       Planning poker on story cards (module `planning`, subdomain `rounds`,
       S7.6): rounds started by an editor, votes kept on the server only
-      (never in the Yjs document), reveal with the result. Live state by
-      polling a round with If-None-Match; the WebSocket protocol is
+      (never in the Yjs document), reveal with the result. Estimation
+      sessions (subdomain `sessions`, section 3.15): Magic Estimation and
+      Rotation over many cards at once, run by a moderator, with seats,
+      entries, moves and reasons on the server only. Live state by polling
+      a round or session with If-None-Match; the WebSocket protocol is
       unchanged.
 servers:
   - url: /api
@@ -180,10 +195,36 @@ paths:
     $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}~1reveal'
   /boards/{boardId}/poker-rounds/{roundId}/cancel:
     $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1poker-rounds~1{roundId}~1cancel'
+  /boards/{boardId}/estimation-sessions:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions'
+  /boards/{boardId}/estimation-sessions/{sessionId}:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}'
+  /boards/{boardId}/estimation-sessions/{sessionId}/seats/me:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1seats~1me'
+  /boards/{boardId}/estimation-sessions/{sessionId}/start:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1start'
+  /boards/{boardId}/estimation-sessions/{sessionId}/advance:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1advance'
+  /boards/{boardId}/estimation-sessions/{sessionId}/finish:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1finish'
+  /boards/{boardId}/estimation-sessions/{sessionId}/cancel:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1cancel'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/placement:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1items~1{itemId}~1placement'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/estimate:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1items~1{itemId}~1estimate'
+  /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/decision:
+    $ref: 'api/api.yaml#/paths/~1boards~1{boardId}~1estimation-sessions~1{sessionId}~1items~1{itemId}~1decision'
   /users/me:
     $ref: 'api/api.yaml#/paths/~1users~1me'
+  /users/me/preferences:
+    $ref: 'api/api.yaml#/paths/~1users~1me~1preferences'
   /users/search:
     $ref: 'api/api.yaml#/paths/~1users~1search'
+  /gifs/search:
+    $ref: 'api/api.yaml#/paths/~1gifs~1search'
+  /gifs/trending:
+    $ref: 'api/api.yaml#/paths/~1gifs~1trending'
 components:
   securitySchemes:
     bearerAuth:

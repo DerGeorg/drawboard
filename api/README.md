@@ -19,7 +19,7 @@ api/
                               sharing: members, links, exchange, shared with me), collab
                               (module collab), files + file-content (module files),
                               plugins (module plugins), planning (module planning,
-                              subdomain rounds), users (module users)
+                              subdomains rounds and sessions), users (module users)
 common/
   common.yaml                 ALL components - every key under components.schemas = exactly one model:
                               schemas    ErrorModel, FieldViolation, ErrorCode | PageInfo |
@@ -43,15 +43,25 @@ common/
                                          PokerDeckKind, PokerDeck, PokerRoundState, NewPokerRound,
                                          PokerRound, PokerParticipant, PokerResult, PokerResultVote,
                                          PokerValueCount, PokerVote, PokerRoundList |
+                                         EstimationMode, EstimationSessionState,
+                                         EstimationItemRefKind, EstimationItemRef, NewEstimationItem,
+                                         EstimationSettings, NewEstimationSession,
+                                         EstimationSessionMe, EstimationSessionSummary,
+                                         EstimationSessionList, EstimationSession, EstimationSeat,
+                                         EstimationItem, EstimationItemResult, EstimationEntry,
+                                         EstimationStart, EstimationPlacement, RotationEstimate,
+                                         EstimationAdvance, EstimationDecision |
                                          CurrentUser, UserSummary, UserSummaryList
                               parameters PageNumber, PageSize, BoardId, BoardFolderFilter,
                                          ParentFolderFilter, FolderId, UserId, GroupName, LinkId,
                                          VersionId, UserSearchQuery, UpToSeq, FileId, FileIds,
                                          FileVariant, FileUrlExpiry, FileUrlSignature, ByteRange,
-                                         PluginId, PokerRoundId, PokerRoundStateFilter, IfNoneMatch
+                                         PluginId, PokerRoundId, PokerRoundStateFilter,
+                                         EstimationSessionId, EstimationItemId,
+                                         EstimationSessionStateFilter, IfNoneMatch
                               headers    File* (response headers of downloadFile, S4.5),
-                                         PokerRoundETag, NoStoreCacheControl, VaryAuthorization
-                                         (getPokerRound)
+                                         PokerRoundETag, EstimationSessionETag, NoStoreCacheControl,
+                                         VaryAuthorization (getPokerRound, getEstimationSession)
                               responses  BadRequest, Unauthorized, Forbidden, NotFound, NotAcceptable,
                                          Conflict, PayloadTooLarge, UnsupportedMediaType,
                                          RangeNotSatisfiable, TooManyRequests, InternalError
@@ -97,7 +107,7 @@ they are local: `'#/components/schemas/Board'`.
 
 Routes (milestones M0-M4): boards, folders, trash, sharing (members, links,
 guests), collaboration ticket, snapshots and versions, files (M3), plugins
-(M3), planning poker (M4), users. The drawing itself is synchronised over the collaboration
+(M3), planning poker (M4), estimation sessions (Magic Estimation, Rotation), users. The drawing itself is synchronised over the collaboration
 WebSocket (`docs/collab-protocol.md`); the plugin sandbox protocol is
 `docs/plugin-protocol.md`. "Role" is the caller's role on the board or
 folder; **G** = also open to guests (S1.8, limited to the board or folder of
@@ -158,6 +168,18 @@ their link and what lies below it).
 | `castPokerVote` `PUT /boards/{boardId}/poker-rounds/{roundId}/vote` | planning | `COMMENTER`; **G** (`COMMENTER`/`EDITOR` link) | 403, 404, **409** (closed, full), 415, 429 |
 | `revealPokerRound` `POST /boards/{boardId}/poker-rounds/{roundId}/reveal` | planning | facilitator (still `EDITOR`) or `OWNER` | 403, 404, 406, **409** |
 | `cancelPokerRound` `POST /boards/{boardId}/poker-rounds/{roundId}/cancel` | planning | facilitator (still `EDITOR`) or `OWNER` | 403, 404, 406, **409** |
+| `listEstimationSessions` `GET /boards/{boardId}/estimation-sessions[?state=ACTIVE\|CLOSED]` | planning | `VIEWER`; **G** (`COMMENTER`/`EDITOR` link, `state=ACTIVE` only) | 403, 404, 406, 429 |
+| `createEstimationSession` `POST /boards/{boardId}/estimation-sessions` | planning | `EDITOR` (signed in, never guests) | 403, 404, 406, **409**, 415, 429 |
+| `getEstimationSession` `GET /boards/{boardId}/estimation-sessions/{sessionId}` (`If-None-Match` → **304**) | planning | `VIEWER`; **G** (`COMMENTER`/`EDITOR` link; REVIEW, DONE, CANCELLED only with a seat) | 403, 404, 406, 429 |
+| `joinEstimationSession` `PUT /boards/{boardId}/estimation-sessions/{sessionId}/seats/me` | planning | `COMMENTER`; **G** (`COMMENTER`/`EDITOR` link) | 403, 404, **409** (state, full), 429 |
+| `leaveEstimationSession` `DELETE /boards/{boardId}/estimation-sessions/{sessionId}/seats/me` | planning | `COMMENTER`; **G** (`COMMENTER`/`EDITOR` link) | 403, 404, **409**, 429 |
+| `startEstimationSession` `POST /boards/{boardId}/estimation-sessions/{sessionId}/start` | planning | moderator (creator, still `EDITOR`) or `OWNER` | 403, 404, 406, **409**, 415, 429 |
+| `placeEstimationItem` `PUT /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/placement` | planning | seated, `COMMENTER`; **G** (`COMMENTER`/`EDITOR` link) | 403, 404, **409** (state, not held, move limit), 415, 429 |
+| `setRotationEstimate` `PUT /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/estimate` | planning | seated holder, `COMMENTER`; **G** (`COMMENTER`/`EDITOR` link) | 403, 404, 406, **409** (state, not held), 415, 429 |
+| `advanceEstimationSession` `POST /boards/{boardId}/estimation-sessions/{sessionId}/advance` | planning | moderator or `OWNER` | 403, 404, 406, **409**, 415, 429 |
+| `decideEstimationItem` `PUT /boards/{boardId}/estimation-sessions/{sessionId}/items/{itemId}/decision` | planning | moderator or `OWNER` | 403, 404, **409**, 415, 429 |
+| `finishEstimationSession` `POST /boards/{boardId}/estimation-sessions/{sessionId}/finish` | planning | moderator or `OWNER` | 403, 404, 406, **409**, 429 |
+| `cancelEstimationSession` `POST /boards/{boardId}/estimation-sessions/{sessionId}/cancel` | planning | moderator or `OWNER` | 403, 404, 406, **409**, 429 |
 | `getCurrentUser` `GET /users/me` | users | – | 403, 406 |
 | `searchUsers` `GET /users/search?q=` | users | – (signed in, never guests) | 403, 406, 429 |
 

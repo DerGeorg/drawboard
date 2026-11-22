@@ -4,14 +4,14 @@ import { firstValueFrom } from 'rxjs';
 import { Awareness } from 'y-protocols/awareness';
 
 import type { BoardEngine } from '../../../../board-engine/engine';
-import type { PeerPresence } from '../../../../board-engine/presence';
-import { bindPresence } from '../../../../board-engine/collab/presence-binding';
 import {
+  type PeerPresence,
   DrawboardProvider,
   type ProviderOptions,
   type ProviderState,
-} from '../../../../board-engine/collab/provider';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
+  BoardDoc,
+} from '@apps/drawboard-engine';
+import { bindPresence } from '../../../../board-engine/collab/presence-binding';
 import { Toasts } from '../../../services/toasts';
 
 /** How the provider opens its socket; tests replace it with a fake (see board-page.spec). */
@@ -142,7 +142,12 @@ export class BoardCollab {
 
   /** Resolves once the server acknowledged every local change (nothing is pending any more). */
   whenFlushed(timeoutMs = 30_000): Promise<void> {
-    return this.waitFor(() => (this.provider?.pendingCount ?? 0) === 0, timeoutMs);
+    return this.waitFor(() => {
+      if (this.state()?.reloadRequired) {
+        throw new Error('An update was too large to be sent.');
+      }
+      return (this.provider?.pendingCount ?? 0) === 0;
+    }, timeoutMs);
   }
 
   private waitFor(done: () => boolean, timeoutMs: number): Promise<void> {

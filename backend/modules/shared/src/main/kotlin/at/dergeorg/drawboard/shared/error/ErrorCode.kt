@@ -75,6 +75,28 @@ enum class ErrorCode(val status: Int, val defaultMessage: String) {
     PLANNING_ROUND_LIMIT_REACHED(409, "The board already has {limit} open rounds."),
     PLANNING_ROUND_CLOSED(409, "Round {roundId} is {state}."),
     PLANNING_ROUND_FULL(409, "Round {roundId} is full: at most {limit} participants of this kind."),
-    // The value of the vote is never echoed, not here and not in a log: it is the caller's secret until the reveal.
-    PLANNING_VALUE_INVALID(400, "The vote is not a card of the deck of round {roundId}."),
+    // The value is never echoed, not here and not in a log: it is the caller's secret until the reveal. Params: roundId (a vote), or
+    // sessionId and itemId (an estimation placement or estimate).
+    PLANNING_VALUE_INVALID(400, "The value is not a card of the deck that may be used here."),
+    // Estimation sessions (3.15, E1-E24). A session of another board is "not found", and so is a session in REVIEW, DONE or CANCELLED
+    // to a guest without a seat in it (E9, params sessionId only); with itemId the card is not one of the session.
+    PLANNING_SESSION_NOT_FOUND(404, "Estimation session {sessionId} not found."),
+    PLANNING_SESSION_LIMIT_REACHED(409, "The board already has {limit} active estimation sessions."),
+    PLANNING_SESSION_WRONG_STATE(409, "Estimation session {sessionId} is {state} (round {round}); this is not possible now."),
+    PLANNING_SESSION_FULL(409, "Estimation session {sessionId} is full: at most {limit} seats of this kind."),
+    PLANNING_NOT_SEATED(403, "You do not take part in estimation session {sessionId}."),
+    // The same body whether another seat holds the card or the caller holds it in another round (E2).
+    PLANNING_ITEM_NOT_HELD(409, "Card {itemId} is not yours to work on now."),
+    PLANNING_REASON_REQUIRED(400, "Changing the previous estimate of card {itemId} needs a reason."),
+    // The value is never echoed.
+    PLANNING_DECISION_INVALID(400, "The decision is not allowed for card {itemId}."),
+    PLANNING_MOVE_LIMIT_REACHED(409, "No more moves in estimation session {sessionId}: the limit of {limit} is reached."),
+
+    // --- module gifs ---
+    // The same answer for every signed-in user: whether this instance has a GIPHY key says nothing about the caller.
+    GIFS_DISABLED(404, "GIF search is not available on this instance."),
+    // The hourly budget of the instance at GIPHY (or GIPHY's own 429): the same for every user, see Retry-After.
+    GIFS_BUDGET_EXHAUSTED(429, "The GIF search of this instance has used up its hourly budget - retry later."),
+    // GIPHY did not answer, answered with an error or refused the key. Never says which: the caller can do nothing about it.
+    GIFS_UNAVAILABLE(503, "GIF search is not available right now - retry later."),
 }

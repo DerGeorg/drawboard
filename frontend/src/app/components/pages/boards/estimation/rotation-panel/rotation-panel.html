@@ -1,0 +1,121 @@
+<div class="flex flex-col gap-3" data-testid="rotation-panel">
+  <section aria-labelledby="rotation-progress" data-testid="rotation-progress">
+    <h3 id="rotation-progress" class="text-xs font-medium">
+      {{ doneCount() }} of {{ seated().length }} done
+    </h3>
+    <ul class="mt-1 flex flex-wrap gap-1">
+      @for (seat of seated(); track seat.id) {
+        <li
+          class="badge badge-sm"
+          [class]="seat.done ? 'st-badge-green' : 'badge-ghost'"
+          [attr.aria-label]="`${seat.displayName}: ${seat.done ? 'done' : 'still estimating'}`"
+        >
+          @if (seat.done) {
+            <span aria-hidden="true">✓</span>
+          }
+          {{ seat.displayName }}
+          @if (seat.guest) {
+            <span class="text-[0.65rem] opacity-70">guest</span>
+          }
+        </li>
+      }
+    </ul>
+  </section>
+
+  @if (message(); as text) {
+    <p role="alert" class="text-sm text-(--color-st-red)">{{ text }}</p>
+  }
+
+  @if (!session().me.seated) {
+    <p class="text-sm text-(--color-st-grey)">You watch this session.</p>
+  } @else {
+    <h3 class="text-sm font-bold">My cards</h3>
+    <ul class="flex flex-col gap-3" data-testid="my-cards">
+      @for (card of cards(); track card.item.id) {
+        <li
+          class="flex flex-col gap-2 rounded-xl border border-(--color-st-white-darker) bg-(--color-st-card) p-3"
+          data-testid="held-card"
+        >
+          <!-- text, not a link to the block: selecting or gliding to it would show everyone who
+               holds the card (selection and viewport go out in awareness, S2.4; Fable F1) -->
+          <h4 class="font-semibold" data-testid="held-title">{{ card.title }}</h4>
+          @if (card.live?.description; as description) {
+            <p class="line-clamp-3 text-xs whitespace-pre-line text-(--color-st-grey)">
+              {{ description }}
+            </p>
+          }
+          @if (!card.live) {
+            <p class="text-xs text-(--color-st-grey)">This card is no longer on the board.</p>
+          }
+          @if (card.item.currentValue; as previous) {
+            <p class="text-sm" data-testid="previous">
+              Previous estimate: <strong>{{ display(previous) }}</strong>
+            </p>
+          } @else {
+            <p class="text-xs text-(--color-st-grey)">You are the first to estimate this card.</p>
+          }
+          <div role="group" aria-label="Your estimate" class="flex flex-wrap gap-1">
+            @for (value of session().deck.values; track value) {
+              <button
+                type="button"
+                class="btn btn-sm min-w-9 px-2"
+                [class]="card.draft.value === value ? 'st-btn-primary-yellow' : 'btn-outline'"
+                [attr.aria-pressed]="card.draft.value === value"
+                [attr.aria-label]="value === 'coffee' ? 'coffee (need a break)' : value"
+                [disabled]="busy() === card.item.id"
+                (click)="pick(card, value)"
+              >
+                {{ display(value) }}
+              </button>
+            }
+          </div>
+          @if (needsReason(card)) {
+            <div>
+              <label [for]="`reason-${card.item.id}`" class="text-xs font-medium"
+                >Why do you change it?</label
+              >
+              <input
+                [id]="`reason-${card.item.id}`"
+                type="text"
+                class="st-input"
+                autocomplete="off"
+                [maxLength]="maxReason"
+                [value]="card.draft.reason"
+                (input)="typeReason(card, $event)"
+              />
+            </div>
+          }
+          <div class="flex flex-wrap items-center gap-2">
+            @if (card.item.currentValue !== undefined) {
+              <button
+                type="button"
+                class="btn btn-sm btn-ghost"
+                [disabled]="busy() === card.item.id"
+                (click)="keep(card)"
+              >
+                Keep {{ display(card.item.currentValue!) }}
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-sm st-btn-primary-yellow"
+              [disabled]="busy() === card.item.id || !!problem(card)"
+              (click)="save(card)"
+            >
+              Save
+            </button>
+            @if (card.item.myEntry; as entry) {
+              <span class="text-xs text-(--color-st-green-on-surface)" data-testid="saved">
+                {{ entry.kept ? 'Kept' : 'Saved' }}: {{ display(entry.value) }}
+              </span>
+            } @else if (problem(card); as hint) {
+              <span class="text-xs text-(--color-st-grey)">{{ hint }}</span>
+            }
+          </div>
+        </li>
+      } @empty {
+        <li class="text-sm text-(--color-st-grey)">You hold no card in this round.</li>
+      }
+    </ul>
+  }
+</div>

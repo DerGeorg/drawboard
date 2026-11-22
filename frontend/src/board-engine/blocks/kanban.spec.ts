@@ -3,8 +3,13 @@ import * as Y from 'yjs';
 import { BlockRequest } from '../renderer/block-registry';
 import { TestEngine, createTestEngine } from '../testing/helpers';
 import { KANBAN_CARD_ACTION, cardLabel, formatDue } from './kanban';
-import { KANBAN_TYPE, KanbanModel, newKanbanProps } from './kanban-model';
-import { STICKY_TYPE } from './sticky';
+import {
+  KANBAN_TYPE,
+  KanbanModel,
+  newKanbanProps,
+  STICKY_TYPE,
+  readStory,
+} from '@apps/drawboard-engine';
 
 describe('kanban block', () => {
   let t: TestEngine;
@@ -155,9 +160,34 @@ describe('kanban block', () => {
           due: null,
           labels: [],
           points: null,
+          description: '',
+          criteria: [],
+          estimate: null,
         }),
         'untitled',
       ).toBe('Untitled card');
+    });
+
+    it('when a card has a description or criteria then a small symbol shows it', () => {
+      setUp();
+      const plain = model.addCard(columnIds()[0] as string, 'Plain') as string;
+      const rich = model.addCard(columnIds()[0] as string, 'Rich') as string;
+      model.updateCard(rich, {
+        description: 'Why <b>this</b>',
+        criteria: [
+          { id: '55555555-5555-4555-8555-555555555555', text: 'A', done: true },
+          { id: '66666666-6666-4666-8666-666666666666', text: 'B', done: false },
+        ],
+      });
+
+      expect(cardEl(plain).querySelector('.be-kb-details'), 'plain card').toBeNull();
+      const chip = cardEl(rich).querySelector('.be-kb-details') as HTMLElement;
+      expect(chip.textContent, 'symbol and progress').toBe('≡ 1/2');
+      expect(chip.title, 'tooltip').toBe('Has a description, 1 of 2 acceptance criteria done');
+      expect(cardEl(rich).querySelector('b'), 'text stays text').toBeNull();
+      expect(cardEl(rich).getAttribute('aria-label'), 'screen reader').toBe(
+        'Rich, has a description, 1 of 2 acceptance criteria done',
+      );
     });
   });
 
@@ -336,6 +366,39 @@ describe('kanban block', () => {
       });
     }
 
+    it('when the board is dark then the drag ghost carries the dark theme variables', () => {
+      setUp();
+      const [todo] = columnIds() as [string];
+      const a = model.addCard(todo, 'A') as string;
+      layout();
+      t.engine.setTheme('dark');
+
+      pointer(cardEl(a), 'pointerdown', 50, 100);
+      pointer(cardEl(a), 'pointermove', 260, 120);
+
+      const ghost = document.querySelector('.be-kb-ghost') as HTMLElement;
+      expect(ghost.style.getPropertyValue('--be-surface'), 'surface').toBe('#1e293b');
+      expect(ghost.style.getPropertyValue('--be-text'), 'text').toBe('#e2e8f0');
+      expect(ghost.style.background, 'reads the variable').toContain('--be-surface');
+    });
+
+    it('when the board is light then the drag ghost carries the light theme variables', () => {
+      setUp();
+      const [todo] = columnIds() as [string];
+      const a = model.addCard(todo, 'A') as string;
+      layout();
+
+      pointer(cardEl(a), 'pointerdown', 50, 100);
+      pointer(cardEl(a), 'pointermove', 260, 120);
+
+      expect(
+        (document.querySelector('.be-kb-ghost') as HTMLElement).style.getPropertyValue(
+          '--be-surface',
+        ),
+        'surface',
+      ).toBe('#ffffff');
+    });
+
     it('when a card is dragged into another column then it lands between the cards there', () => {
       setUp();
       const [todo, doing] = columnIds() as [string, string];
@@ -380,6 +443,24 @@ describe('kanban block', () => {
       t.engine.undo();
       expect(model.card(a)?.title, 'one undo brings it back').toBe('Ship it');
       expect(t.board.blocks().length, 'sticky gone').toBe(1);
+    });
+
+    it('when a card with story details is dropped outside then it becomes a story card, not a sticky', () => {
+      setUp();
+      const a = model.addCard(columnIds()[0] as string, 'Detailed') as string;
+      model.updateCard(a, { description: 'Why' });
+      layout();
+
+      pointer(cardEl(a), 'pointerdown', 50, 100);
+      pointer(cardEl(a), 'pointermove', 900, 500);
+      pointer(cardEl(a), 'pointerup', 900, 500);
+
+      expect(
+        t.board.blocks().map((b) => b.type),
+        'story, no sticky',
+      ).toEqual([KANBAN_TYPE, 'core.story']);
+      const story = t.board.blocks().find((b) => b.type === 'core.story');
+      expect(readStory(t.board, story?.id as string).description, 'kept').toBe('Why');
     });
 
     it('when a drag is cancelled then nothing changes', () => {

@@ -33,3 +33,17 @@ paths = [
 description = "admin/admin of the local Grafana in the backend dev README"
 targetRules = ["curl-auth-user"]
 paths = ['''(^|/)backend/dev/README\.md$''']
+
+[[allowlists]]
+description = "Throwaway GIPHY keys of the GIF tests (a word plus a counting sequence; a real GIPHY key has 32 characters)"
+targetRules = ["generic-api-key"]
+regexes = [
+  '''^VariableKey0123456789$''',
+  '''^IntegrationKey0123456789$''',
+  '''^TestKey0123456789abcdef$''',
+]
+
+[[allowlists]]
+description = "Not a secret: the property gifs.rating=PG-13 next to TEST_KEY in GifsConfigurationTest"
+targetRules = ["generic-api-key"]
+regexes = ['''^gifs\.rating=PG-13$''']

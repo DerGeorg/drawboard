@@ -1,5 +1,9 @@
-import { CLIPBOARD_MIME, ClipboardContent, WEB_CLIPBOARD_MIME } from '../io/clipboard';
-import { Point } from '../model/types';
+import {
+  CLIPBOARD_MIME,
+  ClipboardContent,
+  WEB_CLIPBOARD_MIME,
+  Point,
+} from '@apps/drawboard-engine';
 import { KeyInfo, PointerInfo, WheelInfo } from './events';
 
 /** The engine side of the input: only normalized events cross this boundary. */

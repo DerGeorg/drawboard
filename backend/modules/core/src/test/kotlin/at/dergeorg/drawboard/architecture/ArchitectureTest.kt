@@ -71,7 +71,7 @@ class ArchitectureTest {
             noClasses().that().resideInAPackage("$ROOT.api..")
                 .should().dependOnClassesThat(
                     resideInAnyPackage("$ROOT.library..", "$ROOT.users..", "$ROOT.collab..", "$ROOT.files..", "$ROOT.plugins..",
-                        "$ROOT.planning..")
+                        "$ROOT.planning..", "$ROOT.gifs..")
                         .and(
                             not(
                                 resideInAnyPackage(
@@ -226,8 +226,10 @@ class ArchitectureTest {
         fun `when checking time and ids then java time and java util UUID appear only in the converters of core`() {
             noClasses().that().resideOutsideOfPackage("$ROOT.core.infra.types..")
                 // Bucket4j's API takes java.time.Duration: UserRateLimiter (the per-user rate limit of tickets and snapshot uploads) is
-                // the one exception.
+                // one exception, the GIPHY adapter the other.
                 .and(not(nameStartingWith("$ROOT.collab.domain.ratelimit.UserRateLimiter")))
+                // The JDK HTTP client of the GIPHY adapter takes java.time.Duration for its connect timeout.
+                .and(not(nameStartingWith("$ROOT.gifs.domain.search.requires.impl.GiphyUpstream")))
                 .should().dependOnClassesThat().resideInAPackage("java.time..")
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("java.util.UUID")
                 .because("the application speaks kotlin.time and kotlin.uuid (Uuid.generateV7()) everywhere")
@@ -308,7 +310,7 @@ class ArchitectureTest {
 
     private companion object {
         const val ROOT = "at.dergeorg.drawboard"
-        val MODULES = listOf("api", "auditing", "users", "library", "collab", "files", "plugins", "planning")
+        val MODULES = listOf("api", "auditing", "users", "library", "collab", "files", "plugins", "planning", "gifs")
 
         /** The topic packages of shared that hold models, ports and values - everything but the Spring glue (observability, types). */
         val SHARED_KERNEL = listOf("auditing", "context", "error", "logging", "paging", "persistence", "security")

@@ -3,8 +3,7 @@ import { HttpContext } from '@angular/common/http';
 import { Board, BoardsService } from '@apps/drawboard-api';
 import { firstValueFrom } from 'rxjs';
 
-import type { BuiltinTemplate } from '../../../../../board-engine/templates/builtin-templates';
-import { loadBuiltinTemplates } from '../../../../../board-engine/templates/load-builtin-templates';
+import { type BuiltinTemplate, loadBuiltinTemplates } from '@apps/drawboard-engine';
 import { ERRORS_HANDLED_LOCALLY } from '../../../../services/error-interceptor';
 import { ErrorMessages } from '../../../../services/error-messages';
 import { ApiError } from '../../../../util/api-error';

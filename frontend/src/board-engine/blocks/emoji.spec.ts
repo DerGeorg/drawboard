@@ -1,6 +1,6 @@
-import { BlockData, Props } from '../model/types';
+import { BlockData, Props, EMOJI_DEFAULT_SIZE, EMOJI_TYPE } from '@apps/drawboard-engine';
 import { TestEngine, createTestEngine } from '../testing/helpers';
-import { EMOJI_DEFAULT_SIZE, EMOJI_TYPE, MAX_EMOJI_PX, emojiBlock, emojiFontSize } from './emoji';
+import { MAX_EMOJI_PX, emojiBlock, emojiFontSize } from './emoji';
 
 describe('emojiBlock', () => {
   const anEmoji = (props: Props, w = 64, h = 64): BlockData => ({
@@ -20,7 +20,12 @@ describe('emojiBlock', () => {
 
   function render(block: BlockData): { host: HTMLElement; update: (b: BlockData) => void } {
     const host = document.createElement('div');
-    const view = emojiBlock.render(host, { block, text: () => '', readOnly: false });
+    const view = emojiBlock.render(host, {
+      block,
+      text: () => '',
+      readOnly: false,
+      theme: () => 'light',
+    });
     return { host, update: view.update };
   }
 

@@ -14,6 +14,8 @@ export const environment: Environment = {
     oidcIssuer: 'http://localhost:18180/realms/drawboard',
     oidcClientId: 'drawboard-web',
     oidcScope: 'openid profile email',
+    // GIF blocks show their consent placeholder; the picker also needs a GIPHY key in the backend
+    gifsEnabled: true,
     aboutUrl: DEFAULT_ABOUT_URL,
     sourceUrl: DEFAULT_SOURCE_URL,
   },

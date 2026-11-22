@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+junit/
+.ci/
+.npm/
+*.tgz
+.DS_Store

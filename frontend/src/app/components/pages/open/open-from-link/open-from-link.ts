@@ -1,13 +1,18 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import { ImportError, writeBoardFile } from '../../../../../board-engine/io/board-file';
-import type { BoardFile } from '../../../../../board-engine/io/board-file';
-import { decodeDataUrlFragment } from '../../../../../board-engine/io/data-url';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import type { BuiltinServices } from '../../../../../board-engine/blocks/builtin';
+import {
+  ImportError,
+  writeBoardFile,
+  type BoardFile,
+  decodeDataUrlFragment,
+  BoardDoc,
+} from '@apps/drawboard-engine';
 import { WithSpan } from '../../../../util/tracing';
 import { BoardCanvas } from '../../boards/board-canvas/board-canvas';
 import { BoardImporter } from '../../boards/board-importer';
+import { RUNTIME_CONFIG } from '../../../../services/runtime-config';
 import { Toasts } from '../../../../services/toasts';
 
 /**
@@ -31,6 +36,16 @@ export class OpenFromLink {
   private readonly router = inject(Router);
   private readonly toasts = inject(Toasts);
 
+  /**
+   * A board from a link is a stranger's data: GIF blocks stay placeholders here, with or without
+   * the viewer's consent (S5.6, G11). "Save a copy" makes a board where they load.
+   */
+  protected readonly services: BuiltinServices = {
+    gifs: {
+      enabled: inject(RUNTIME_CONFIG, { optional: true })?.gifsEnabled === true,
+      mode: 'never',
+    },
+  };
   protected readonly board = signal<BoardDoc | undefined>(undefined);
   protected readonly error = signal<string | undefined>(undefined);
   protected readonly saving = signal(false);

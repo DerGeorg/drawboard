@@ -9,12 +9,7 @@ import {
   validate,
 } from '@angular/forms/signals';
 
-import {
-  STORY_LIMITS,
-  StoryModel,
-  StoryState,
-  isValidEstimate,
-} from '../../../../../board-engine/blocks/story-model';
+import { STORY_LIMITS, StoryModel, StoryState, isValidEstimate } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
 import { WithSpan } from '../../../../util/tracing';
 import { FieldErrors } from '../../../shared/field-errors/field-errors';

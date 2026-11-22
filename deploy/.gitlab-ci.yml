@@ -14,12 +14,12 @@
 # =============================================================================
 
 include:
-  - component: $CI_SERVER_FQDN/ci/components/version@2.19.0
-  - component: $CI_SERVER_FQDN/ci/components/helm-chart@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/version@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/helm-chart@2.20.0
     inputs:
       chart-dir: helm/drawboard
       registry: ghcr.io/dergeorg/charts
-  - component: $CI_SERVER_FQDN/ci/components/release@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/release@2.20.0
 
 stages: [version, lint, test, build, package, release, deploy]
 
@@ -42,7 +42,7 @@ workflow:
 # -----------------------------------------------------------------------------
 sync:github:
   stage: deploy
-  image: alpine:3.22
+  image: alpine:3.24
   needs: []
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"

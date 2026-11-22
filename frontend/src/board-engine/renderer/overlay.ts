@@ -1,11 +1,15 @@
-import { Camera, worldToScreen } from '../camera';
-import { BoardDoc } from '../model/board-doc';
-import { Rect } from '../model/types';
-import { PeerPresence, safeColor } from '../presence';
+import {
+  Camera,
+  worldToScreen,
+  BoardDoc,
+  Rect,
+  PeerPresence,
+  safeColor,
+  unionRects,
+} from '@apps/drawboard-engine';
 import { itemBounds } from '../scene';
 import { HANDLES, handlePosition } from '../tools/resize';
 import { OverlayHints } from '../tools/tool';
-import { unionRects } from '../util/geometry';
 import { strokePath } from './stroke-path';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -146,7 +150,11 @@ export class Overlay {
     if (s.hints.marquee) {
       const r = toScreen(s.hints.marquee);
       parts.push(
-        this.rect(r, { stroke: SELECTION_COLOR, 'stroke-width': '1', fill: 'rgba(37,99,235,.08)' }),
+        this.rect(r, {
+          stroke: SELECTION_COLOR,
+          'stroke-width': '1',
+          fill: 'color-mix(in srgb, var(--be-selection, #2563eb) 10%, transparent)',
+        }),
       );
     }
 

@@ -1,5 +1,5 @@
 import { BoardEngine } from '../engine';
-import { BoardDoc } from '../model/board-doc';
+import { BoardDoc, PluginError, isPlainJson, withinBound } from '@apps/drawboard-engine';
 import {
   BoardRoleName,
   EnabledPluginInfo,
@@ -8,7 +8,6 @@ import {
   PluginSession,
   validatePlugin,
 } from './plugin-host';
-import { PluginError, isPlainJson, withinBound } from './protocol';
 
 const SHA = 'a'.repeat(64);
 const PSEUDONYM = 'u3vJk01234567890123456789012345678901234567';
@@ -66,6 +65,7 @@ describe('PluginHost', () => {
   let frames: Frame[];
   let role: BoardRoleName;
   let guest: boolean;
+  let colorScheme: 'light' | 'dark';
   let visible: boolean;
   let services: PluginServices & {
     toasts: [string, string, string][];
@@ -83,6 +83,7 @@ describe('PluginHost', () => {
     frames = [];
     role = 'EDITOR';
     guest = false;
+    colorScheme = 'light';
     visible = true;
     const store = { data: {} as Record<string, unknown>, version: 0 };
     services = {
@@ -112,7 +113,7 @@ describe('PluginHost', () => {
       userName: () => 'Alice',
       guest: () => guest,
       locale: 'de-AT',
-      colorScheme: () => 'light',
+      colorScheme: () => colorScheme,
     };
     host = new PluginHost(engine, session, services, {
       maxFrames: options.maxFrames,
@@ -381,6 +382,21 @@ describe('PluginHost', () => {
       expect(frame.inbox[1]?.['payload'], 'view').toEqual({ mode: 'view' });
       expect(frame.inbox[2]?.['payload'], 'only the props').toEqual({ props: { count: 2 } });
       expect(frame.inbox[3]?.['payload'], 'only the width').toEqual({ width: 300 });
+    });
+
+    it('when the board changes its theme then the plugin hears the new colour scheme', async () => {
+      const { frame } = await running();
+
+      colorScheme = 'dark';
+      engine.setTheme('dark');
+
+      await vi.waitFor(() =>
+        expect(
+          frame.inbox.map((m) => m['type']),
+          'events',
+        ).toEqual(['init', 'theme.changed']),
+      );
+      expect(frame.inbox[1]?.['payload'], 'scheme').toEqual({ theme: { colorScheme: 'dark' } });
     });
   });
 

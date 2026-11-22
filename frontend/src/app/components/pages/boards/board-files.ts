@@ -3,12 +3,7 @@ import { DestroyRef, Service, inject } from '@angular/core';
 import { BoardFile, FileUrl, FilesService } from '@apps/drawboard-api';
 import { firstValueFrom } from 'rxjs';
 
-import type {
-  FileLinks,
-  FileMeta,
-  FileSource,
-  FileState,
-} from '../../../../board-engine/files/file-source';
+import type { FileLinks, FileMeta, FileSource, FileState } from '@apps/drawboard-engine';
 import { ERRORS_HANDLED_LOCALLY } from '../../../services/error-interceptor';
 import { RUNTIME_CONFIG } from '../../../services/runtime-config';
 

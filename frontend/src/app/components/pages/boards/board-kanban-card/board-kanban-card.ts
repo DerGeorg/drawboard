@@ -28,8 +28,12 @@ import {
   KanbanCard,
   KanbanLabel,
   KanbanModel,
+  hasStoryDetails,
   labelColor,
-} from '../../../../../board-engine/blocks/kanban-model';
+  Criterion,
+  STORY_LIMITS,
+} from '@apps/drawboard-engine';
+import { storyFromCard } from '../../../../../board-engine/blocks/kanban-story';
 import { BoardEngine } from '../../../../../board-engine/engine';
 import { ERRORS_HANDLED_LOCALLY } from '../../../../services/error-interceptor';
 import { WithSpan } from '../../../../util/tracing';
@@ -41,6 +45,7 @@ interface CardDraft {
   assignee: string;
   due: string;
   points: string;
+  description: string;
 }
 
 /** Display names that can be assigned: the owner and every user grant (no groups). */
@@ -81,12 +86,15 @@ export class BoardKanbanCard {
   protected readonly ids = `kanban-card-${nextId++}`;
   protected readonly labels = KANBAN_LABEL_KEYS;
   protected readonly labelNames = LABEL_NAMES;
+  protected readonly storyLimits = STORY_LIMITS;
 
   private readonly model = computed(
     () => new KanbanModel(this.engine().board, this.blockId(), () => this.engine().stopCapturing()),
   );
   protected readonly card = signal<KanbanCard | undefined>(undefined);
   protected readonly readOnly = signal(false);
+  /** Why the last save was refused (the kanban's detail budget), if it was. */
+  protected readonly saveError = signal<string | undefined>(undefined);
   protected readonly selectedLabels = linkedSignal<KanbanLabel[]>(() => [
     ...(this.initial()?.labels ?? []),
   ]);
@@ -96,6 +104,13 @@ export class BoardKanbanCard {
     this.cardId();
     return this.model().card(this.cardId());
   });
+  /** The acceptance criteria as edited here; written with Save. */
+  protected readonly criteria = linkedSignal<Criterion[]>(() =>
+    (this.initial()?.criteria ?? []).map((c) => ({ ...c })),
+  );
+  protected readonly criterionFull = computed(
+    () => this.criteria().length >= STORY_LIMITS.maxCriteria,
+  );
   private readonly draft = linkedSignal<CardDraft>(() => {
     const card = this.initial();
     return {
@@ -103,6 +118,7 @@ export class BoardKanbanCard {
       assignee: card?.assignee ?? '',
       due: card?.due ?? '',
       points: card?.points === null || card?.points === undefined ? '' : String(card.points),
+      description: card?.description ?? '',
     };
   });
 
@@ -114,6 +130,9 @@ export class BoardKanbanCard {
         message: `At most ${KANBAN_LIMITS.maxTitle} characters.`,
       });
       pattern(path.points, /^\d{0,3}$/, { message: 'A whole number from 0 to 999.' });
+      maxLength(path.description, STORY_LIMITS.maxDescription, {
+        message: `At most ${STORY_LIMITS.maxDescription} characters.`,
+      });
       disabled(path, () => this.readOnly());
     },
     { submission: { action: () => Promise.resolve(this.save()) } },
@@ -173,19 +192,61 @@ export class BoardKanbanCard {
     );
   }
 
+  @WithSpan('BoardKanbanCard.addCriterion')
+  protected addCriterion(text: string): void {
+    const trimmed = text.trim();
+    if (trimmed !== '' && !this.readOnly() && !this.criterionFull()) {
+      this.criteria.update((list) => [
+        ...list,
+        {
+          id: crypto.randomUUID(),
+          text: trimmed.slice(0, STORY_LIMITS.maxCriterion),
+          done: false,
+        },
+      ]);
+    }
+  }
+
+  @WithSpan('BoardKanbanCard.toggleCriterion')
+  protected toggleCriterion(id: string, done: boolean): void {
+    this.criteria.update((list) => list.map((c) => (c.id === id ? { ...c, done } : c)));
+  }
+
+  @WithSpan('BoardKanbanCard.rewordCriterion')
+  protected rewordCriterion(id: string, text: string): void {
+    const trimmed = text.trim();
+    if (trimmed !== '') {
+      this.criteria.update((list) => list.map((c) => (c.id === id ? { ...c, text: trimmed } : c)));
+    }
+  }
+
+  @WithSpan('BoardKanbanCard.removeCriterion')
+  protected removeCriterion(id: string): void {
+    this.criteria.update((list) => list.filter((c) => c.id !== id));
+  }
+
   @WithSpan('BoardKanbanCard.save')
   protected save(): undefined {
     if (this.readOnly()) {
       return undefined;
     }
     const d = this.draft();
-    this.model().updateCard(this.cardId(), {
+    const saved = this.model().updateCard(this.cardId(), {
       title: d.title.trim(),
       ...(this.guest() ? {} : { assignee: d.assignee === '' ? null : d.assignee }),
       due: d.due === '' ? null : d.due,
       points: d.points === '' ? null : Number(d.points),
       labels: this.selectedLabels(),
+      description: d.description,
+      criteria: this.criteria(),
     });
+    if (!saved) {
+      this.saveError.set(
+        'The cards of this kanban already hold too much description text. Shorten this card or others.',
+      );
+      return undefined;
+    }
+    this.saveError.set(undefined);
     this.closed.emit();
     return undefined;
   }
@@ -204,8 +265,28 @@ export class BoardKanbanCard {
       return;
     }
     const at = { x: block.x + block.w + 140, y: block.y + 100 };
+    // a card with story details becomes a story card: a sticky note would lose them
     const id = this.model().moveCardOut(this.cardId(), (card) =>
-      engine.board.addBlock(STICKY_OUT.sticky(card, at)),
+      engine.board.addBlock(
+        hasStoryDetails(card) ? storyFromCard(card, at) : STICKY_OUT.sticky(card, at),
+      ),
+    );
+    if (id) {
+      engine.selection.set([id]);
+    }
+  }
+
+  /** Like dragging the card out with Shift: a story card that keeps description and criteria. */
+  @WithSpan('BoardKanbanCard.moveToCanvasAsStory')
+  protected moveToCanvasAsStory(): void {
+    const engine = this.engine();
+    const block = engine.board.getBlock(this.blockId());
+    if (!block) {
+      return;
+    }
+    const at = { x: block.x + block.w + 160, y: block.y + 130 };
+    const id = this.model().moveCardOut(this.cardId(), (card) =>
+      engine.board.addBlock(storyFromCard(card, at)),
     );
     if (id) {
       engine.selection.set([id]);

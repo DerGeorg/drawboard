@@ -15,6 +15,10 @@ import { join } from 'node:path';
 const FILES = '$files_origin';
 const OIDC = '$oidc_origin';
 const PLUGIN = '$plugin_origin';
+const GIFS = '$gifs_img_src';
+
+/** G12: the one host GIFs may be loaded from, and the only value of GIFS_ENABLED that adds it. */
+export const GIPHY_ORIGIN = 'https://media.giphy.com';
 
 /**
  * S7.5 per CSP directive: the sources that are allowed (anything else is an error), the ones
@@ -28,7 +32,9 @@ const CSP_RULES = {
   'script-src-attr': { allowed: ["'none'"], required: [], optional: true },
   'child-src': { allowed: ["'self'", OIDC, PLUGIN], required: [], optional: true },
   'style-src': { allowed: ["'self'", "'unsafe-inline'"], required: ["'self'"] },
-  'img-src': { allowed: ["'self'", 'blob:', 'data:', FILES], required: ["'self'"] },
+  // G12: $gifs_img_src is https://media.giphy.com with GIFS_ENABLED=true and nothing otherwise
+  // (checkGifs), and it belongs to img-src only
+  'img-src': { allowed: ["'self'", 'blob:', 'data:', FILES, GIFS], required: ["'self'"] },
   'media-src': { allowed: ["'self'", 'blob:', FILES], required: ["'self'"] },
   'font-src': { allowed: ["'self'"], required: ["'self'"] },
   'connect-src': { allowed: ["'self'", OIDC, FILES], required: ["'self'"] },
@@ -464,9 +470,108 @@ function checkPluginOriginSplit(text, errors) {
 }
 
 /**
+ * What the template makes of a value of GIFS_ENABLED (the container's environment variable):
+ * the effective CSP, the `gifsEnabled` of /config.json and the img-src sources. The other
+ * origin variables are left out (empty), they are not what is looked at here.
+ */
+export function gifsState(text, value) {
+  const imgSrc = evalMap(text, 'gifs_img_src', value) ?? '';
+  const flag = evalMap(text, 'gifs_enabled_json', value);
+  const csp = (mapValue(text, 'content_security_policy', 'default') ?? '')
+    .replace('$gifs_img_src', imgSrc)
+    .replace(/\$(files_origin|oidc_origin|plugin_origin|csp_upgrade)/g, '');
+  const directives = parseCsp(csp);
+  return { csp, flag, imgSrc: directives.get('img-src') ?? [], directives };
+}
+
+/** Values that are not `true` and must therefore leave GIFs off (G3: fail closed). */
+const GIFS_OFF_VALUES = ['', 'false', 'TRUE', 'True', '1', 'yes', 'on', 'true ', ' true', 'truee'];
+
+/**
+ * G3, G12: GIFS_ENABLED exactly `true` is the only thing that adds https://media.giphy.com to
+ * img-src and sets "gifsEnabled":true in /config.json; the CSP is otherwise identical, no other
+ * directive and no other host mentions GIPHY.
+ */
+function checkGifs(text, errors) {
+  const on = gifsState(text, 'true');
+  if (!on.imgSrc.includes(GIPHY_ORIGIN)) {
+    errors.push(`GIFs: with GIFS_ENABLED=true img-src must contain ${GIPHY_ORIGIN}`);
+  }
+  if (on.flag !== 'true') {
+    errors.push('GIFs: with GIFS_ENABLED=true /config.json must say "gifsEnabled":true');
+  }
+  for (const [name, sources] of on.directives) {
+    const hits = sources.filter((s) => /giphy/i.test(s));
+    if (name !== 'img-src' && hits.length > 0) {
+      errors.push(`GIFs: ${name} must not name GIPHY (${hits.join(' ')}), only img-src does (G12)`);
+    }
+    if (name === 'img-src' && hits.some((h) => h !== GIPHY_ORIGIN)) {
+      errors.push(`GIFs: img-src may name exactly ${GIPHY_ORIGIN}, not ${hits.join(' ')}`);
+    }
+  }
+  for (const value of GIFS_OFF_VALUES) {
+    const off = gifsState(text, value);
+    if (/giphy/i.test(off.csp)) {
+      errors.push(`GIFs: GIFS_ENABLED="${value}" must not put GIPHY into the CSP (fail closed)`);
+    }
+    if (off.flag !== 'false') {
+      errors.push(`GIFS_ENABLED="${value}" must give "gifsEnabled":false (fail closed)`);
+    }
+  }
+  // the CSP of a GIF-less instance is the CSP of GIFS_ENABLED=true minus exactly that host
+  const off = gifsState(text, 'false');
+  const strip = (csp) => csp.replace(GIPHY_ORIGIN, '').replace(/\s+/g, ' ').replace(/ ;/g, ';');
+  if (strip(on.csp) !== strip(off.csp)) {
+    errors.push('GIFs: GIFS_ENABLED may change nothing in the CSP except the img-src source');
+  }
+  // GIPHY is named in no other place of the template than the one map (comments aside)
+  const code = text
+    .split('\n')
+    .map(stripComment)
+    .filter((line) => /giphy/i.test(line));
+  if (code.length !== 1 || !code[0].includes(`"${GIPHY_ORIGIN}"`)) {
+    errors.push(`GIFs: ${GIPHY_ORIGIN} must be written in the map $gifs_img_src and nowhere else`);
+  }
+  if (!text.includes('"gifsEnabled":$gifs_enabled_json')) {
+    errors.push('GIFs: /config.json must carry "gifsEnabled":$gifs_enabled_json');
+  }
+}
+
+/**
  * Checks the template text. Returns `{ errors, notes }`: an error breaks S7.5 (or a refinement),
  * a note is a deliberate deviation or an open SHOULD worth seeing.
  */
+/**
+ * Estimation sessions (architecture 3.15, E2; Fable backend review): the access log of
+ * .../items/{itemId}/placement|estimate never holds the card id - next to the client address it
+ * would tell who holds or moves which card. Both server-level access_log lines must be chosen by
+ * the map, the masked format must not contain the request line or the raw path, and the map must
+ * really replace the card segment.
+ */
+function checkEstimationLog(text, errors) {
+  const format = /log_format\s+estimation_no_item([^;]+);/.exec(text)?.[1] ?? '';
+  if (!format.includes('$estimation_log_uri')) {
+    errors.push('log_format estimation_no_item must log $estimation_log_uri');
+  }
+  if (/\$request_uri|\$request\b|\$uri\b|\$args|\$query_string|\$http_referer/.test(format)) {
+    errors.push('log_format estimation_no_item must not contain the path, query or referrer');
+  }
+  const server = text.slice(text.search(/^server\s*\{/m));
+  if (
+    !/^\s*access_log\s+\S+\s+main\s+if=\$estimation_log_full\s*;/m.test(server) ||
+    !/^\s*access_log\s+\S+\s+estimation_no_item\s+if=\$estimation_log_masked\s*;/m.test(server)
+  ) {
+    errors.push(
+      'the server block must log estimation placements and estimates with estimation_no_item only (access_log ... if=)',
+    );
+  }
+  const path = '/api/boards/b/estimation-sessions/s/items/ITEM-ID/estimate';
+  const masked = evalMap(text, 'estimation_log_uri', path);
+  if (masked === undefined || masked.includes('ITEM-ID') || !masked.endsWith('/items/-/estimate')) {
+    errors.push(`map $estimation_log_uri must mask the card of ${path} (got ${masked})`);
+  }
+}
+
 export function checkNginxTemplate(text) {
   const errors = [];
   const notes = [];
@@ -563,6 +668,7 @@ export function checkNginxTemplate(text) {
   if (/\$request_uri|\$request\b|\$args|\$query_string|\$http_referer/.test(format)) {
     errors.push('log_format files_no_query must not contain the query string or the referrer');
   }
+  checkEstimationLog(text, errors);
   // the pdf.js worker is a module worker: .mjs must be JavaScript, and `types` replaces the table
   if (!/^\s*types\s*\{[^}]*(?:text|application)\/javascript\s+mjs\s*;/m.test(text)) {
     errors.push('.mjs must be served as text/javascript (types { text/javascript mjs; })');
@@ -573,6 +679,7 @@ export function checkNginxTemplate(text) {
   }
 
   checkPluginOriginSplit(text, errors);
+  checkGifs(text, errors);
 
   // dotted paths (/.env) are files or 404, never the SPA shell (M4 review SHOULD 6)
   const locations = locationsWithHeaders(text);

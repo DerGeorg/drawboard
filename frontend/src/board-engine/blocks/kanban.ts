@@ -1,16 +1,19 @@
-import { NewBlock } from '../model/board-doc';
-import { Point } from '../model/types';
-import { BlockHost, BlockRenderContext, BlockType, BlockView } from '../renderer/block-registry';
 import {
+  NewBlock,
+  Point,
   KANBAN_LIMITS,
   KANBAN_TYPE,
   KanbanCard,
   KanbanLabel,
   KanbanModel,
   KanbanState,
+  hasStoryDetails,
   labelColor,
-} from './kanban-model';
-import { STICKY_COLORS, STICKY_TYPE } from './sticky';
+  BOARD_THEME_VARS,
+  STICKY_COLORS,
+  STICKY_TYPE,
+} from '@apps/drawboard-engine';
+import { BlockHost, BlockRenderContext, BlockType, BlockView } from '../renderer/block-registry';
 
 /** Pointer travel (CSS px) before a press on a card becomes a drag. */
 export const DRAG_THRESHOLD = 4;
@@ -92,9 +95,9 @@ const STYLE_ID = 'be-kanban-style';
 
 const KANBAN_CSS = `
 .be-kanban button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;border-radius:4px;padding:2px 6px}
-.be-kanban button:hover:not(:disabled){background:rgba(15,23,42,.08)}
+.be-kanban button:hover:not(:disabled){background:var(--be-hover,rgba(15,23,42,.08))}
 .be-kanban button:disabled{opacity:.35;cursor:default}
-.be-kanban button:focus-visible,.be-kb-card:focus-visible{outline:2px solid #2563eb;outline-offset:1px}
+.be-kanban button:focus-visible,.be-kb-card:focus-visible{outline:2px solid var(--be-selection,#2563eb);outline-offset:1px}
 .be-kb-card{cursor:grab}
 .be-kb-col-tools{display:flex;gap:1px;opacity:.55}
 .be-kb-col:hover .be-kb-col-tools,.be-kb-col:focus-within .be-kb-col-tools{opacity:1}
@@ -146,7 +149,106 @@ export function cardLabel(card: KanbanCard): string {
   if (card.labels.length > 0) {
     parts.push(`labels ${card.labels.map((l) => LABEL_NAMES[l]).join(', ')}`);
   }
+  if (card.description !== '') {
+    parts.push('has a description');
+  }
+  if (card.criteria.length > 0) {
+    const done = card.criteria.filter((c) => c.done).length;
+    parts.push(`${done} of ${card.criteria.length} acceptance criteria done`);
+  }
   return parts.join(', ');
+}
+
+function pointIn(r: DOMRect, x: number, y: number): boolean {
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+/** A place in a kanban a card can be dropped: a column and the index among its cards. */
+export interface ColumnTarget {
+  columnId: string;
+  index: number;
+}
+
+/**
+ * The column and index a drop at the viewport point (x, y) would go to, in the rendered kanban
+ * `root` (`.be-kanban`): the column under x, the index after the cards whose middle is above y.
+ * `exceptCard` is a card being dragged within the kanban (not counted).
+ */
+export function columnTargetAt(
+  root: HTMLElement,
+  x: number,
+  y: number,
+  exceptCard?: string,
+): ColumnTarget | undefined {
+  for (const col of Array.from(root.querySelectorAll<HTMLElement>('[data-column-id]'))) {
+    const r = col.getBoundingClientRect();
+    if (x < r.left || x > r.right) {
+      continue;
+    }
+    const cards = Array.from(col.querySelectorAll<HTMLElement>('[data-card-id]')).filter(
+      (c) => c.dataset['cardId'] !== exceptCard,
+    );
+    const index = cards.filter((c) => {
+      const cr = c.getBoundingClientRect();
+      return cr.top + cr.height / 2 < y;
+    }).length;
+    return { columnId: col.dataset['columnId'] ?? '', index };
+  }
+  return undefined;
+}
+
+/** The insertion line of a drop target, or undefined if the column is not shown. */
+export function placeDropMarker(
+  root: HTMLElement,
+  target: ColumnTarget,
+  exceptCard?: string,
+): HTMLElement | undefined {
+  const list = root.querySelector<HTMLElement>(`[data-list-of="${target.columnId}"]`);
+  if (!list) {
+    return undefined;
+  }
+  const marker = root.ownerDocument.createElement('div');
+  marker.className = 'be-kb-drop';
+  marker.style.cssText =
+    'height:3px;border-radius:2px;background:var(--be-selection,#2563eb);flex:none';
+  const cards = Array.from(list.querySelectorAll<HTMLElement>('[data-card-id]')).filter(
+    (c) => c.dataset['cardId'] !== exceptCard,
+  );
+  list.insertBefore(marker, cards[target.index] ?? null);
+  return marker;
+}
+
+/**
+ * The hint while story cards are dragged over a kanban: the column under the pointer is
+ * outlined (`--be-selection`, dark mode included) and the insertion line shows where they go.
+ */
+export class StoryDropHint {
+  private column: HTMLElement | undefined;
+  private marker: HTMLElement | undefined;
+
+  show(root: HTMLElement, target: ColumnTarget): void {
+    this.clear();
+    const col = root.querySelector<HTMLElement>(`[data-column-id="${target.columnId}"]`);
+    if (!col) {
+      return;
+    }
+    col.dataset['drop'] = 'story';
+    col.style.outline = '2px solid var(--be-selection, #2563eb)';
+    col.style.outlineOffset = '-2px';
+    this.column = col;
+    this.marker = placeDropMarker(root, target);
+  }
+
+  clear(): void {
+    this.marker?.remove();
+    this.marker = undefined;
+    if (this.column) {
+      delete this.column.dataset['drop'];
+      this.column.style.outline = '';
+      this.column.style.outlineOffset = '';
+      this.column = undefined;
+    }
+  }
 }
 
 class KanbanView implements BlockView {
@@ -177,8 +279,8 @@ class KanbanView implements BlockView {
     this.root.className = 'be-kanban';
     this.root.style.cssText =
       'width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;' +
-      'background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;' +
-      'font:13px/1.35 system-ui,sans-serif;color:#1f2937';
+      'background:var(--be-surface-2,#f8fafc);border:1px solid var(--be-border,#cbd5e1);border-radius:8px;overflow:hidden;' +
+      'font:13px/1.35 system-ui,sans-serif;color:var(--be-text,#1f2937)';
     host.appendChild(this.root);
     this.offMode = ctx.host?.onReadOnlyChanged(() => this.render()) ?? (() => undefined);
     this.render();
@@ -276,7 +378,7 @@ class KanbanView implements BlockView {
         `${column.title || 'Untitled column'}, ${column.cards.length} cards`,
       );
       col.style.cssText =
-        'flex:0 0 220px;display:flex;flex-direction:column;min-height:0;background:#e9eef5;border-radius:6px';
+        'flex:0 0 220px;display:flex;flex-direction:column;min-height:0;background:var(--be-surface-3,#e9eef5);border-radius:6px';
       col.appendChild(
         this.columnHeader(column.id, column.title, column.cards.length, index, count, editable),
       );
@@ -316,7 +418,7 @@ class KanbanView implements BlockView {
     if (count === 0 && !editable) {
       const empty = this.el('p', 'be-kb-empty');
       empty.textContent = 'No columns yet.';
-      empty.style.cssText = 'margin:auto;color:#64748b';
+      empty.style.cssText = 'margin:auto;color:var(--be-text-3,#64748b)';
       row.appendChild(empty);
     }
     return row;
@@ -346,7 +448,7 @@ class KanbanView implements BlockView {
     const n = this.el('span', 'be-kb-count');
     n.textContent = String(cards);
     n.setAttribute('aria-hidden', 'true');
-    n.style.cssText = 'color:#64748b;font-size:12px';
+    n.style.cssText = 'color:var(--be-text-3,#64748b);font-size:12px';
     head.append(h, n);
     if (editable) {
       const name = title || 'the column';
@@ -376,7 +478,7 @@ class KanbanView implements BlockView {
     el.setAttribute('role', 'listitem');
     el.setAttribute('aria-label', cardLabel(card));
     el.style.cssText =
-      'background:#fff;border-radius:5px;padding:6px 8px;box-shadow:0 1px 2px rgba(15,23,42,.15);' +
+      'background:var(--be-surface,#fff);border-radius:5px;padding:6px 8px;box-shadow:0 1px 2px rgba(15,23,42,.15);' +
       'display:flex;flex-direction:column;gap:4px;touch-action:none';
     if (editable) {
       el.tabIndex = 0;
@@ -408,25 +510,42 @@ class KanbanView implements BlockView {
     title.textContent = card.title || 'Untitled card';
     title.style.cssText = 'overflow-wrap:anywhere;white-space:pre-wrap';
     el.appendChild(title);
-    if (card.assignee || card.due || card.points !== null) {
+    const hasDetails = card.description !== '' || card.criteria.length > 0;
+    if (card.assignee || card.due || card.points !== null || hasDetails) {
       const meta = this.el('div', 'be-kb-meta');
       meta.style.cssText =
-        'display:flex;align-items:center;gap:6px;font-size:11px;color:#475569;flex-wrap:wrap';
+        'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--be-text-2,#475569);flex-wrap:wrap';
       if (card.due) {
         const due = this.el('span', 'be-kb-due');
         const overdue = card.due < today();
         due.dataset['overdue'] = String(overdue);
         due.textContent = formatDue(card.due);
         due.title = `Due ${card.due}`;
-        due.style.color = overdue ? '#b91c1c' : '#475569';
+        due.style.color = overdue ? 'var(--be-danger, #b91c1c)' : 'var(--be-text-2, #475569)';
         meta.appendChild(due);
       }
       if (card.points !== null) {
         const points = this.el('span', 'be-kb-points');
         points.textContent = String(card.points);
         points.title = `${card.points} story points`;
-        points.style.cssText = 'background:#e2e8f0;border-radius:8px;padding:0 6px;font-weight:600';
+        points.style.cssText =
+          'background:var(--be-chip,#e2e8f0);border-radius:8px;padding:0 6px;font-weight:600';
         meta.appendChild(points);
+      }
+      if (hasDetails) {
+        const done = card.criteria.filter((c) => c.done).length;
+        const details = this.el('span', 'be-kb-details');
+        details.textContent = card.criteria.length > 0 ? `≡ ${done}/${card.criteria.length}` : '≡';
+        details.title = [
+          card.description !== '' ? 'Has a description' : '',
+          card.criteria.length > 0
+            ? `${done} of ${card.criteria.length} acceptance criteria done`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(', ');
+        details.style.cssText = 'font-weight:600;color:var(--be-text-2,#475569)';
+        meta.appendChild(details);
       }
       if (card.assignee) {
         const who = this.el('span', 'be-kb-assignee');
@@ -434,7 +553,7 @@ class KanbanView implements BlockView {
         who.title = card.assignee;
         who.style.cssText =
           'margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:20px;' +
-          'height:20px;border-radius:50%;background:#1e293b;color:#fff;font-size:10px;font-weight:600';
+          'height:20px;border-radius:50%;background:var(--be-avatar,#1e293b);color:#fff;font-size:10px;font-weight:600';
         meta.appendChild(who);
       }
       el.appendChild(meta);
@@ -458,7 +577,7 @@ class KanbanView implements BlockView {
     input.value = editor.value;
     input.setAttribute('data-be-interactive', '');
     input.style.cssText =
-      'font:inherit;width:100%;box-sizing:border-box;padding:3px 6px;border:1px solid #2563eb;border-radius:4px;background:#fff';
+      'font:inherit;width:100%;box-sizing:border-box;padding:3px 6px;border:1px solid var(--be-selection,#2563eb);border-radius:4px;background:var(--be-surface,#fff);color:var(--be-text,#1f2937)';
     input.addEventListener('input', () => (editor.value = input.value));
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
@@ -643,8 +762,12 @@ class KanbanView implements BlockView {
       return;
     }
     const at = host.worldAtClient(clientX, clientY);
-    const make = alternative && this.out.alternative ? this.out.alternative : this.out.sticky;
-    const id = this.model.moveCardOut(cardId, (card) => host.board.addBlock(make(card, at)));
+    // a card with story details never becomes a sticky note (it would lose them)
+    const id = this.model.moveCardOut(cardId, (card) => {
+      const story = this.out.alternative;
+      const make = story && (alternative || hasStoryDetails(card)) ? story : this.out.sticky;
+      return host.board.addBlock(make(card, at));
+    });
     if (id) {
       host.select([id]);
     }
@@ -656,26 +779,10 @@ class KanbanView implements BlockView {
     y: number,
     cardId: string,
   ): { columnId: string; index: number } | 'out' | undefined {
-    const inside = (r: DOMRect): boolean =>
-      x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-    if (!inside(this.root.getBoundingClientRect())) {
+    if (!pointIn(this.root.getBoundingClientRect(), x, y)) {
       return 'out';
     }
-    for (const col of Array.from(this.root.querySelectorAll<HTMLElement>('[data-column-id]'))) {
-      const r = col.getBoundingClientRect();
-      if (x < r.left || x > r.right) {
-        continue;
-      }
-      const cards = Array.from(col.querySelectorAll<HTMLElement>('[data-card-id]')).filter(
-        (c) => c.dataset['cardId'] !== cardId,
-      );
-      const index = cards.filter((c) => {
-        const cr = c.getBoundingClientRect();
-        return cr.top + cr.height / 2 < y;
-      }).length;
-      return { columnId: col.dataset['columnId'] ?? '', index };
-    }
-    return undefined;
+    return columnTargetAt(this.root, x, y, cardId);
   }
 
   private showMarker(drag: Drag): void {
@@ -683,23 +790,14 @@ class KanbanView implements BlockView {
     drag.marker = undefined;
     if (drag.ghost) {
       drag.ghost.dataset['out'] = String(drag.target === 'out');
-      drag.ghost.style.outline = drag.target === 'out' ? '2px dashed #2563eb' : 'none';
+      drag.ghost.style.outline =
+        drag.target === 'out' ? '2px dashed var(--be-selection, #2563eb)' : 'none';
     }
     const target = drag.target;
     if (!target || target === 'out') {
       return;
     }
-    const list = this.root.querySelector<HTMLElement>(`[data-list-of="${target.columnId}"]`);
-    if (!list) {
-      return;
-    }
-    const marker = this.el('div', 'be-kb-drop');
-    marker.style.cssText = 'height:3px;border-radius:2px;background:#2563eb;flex:none';
-    const cards = Array.from(list.querySelectorAll<HTMLElement>('[data-card-id]')).filter(
-      (c) => c.dataset['cardId'] !== drag.cardId,
-    );
-    list.insertBefore(marker, cards[target.index] ?? null);
-    drag.marker = marker;
+    drag.marker = placeDropMarker(this.root, target, drag.cardId);
   }
 
   /** A copy of the card that follows the pointer in screen space (outside the zoomed world). */
@@ -709,8 +807,12 @@ class KanbanView implements BlockView {
       this.cardElement(cardId)?.querySelector('.be-kb-card-title')?.textContent ?? '';
     ghost.setAttribute('aria-hidden', 'true');
     ghost.style.cssText =
-      'position:fixed;z-index:1000;pointer-events:none;max-width:220px;padding:6px 8px;background:#fff;' +
-      'border-radius:5px;box-shadow:0 8px 20px rgba(15,23,42,.25);font:13px system-ui,sans-serif;color:#1f2937';
+      'position:fixed;z-index:1000;pointer-events:none;max-width:220px;padding:6px 8px;background:var(--be-surface,#fff);' +
+      'border-radius:5px;box-shadow:0 8px 20px rgba(15,23,42,.25);font:13px system-ui,sans-serif;color:var(--be-text,#1f2937)';
+    // the ghost hangs on the body, outside the board container that carries the theme variables
+    for (const [name, value] of Object.entries(BOARD_THEME_VARS[this.ctx.theme()])) {
+      ghost.style.setProperty(name, value);
+    }
     this.doc.body.appendChild(ghost);
     return ghost;
   }

@@ -1,5 +1,6 @@
 package at.dergeorg.drawboard.users.domain.users.provides
 
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme
 import at.dergeorg.drawboard.users.domain.users.model.UserProfile
 import kotlin.uuid.Uuid
 
@@ -12,6 +13,13 @@ interface UserProfilesUseCase {
      * time. Only the creation is audited - not every login. Returns the stored profile.
      */
     suspend fun syncFromLogin(command: SyncFromLoginCommand): UserProfile
+
+    /**
+     * Stores the colour theme the user chose (not audited: a display setting) and returns the stored profile. The last
+     * write wins; a login refreshing the claims at the same time never resets it. [id] must belong to an existing
+     * profile. Throws `CONFLICT` if concurrent changes of the profile keep winning.
+     */
+    suspend fun changeTheme(id: Uuid, theme: ColorTheme): UserProfile
 
     /** The profile of a known login, or null if this identity never signed in. Writes nothing. */
     suspend fun findByLogin(issuer: String, subject: String): UserProfile?

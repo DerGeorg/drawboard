@@ -1,0 +1,121 @@
+<div
+  class="flex h-full min-h-0 flex-col gap-3"
+  data-testid="magic-overlay"
+  (pointermove)="pointerMove($event)"
+  (pointerup)="pointerUp($event)"
+  (pointercancel)="pointerCancel()"
+>
+  <div
+    class="h-2 w-full overflow-hidden rounded-full bg-(--color-st-white-darker)"
+    role="progressbar"
+    aria-label="Time left in this phase"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    [attr.aria-valuenow]="timeLeft()"
+    data-testid="magic-timer"
+  >
+    <div
+      class="h-full rounded-full bg-(--color-st-yellow) transition-[width] duration-1000 ease-linear motion-reduce:transition-none"
+      [style.width.%]="timeLeft()"
+    ></div>
+  </div>
+
+  <p class="text-sm" data-testid="magic-hint">
+    @if (!seated()) {
+      You watch this session.
+    } @else if (placing()) {
+      Put your cards into the column that fits. Nobody sees where until moving starts.
+    } @else {
+      Move any card you disagree with. Cards moved often or left in "?" are marked for the review.
+    }
+    @if (hiddenCount() > 0) {
+      <span class="text-(--color-st-grey)" data-testid="hidden-count">
+        {{ hiddenCount() }}
+        {{ hiddenCount() === 1 ? 'card of others is' : 'cards of others are' }} hidden until
+        moving.</span
+      >
+    }
+  </p>
+
+  @if (message(); as text) {
+    <p role="alert" class="text-sm text-(--color-st-red)">{{ text }}</p>
+  }
+
+  <div class="flex min-h-0 flex-1 gap-2 overflow-x-auto pb-1" data-testid="magic-columns">
+    @for (column of columns(); track column) {
+      <section
+        class="flex max-w-48 min-w-28 flex-1 flex-col gap-1.5 rounded-xl border-2 border-dashed p-1.5 transition-colors"
+        [class]="zoneClass(column)"
+        [attr.data-drop]="column"
+        [attr.aria-label]="`Column ${display(column)}`"
+      >
+        <h3 class="rounded-lg bg-(--color-st-card) py-1 text-center text-lg font-extrabold">
+          {{ display(column) }}
+        </h3>
+        <ul class="flex flex-col gap-1.5 overflow-y-auto">
+          @for (card of byColumn().get(column); track card.item.id) {
+            <ng-container
+              [ngTemplateOutlet]="cardTpl"
+              [ngTemplateOutletContext]="{ $implicit: card }"
+            />
+          }
+        </ul>
+      </section>
+    }
+  </div>
+
+  @if (unplaced().length > 0 || placing()) {
+    <section
+      class="rounded-xl border-2 border-dashed p-1.5"
+      [class]="zoneClass(null)"
+      data-drop=""
+      aria-label="Not placed"
+      data-testid="magic-tray"
+    >
+      <h3 class="px-1 text-xs font-medium text-(--color-st-grey)">
+        {{ placing() ? 'Your cards to place' : 'Not placed' }}
+      </h3>
+      <ul class="mt-1 flex flex-wrap gap-1.5">
+        @for (card of unplaced(); track card.item.id) {
+          <ng-container
+            [ngTemplateOutlet]="cardTpl"
+            [ngTemplateOutletContext]="{ $implicit: card }"
+          />
+        } @empty {
+          <li class="px-1 text-xs text-(--color-st-grey)">All placed.</li>
+        }
+      </ul>
+    </section>
+  }
+</div>
+
+<ng-template #cardTpl let-card>
+  <li
+    class="relative w-full max-w-44 touch-none rounded-lg border border-(--color-st-white-darker) bg-(--color-st-surface) p-2 text-sm shadow-sm select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-st-primary)"
+    [class.cursor-grab]="card.draggable"
+    [class.z-30]="drag()?.itemId === card.item.id"
+    [class.shadow-lg]="drag()?.itemId === card.item.id"
+    [class]="card.item.marked ? 'ring-2 ring-(--color-st-red)' : ''"
+    [style.transform]="offset(card)"
+    [attr.tabindex]="card.draggable ? 0 : null"
+    [attr.aria-label]="labelOf(card)"
+    [attr.data-item]="card.item.id"
+    data-testid="magic-card"
+    (pointerdown)="pointerDown($event, card)"
+    (keydown)="key($event, card)"
+  >
+    <span class="line-clamp-3 font-semibold break-words">{{ card.title }}</span>
+    @if (card.item.moveCount || card.item.marked) {
+      <span class="mt-1 flex flex-wrap gap-1">
+        @if (card.item.moveCount) {
+          <span class="badge badge-ghost badge-xs" data-testid="move-count"
+            >moved {{ card.item.moveCount }}×</span
+          >
+        }
+        @if (card.item.marked) {
+          <span class="badge badge-xs st-badge-red" data-testid="marked">marked</span>
+        }
+      </span>
+    }
+  </li>
+</ng-template>

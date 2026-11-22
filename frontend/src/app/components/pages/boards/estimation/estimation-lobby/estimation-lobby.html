@@ -1,0 +1,141 @@
+<div class="flex flex-col gap-3" data-testid="estimation-lobby">
+  <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+    <dt class="text-(--color-st-grey)">Deck</dt>
+    <dd data-testid="lobby-deck">{{ deckLine() }}</dd>
+    @if (magic()) {
+      <dt class="text-(--color-st-grey)">Timing</dt>
+      <dd>
+        {{ session().settings.placingSeconds }} s placing, {{ session().settings.movingSeconds }} s
+        moving; marked after {{ session().settings.markThreshold }} moves
+      </dd>
+    } @else {
+      <dt class="text-(--color-st-grey)">Timing</dt>
+      <dd>
+        {{ session().settings.rounds }}
+        {{ session().settings.rounds === 1 ? 'round' : 'rounds' }} of
+        {{ session().settings.roundSeconds }} s{{
+          session().settings.advanceWhenDone ? ', a round ends early when everyone is done' : ''
+        }}
+      </dd>
+    }
+    <dt class="text-(--color-st-grey)">Cards</dt>
+    <dd>{{ session().items.length }}</dd>
+    <dt class="text-(--color-st-grey)">Moderator</dt>
+    <dd>{{ session().moderatorName }}</dd>
+  </dl>
+
+  <details class="rounded-lg bg-(--color-st-card) p-2 text-sm">
+    <summary class="cursor-pointer font-medium">The cards</summary>
+    <ol class="mt-1 list-decimal pl-5" data-testid="lobby-items">
+      @for (item of session().items; track item.id) {
+        <li class="truncate">{{ item.title }}</li>
+      }
+    </ol>
+  </details>
+
+  <div
+    class="rounded-lg border border-(--color-st-white-darker) p-2 text-xs"
+    data-testid="anonymity"
+  >
+    @if (session().anonymous) {
+      <p class="font-semibold">Anonymous session</p>
+      <p class="mt-1">
+        The review shows values and reasons without names, and nobody - the moderator included -
+        sees who holds or moves which card. Its limits:
+      </p>
+      <ul class="mt-1 list-disc pl-4">
+        @if (!magic()) {
+          <li>The next holder of a card sees the previous value (not who gave it).</li>
+          <li>The first value of a card can be told apart: it has no reason and was not kept.</li>
+        }
+        <li>In a small team people can guess who estimated what.</li>
+        <li>
+          An administrator of the database could tell who entered what until the review starts.
+        </li>
+      </ul>
+    } @else {
+      <p class="font-semibold">Names are shown in the review</p>
+      <p class="mt-1">
+        The review shows each value and reason with the name of who gave it. Who moved a card is
+        never shown.
+      </p>
+    }
+    <!-- selection and viewport go out to everyone with your name (S2.4, Fable F1) -->
+    <p class="mt-1" data-testid="board-visible">
+      What you select or look at on the board itself stays visible to the others, also during the
+      session: going to your cards there shows that you hold them.
+    </p>
+  </div>
+
+  <section aria-labelledby="lobby-seats">
+    <h3 id="lobby-seats" class="text-xs font-medium">
+      Joined: {{ session().seats.length }}
+      @if (moderator()) {
+        · picked: {{ pickedCount() }}
+      }
+    </h3>
+    <ul class="mt-1 flex flex-col gap-1" data-testid="lobby-seats">
+      @for (seat of session().seats; track seat.id) {
+        <li class="flex items-center gap-2 text-sm">
+          @if (moderator()) {
+            <input
+              type="checkbox"
+              class="checkbox checkbox-xs"
+              [attr.aria-label]="`Takes part: ${seat.displayName}`"
+              [checked]="isPicked(seat.id)"
+              (change)="togglePick(seat.id)"
+            />
+          }
+          <span class="truncate">{{ seat.displayName }}</span>
+          @if (seat.guest) {
+            <span class="badge badge-ghost badge-xs">guest</span>
+          }
+          @if (seat.id === session().me.seatId) {
+            <span class="badge badge-xs st-badge-green">you</span>
+          }
+        </li>
+      } @empty {
+        <li class="text-sm text-(--color-st-grey)">Nobody joined yet.</li>
+      }
+    </ul>
+  </section>
+
+  @if (message(); as text) {
+    <p role="alert" class="text-sm text-(--color-st-red)">{{ text }}</p>
+  }
+
+  <div class="flex flex-wrap gap-2">
+    @if (canJoin()) {
+      @if (joined()) {
+        <button type="button" class="btn btn-sm btn-ghost" [disabled]="busy()" (click)="leave()">
+          Leave
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="btn btn-sm st-btn-primary-yellow"
+          [disabled]="busy()"
+          (click)="join()"
+        >
+          Join
+        </button>
+      }
+    } @else {
+      <p class="text-sm text-(--color-st-grey)">You watch this session.</p>
+    }
+    @if (moderator()) {
+      <button
+        type="button"
+        class="btn btn-sm st-btn-primary-yellow ml-auto"
+        [disabled]="busy() || !!startProblem()"
+        [attr.aria-describedby]="startProblem() ? 'lobby-start-problem' : null"
+        (click)="start()"
+      >
+        Start
+      </button>
+    }
+  </div>
+  @if (moderator() && startProblem(); as problem) {
+    <p id="lobby-start-problem" class="text-xs text-(--color-st-grey)">{{ problem }}</p>
+  }
+</div>

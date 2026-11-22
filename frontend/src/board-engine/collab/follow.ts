@@ -1,6 +1,10 @@
-import { PeerPresence } from '../presence';
-import { Emitter } from '../util/emitter';
-import { ViewportState, sameViewport, summons } from './awareness-state';
+import {
+  PeerPresence,
+  Emitter,
+  ViewportState,
+  sameViewport,
+  summons,
+} from '@apps/drawboard-engine';
 
 /** A summoned client honours at most one summon per sender in this time. */
 export const SUMMON_COOLDOWN_MS = 15_000;

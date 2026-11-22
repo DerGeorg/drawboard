@@ -4,8 +4,8 @@
 // Module graph (modules/<name>; enforced by build-logic/ModuleRules.kt and the ArchUnit tests in core):
 //
 //   core ──implementation──► shared
-//     └──runtimeOnly──► api, auditing, users, library, collab, files, plugins, planning
-//   api ──► users, library, collab, files, plugins, planning, shared   (never core, never auditing)
+//     └──runtimeOnly──► api, auditing, users, library, collab, files, plugins, planning, gifs
+//   api ──► users, library, collab, files, plugins, planning, gifs, shared   (never core, never auditing)
 //   auditing, users, library, collab ──► shared  (domain modules never know each other)
 //
 // No version of the application anywhere: the pipeline passes -Pversion=1.2.3.
@@ -64,7 +64,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "drawboard-backend"
 
-include("core", "api", "shared", "auditing", "users", "library", "collab", "files", "plugins", "planning")
+include("core", "api", "shared", "auditing", "users", "library", "collab", "files", "plugins", "planning", "gifs")
 
 // Every module lives in modules/<name>. The project paths stay short (:core, :api, …),
 // so dependencies, ModuleRules and task names do not mention the folder.

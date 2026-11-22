@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { EnabledPlugin, PluginCapabilityName } from '@apps/drawboard-api';
 
 import { BoardEngine } from '../../../../board-engine/engine';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { provideFakeAuth } from '../../../test/fake-auth';
 import { SPRINT_BOARD_ID, aBoard } from '../../../test/fixtures';

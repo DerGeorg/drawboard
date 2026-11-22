@@ -1,0 +1,22 @@
+{
+  // Editor, specs and `npm run typecheck`: every file under src/, no output. The package itself
+  // is built with tsconfig.build.json.
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolveJsonModule": true,
+    // No DOM: the core runs in Node. The one host global it reads is declared in src/host.d.ts.
+    "lib": ["ES2023"],
+    "types": ["node", "vitest/globals"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

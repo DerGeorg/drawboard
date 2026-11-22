@@ -67,7 +67,17 @@ describe('OidcAuth', () => {
         displayName: 'Alice Admin',
         admin: true,
         guestLinksEnabled: false,
+        gifsEnabled: false,
+        theme: 'SYSTEM',
       });
+    });
+
+    it('when the backend has a GIPHY key then the user carries gifsEnabled', async () => {
+      client.silentResults = [anOidcUser()];
+
+      await start(aCurrentUser({ gifsEnabled: true }));
+
+      expect(auth.user()?.gifsEnabled, 'gifsEnabled').toBe(true);
     });
 
     it('when the profile has no display name then the username is used', async () => {

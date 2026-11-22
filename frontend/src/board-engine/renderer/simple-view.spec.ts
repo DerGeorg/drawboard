@@ -1,4 +1,4 @@
-import { BlockData } from '../model/types';
+import { BlockData } from '@apps/drawboard-engine';
 import { BlockType } from './block-registry';
 import { FULL_ZOOM, SIMPLE_NEUTRAL, SIMPLE_ZOOM, simpleAt, simpleFillOf } from './simple-view';
 

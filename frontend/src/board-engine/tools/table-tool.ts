@@ -1,6 +1,5 @@
 import { PointerInfo } from '../input/events';
-import { adoptInto, assignParents } from '../model/frames';
-import { createTable } from '../model/tables';
+import { adoptInto, assignParents, createTable } from '@apps/drawboard-engine';
 import { Tool, ToolContext, ToolId } from './tool';
 
 /**

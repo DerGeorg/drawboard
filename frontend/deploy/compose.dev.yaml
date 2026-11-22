@@ -36,6 +36,11 @@ services:
       # app host. Both proxy hosts must pass the original Host header on.
       FILES_ORIGIN: ''
       PLUGIN_ORIGIN: https://drawboard-plugins-dev.dergeorg.at
+      # GIFs from GIPHY (architecture 3.14, G3/G12): exactly `true` adds https://media.giphy.com
+      # to the CSP img-src and sets gifsEnabled in /config.json; anything else keeps both off.
+      # The stack variable GIFS_ENABLED is set by gitlab-devops script 40, together with the
+      # backend's GIPHY key (without a key the picker stays hidden, existing GIF blocks still show).
+      GIFS_ENABLED: ${GIFS_ENABLED:-false}
       # About Drawboard (product site, "Host your own") and the source link every instance offers
       # its users (AGPL-3.0 section 13); absolute https URLs. These are the image defaults.
       # ABOUT_URL: '' switches the "Host your own" promotion off; SOURCE_URL must never be empty

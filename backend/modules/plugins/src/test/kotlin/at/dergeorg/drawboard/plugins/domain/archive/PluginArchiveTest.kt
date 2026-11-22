@@ -3,11 +3,13 @@ package at.dergeorg.drawboard.plugins.domain.archive
 import at.dergeorg.drawboard.plugins.domain.Zips
 import at.dergeorg.drawboard.shared.error.DomainException
 import at.dergeorg.drawboard.shared.error.ErrorCode
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.ByteArrayOutputStream
+import java.lang.management.ManagementFactory
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.test.assertEquals
@@ -22,6 +24,53 @@ class PluginArchiveTest {
         assertFailsWith<DomainException>("must be rejected") { archive.unpack(zip) }
 
     private fun reason(error: DomainException) = error.params["reason"]
+
+    /** One entry of [size] zero bytes, written in chunks: the test never holds the unpacked content itself. */
+    private fun zeros(name: String, size: Int): ByteArray = ByteArrayOutputStream().also { bytes ->
+        ZipOutputStream(bytes).use { zip ->
+            zip.putNextEntry(ZipEntry(name))
+            val chunk = ByteArray(CHUNK)
+            repeat(size / CHUNK) { zip.write(chunk) }
+            zip.write(chunk, 0, size % CHUNK)
+            zip.closeEntry()
+        }
+    }.toByteArray()
+
+    /** The heap bytes this thread allocates while [block] runs (HotSpot counts them per thread). */
+    private fun allocatedBy(block: () -> Unit): Long {
+        val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+        assumeTrue(threads.isThreadAllocatedMemorySupported && threads.isThreadAllocatedMemoryEnabled, "allocation counter")
+        archive.unpack(Zips.plugin()) // warm up: class loading must not count
+        val before = threads.currentThreadAllocatedBytes
+        block()
+        return threads.currentThreadAllocatedBytes - before
+    }
+
+    @Nested
+    inner class Memory {
+
+        @Test
+        fun `when an entry is larger than the limit then it is refused without allocating its size`() {
+            val bomb = zeros("bomb.txt", 64 * MIB)
+            var error: DomainException? = null
+
+            val allocated = allocatedBy { error = rejected(bomb) }
+
+            assertEquals("UNPACKED_TOO_LARGE", error?.let(::reason), "refused")
+            assertTrue(allocated < 2 * MIB, "only counted, not held: $allocated bytes allocated for 64 MiB unpacked")
+        }
+
+        @Test
+        fun `when an archive is accepted then each file is held once at its exact size - no doubling buffer`() {
+            val zip = zeros("big.txt", 16 * MIB + 1)
+            var held = 0
+
+            val allocated = allocatedBy { held = archive.unpack(zip).files.getValue("big.txt").size }
+
+            assertEquals(16 * MIB + 1, held, "size")
+            assertTrue(allocated < 17 * MIB, "one array of 16 MiB and a little: $allocated bytes allocated")
+        }
+    }
 
     @Nested
     inner class Accepting {
@@ -124,6 +173,27 @@ class PluginArchiveTest {
             assertEquals("UNPACKED_TOO_LARGE", reason(rejected(zip, small)), "5 x 3000 > 10000")
         }
 
+        @Test
+        fun `when a directory entry carries data then that data counts too - it is inflated even though it is not kept`() {
+            val small = PluginArchive(maxUnpackedBytes = 10_000)
+
+            assertEquals("UNPACKED_TOO_LARGE", reason(rejected(zeros("d/", 1_000_000), small)), "data behind d/")
+        }
+
+        @Test
+        fun `when the ZIP is cut off inside a local header then NOT_A_ZIP - not an internal error`() {
+            // a local header that announces a 64-byte name, 3 bytes of it, and an empty end record: 55 bytes
+            val header = ByteArray(LOCAL_HEADER).also {
+                byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), 3, 4).copyInto(it)
+                it[NAME_LENGTH_AT] = NAME_LENGTH
+            }
+            val end = ByteArray(END_RECORD).also { byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), 5, 6).copyInto(it) }
+            val cut = header + "abc".toByteArray() + end
+
+            assertEquals(55, cut.size, "size")
+            assertEquals("NOT_A_ZIP", reason(rejected(cut)), "cut header")
+        }
+
         @ParameterizedTest(name = "{0}")
         @ValueSource(strings = ["", "not a zip at all", "PK"])
         fun `when the bytes are no ZIP then NOT_A_ZIP`(text: String) {
@@ -141,5 +211,14 @@ class PluginArchiveTest {
             )
             assertEquals("NOT_A_ZIP", reason(rejected(whole.copyOf(whole.size / 2))), "truncated")
         }
+    }
+
+    private companion object {
+        const val MIB = 1024 * 1024
+        const val CHUNK = 64 * 1024
+        const val LOCAL_HEADER = 30
+        const val END_RECORD = 22
+        const val NAME_LENGTH_AT = 26
+        const val NAME_LENGTH: Byte = 64
     }
 }

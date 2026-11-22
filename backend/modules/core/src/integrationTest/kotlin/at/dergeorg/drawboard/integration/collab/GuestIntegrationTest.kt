@@ -193,10 +193,13 @@ class GuestIntegrationTest(
             val session = assertNotNull(open(token).guestSession, "session")
             // S1.8, the M3 contract review and (planning poker: list, get, vote) the M4 review: files and plugins are readable for
             // guests (metadata, URLs, the list a board host
-            // loads, the plugin storage); the bytes of a file (downloadFile) need no token at all - the signature decides
+            // loads, the plugin storage); the bytes of a file (downloadFile) need no token at all - the signature decides.
+            // Estimation sessions (E8): list, get, join, leave, placement, estimate - never create or a moderator operation.
             val allowed = setOf(
                 "listBoards", "getBoard", "createCollabTicket", "refreshGuestSession", "listFiles", "getFile", "getFileUrls",
                 "getPluginStorage", "listEnabledPlugins", "downloadFile", "listPokerRounds", "getPokerRound", "castPokerVote",
+                "listEstimationSessions", "getEstimationSession", "joinEstimationSession", "leaveEstimationSession",
+                "placeEstimationItem", "setRotationEstimate",
             )
 
             val verdicts = RouteTableIntegrationTest.operations().associate { operation ->
@@ -238,6 +241,8 @@ class GuestIntegrationTest(
             assertEquals(HttpStatus.FORBIDDEN, statusOf(guest(session), "GET", "/api/users/me"), "users/me")
             assertEquals(HttpStatus.FORBIDDEN, statusOf(guest(session), "GET", "/api/users/search?q=ol"),
                 "no user directory for guests")
+            assertEquals(HttpStatus.FORBIDDEN, statusOf(guest(session), "PUT", "/api/users/me/preferences", mapOf("theme" to "DARK")),
+                "no preferences for guests - they keep their choice in the browser")
         }
 
         @Test

@@ -1,4 +1,4 @@
-import { FRAME_TITLE_MAX } from './model/frames';
+import { FRAME_TITLE_MAX } from '@apps/drawboard-engine';
 import { frameZIndex } from './renderer/renderer';
 import { TestEngine, createTestEngine } from './testing/helpers';
 

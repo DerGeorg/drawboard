@@ -1,7 +1,6 @@
 import * as Y from 'yjs';
 
-import { BoardDoc, LOCAL_ORIGIN } from './model/board-doc';
-import { Emitter } from './util/emitter';
+import { BoardDoc, LOCAL_ORIGIN, Emitter } from '@apps/drawboard-engine';
 
 export interface HistoryState {
   canUndo: boolean;

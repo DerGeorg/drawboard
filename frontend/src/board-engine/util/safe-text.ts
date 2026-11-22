@@ -1,4 +1,4 @@
-import { MAX_TEXT_LENGTH } from '../model/types';
+import { MAX_TEXT_LENGTH } from '@apps/drawboard-engine';
 
 /** Link schemes a user text may open (architecture S5.3). */
 const ALLOWED_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);

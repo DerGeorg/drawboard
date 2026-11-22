@@ -1,7 +1,8 @@
 import type { Config as PurifyConfig, DOMPurify } from 'dompurify';
 
 import { duringMermaidRender } from '../../trusted-types';
-import { DiagramRenderer, MAX_MERMAID_BYTES, byteLength } from '../blocks/mermaid';
+import { DiagramRenderer, byteLength } from '../blocks/mermaid';
+import { MAX_MERMAID_BYTES, type BoardTheme } from '@apps/drawboard-engine';
 
 /**
  * Mermaid (MIT) behind the diagram block, set up as S5.1 demands, and DOMPurify (Apache-2.0
@@ -81,6 +82,19 @@ export function mermaidRenderer(options: MermaidRendererOptions = {}): DiagramRe
   let ready: Promise<{ mermaid: MermaidApi; purify: DOMPurify }> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   let counter = 0;
+  // Mermaid keeps one global configuration: the theme it was initialised with (light first)
+  let configured: BoardTheme = 'light';
+
+  /** Mermaid's own dark theme on the dark canvas; everything else of the S5.1 config stays. */
+  const useTheme = (mermaid: MermaidApi, theme: BoardTheme): void => {
+    if (theme !== configured) {
+      configured = theme;
+      mermaid.initialize({
+        ...(structuredClone(MERMAID_CONFIG) as unknown as Record<string, unknown>),
+        theme: theme === 'dark' ? 'dark' : 'default',
+      });
+    }
+  };
 
   const libs = (): Promise<{ mermaid: MermaidApi; purify: DOMPurify }> => {
     ready ??= load().then((l) => {
@@ -92,13 +106,14 @@ export function mermaidRenderer(options: MermaidRendererOptions = {}): DiagramRe
   };
 
   return {
-    render(source: string): Promise<Node> {
+    render(source: string, theme: BoardTheme = 'light'): Promise<Node> {
       if (byteLength(source) > MAX_MERMAID_BYTES) {
         return Promise.reject(new Error('The diagram source is larger than 50 KB.'));
       }
       const run = async (): Promise<Node> => {
         await yieldToBoard();
         const { mermaid, purify } = await libs();
+        useTheme(mermaid, theme);
         // Mermaid writes its CSS into <style> elements through innerHTML: the Trusted Types
         // `default` policy allows that, and only that, while this runs (S3.12)
         const { svg } = await duringMermaidRender(() =>

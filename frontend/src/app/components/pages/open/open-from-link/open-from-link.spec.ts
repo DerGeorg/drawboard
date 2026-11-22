@@ -2,13 +2,14 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
-import { encodeDataUrlFragment } from '../../../../../board-engine/io/data-url';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { encodeDataUrlFragment, BoardDoc } from '@apps/drawboard-engine';
+import { GifConsentStore } from '../../../../services/gif-consent';
 import { Toasts } from '../../../../services/toasts';
 import { all, buttonByText, textOf } from '../../../../test/dom';
 import { signedInAsAlice } from '../../../../test/fake-auth';
 import { aBoard } from '../../../../test/fixtures';
 import { provideHttpTesting } from '../../../../test/http-testing';
+import { provideTestRuntimeConfig } from '../../../../test/runtime-config';
 import { BoardImporter } from '../../boards/board-importer';
 import { OpenFromLink } from './open-from-link';
 
@@ -31,6 +32,7 @@ describe('OpenFromLink', () => {
         provideRouter([]),
         provideHttpTesting(),
         signedInAsAlice().providers,
+        provideTestRuntimeConfig({ gifsEnabled: true }),
         { provide: BoardImporter, useValue: { save } },
       ],
     });
@@ -98,5 +100,30 @@ describe('OpenFromLink', () => {
         expect(all(fixture, 'drawboard-board-canvas').length, 'canvases').toBe(0);
       },
     );
+  });
+
+  describe('GIFs (S5.6, G11)', () => {
+    it('when the link holds a GIF block then it stays a placeholder, even with "always" consent', async () => {
+      const board = new BoardDoc();
+      board.addBlock({
+        type: 'core.gif',
+        x: 0,
+        y: 0,
+        w: 240,
+        h: 180,
+        props: { giphyId: 'abc123', alt: 'A cat' },
+      });
+      const fragment = encodeDataUrlFragment(board, 'With a GIF');
+      localStorage.clear();
+      localStorage.setItem('drawboard.gifs.consent', 'always');
+
+      await render(fragment);
+
+      expect(TestBed.inject(GifConsentStore).always(), 'consent is there').toBe(true);
+      expect(all(fixture, '[data-block-type="core.gif"]').length, 'block drawn').toBe(1);
+      expect(all(fixture, 'img').length, 'no image').toBe(0);
+      expect(textOf(fixture), 'labelled box').toContain('not loaded in this view');
+      localStorage.clear();
+    });
   });
 });

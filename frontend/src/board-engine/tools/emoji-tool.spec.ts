@@ -1,4 +1,4 @@
-import { EMOJI_TYPE } from '../blocks/emoji';
+import { EMOJI_TYPE } from '@apps/drawboard-engine';
 import { TestEngine, createTestEngine } from '../testing/helpers';
 
 describe('emoji stamp tool', () => {

@@ -1,16 +1,7 @@
 import { BoardEngine } from '../engine';
-import { BoardDoc } from '../model/board-doc';
-import { BlockData } from '../model/types';
+import { BoardDoc, BlockData, FILE_TYPE, fileBlockSize } from '@apps/drawboard-engine';
 import { FakeFileSource, FILE_ID, aFileMeta, someLinks } from '../testing/fake-file-source';
-import {
-  FILE_TYPE,
-  INTERACTIVE_ATTR,
-  MACRO_HINT,
-  createFileBlock,
-  fileBlockSize,
-  fileIdOf,
-  formatSize,
-} from './file';
+import { INTERACTIVE_ATTR, MACRO_HINT, createFileBlock, fileIdOf, formatSize } from './file';
 
 const aBlock = (props: Record<string, unknown> = { fileId: FILE_ID }): BlockData => ({
   id: 'b1',
@@ -39,7 +30,12 @@ describe('file block', () => {
   afterEach(() => host.remove());
 
   const render = (block = aBlock(), pdf?: Parameters<typeof createFileBlock>[1]) =>
-    createFileBlock(source, pdf).render(host, { block, text: () => '', readOnly: false });
+    createFileBlock(source, pdf).render(host, {
+      block,
+      text: () => '',
+      readOnly: false,
+      theme: () => 'light',
+    });
   const q = <T extends Element = HTMLElement>(sel: string): T | null => host.querySelector<T>(sel);
 
   describe('states', () => {

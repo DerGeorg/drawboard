@@ -2,7 +2,7 @@ import { inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
 import { buttonByLabel, textOf } from '../../../../test/dom';
 import { BoardZoom } from './board-zoom';
 

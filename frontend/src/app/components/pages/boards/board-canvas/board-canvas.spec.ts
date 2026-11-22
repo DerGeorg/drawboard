@@ -1,7 +1,8 @@
 import { inputBinding, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
+import { Theme } from '../../../../services/theme';
 import { all } from '../../../../test/dom';
 import { FakeFileSource, FILE_ID } from '../../../../../board-engine/testing/fake-file-source';
 import { BoardCanvas, CanvasFiles } from './board-canvas';
@@ -61,7 +62,11 @@ describe('BoardCanvas', () => {
     readOnly.set(false);
     canUpload.set(true);
   });
-  afterEach(() => board.destroy());
+  afterEach(() => {
+    board.destroy();
+    window.localStorage.clear();
+    delete document.documentElement.dataset['theme'];
+  });
 
   describe('engine', () => {
     it('when rendered then an engine runs on the surface and draws blocks of the board', async () => {
@@ -97,6 +102,37 @@ describe('BoardCanvas', () => {
       await fixture.whenStable();
 
       expect(fixture.componentInstance.engine()?.readOnly, 'engine read only').toBe(true);
+    });
+
+    it('when the theme changes then the engine draws the board in it and the document stays', async () => {
+      await render();
+      const id = board.addBlock({
+        type: 'core.shape',
+        x: 0,
+        y: 0,
+        w: 100,
+        h: 100,
+        props: { kind: 'rect', fill: '#ffffff' },
+      });
+      expect(fixture.componentInstance.engine()?.theme, 'starts light').toBe('light');
+
+      await TestBed.inject(Theme).set('DARK');
+      await fixture.whenStable();
+
+      expect(fixture.componentInstance.engine()?.theme, 'engine theme').toBe('dark');
+      expect(
+        all(fixture, '[data-block-type="core.shape"] svg [fill]')[0]?.getAttribute('fill'),
+        'shown',
+      ).toBe('#1e293b');
+      expect(board.getBlock(id)?.props['fill'], 'stored').toBe('#ffffff');
+    });
+
+    it('when the engine starts in a dark theme then it is dark from the first render', async () => {
+      await TestBed.inject(Theme).set('DARK');
+
+      await render();
+
+      expect(fixture.componentInstance.engine()?.theme, 'engine theme').toBe('dark');
     });
 
     it('when destroyed then the engine layers are removed', async () => {

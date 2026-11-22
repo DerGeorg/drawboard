@@ -1,9 +1,8 @@
 import { inputBinding, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import type { SummonState } from '../../../../../board-engine/collab/awareness-state';
+import type { SummonState, PeerPresence } from '@apps/drawboard-engine';
 import type { Following } from '../../../../../board-engine/collab/follow';
-import type { PeerPresence } from '../../../../../board-engine/presence';
 import { all, buttonByText, textOf } from '../../../../test/dom';
 import { BoardFollowBar } from './board-follow-bar';
 

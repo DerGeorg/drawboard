@@ -11,10 +11,15 @@ import at.dergeorg.drawboard.shared.error.DomainException
 import at.dergeorg.drawboard.shared.error.ErrorCode
 import at.dergeorg.drawboard.shared.testing.FixedCurrentUserProvider
 import at.dergeorg.drawboard.shared.testing.TestUsers
+import at.dergeorg.drawboard.contract.model.ColorTheme
+import at.dergeorg.drawboard.contract.model.UserPreferences
+import at.dergeorg.drawboard.users.domain.users.model.ColorTheme as StoredTheme
 import at.dergeorg.drawboard.users.domain.users.provides.UserProfilesUseCase
 import at.dergeorg.drawboard.users.testing.UserProfileFixtures.aSyncFromLoginCommand
 import at.dergeorg.drawboard.users.testing.UserProfileFixtures.aUserProfile
+import at.dergeorg.drawboard.gifs.domain.search.provides.GifSearchUseCase
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -29,13 +34,25 @@ class UsersApiServiceTest {
     private val currentUsers = FixedCurrentUserProvider()
     private val profiles = mockk<UserProfilesUseCase>()
     private val clock = MutableClock()
+    private val gifs = mockk<GifSearchUseCase> { every { isEnabled() } returns false }
     private fun serviceWith(properties: DrawboardProperties = DrawboardProperties("https://draw.example.org")) =
-        UsersApiService(SignedInUsers(currentUsers, profiles), profiles, properties, clock)
+        UsersApiService(SignedInUsers(currentUsers, profiles), profiles, properties, gifs, clock)
 
     private val service = serviceWith()
 
     @Nested
     inner class GetCurrentUser {
+
+        @Test
+        fun `when the instance has a GIPHY key then gifsEnabled is true, without one it is false`() = runTest {
+            coEvery { profiles.syncFromLogin(aSyncFromLoginCommand(TestUsers.ALICE)) } returns aUserProfile(TestUsers.ALICE)
+
+            val without = service.getCurrentUser().gifsEnabled
+            every { gifs.isEnabled() } returns true
+            val with = service.getCurrentUser().gifsEnabled
+
+            assertEquals(false to true, without to with, "gifsEnabled follows the key of the instance (G3)")
+        }
 
         @Test
         fun `when a user is signed in then the token's claims are synced as a login and the stored profile is returned`() = runTest {
@@ -48,6 +65,15 @@ class UsersApiServiceTest {
             assertEquals("alice", user.username, "username from the profile")
             assertEquals(TestUsers.ALICE.email, user.email, "email from the profile")
             assertTrue(user.admin, "alice is in the admin group")
+            assertEquals(ColorTheme.SYSTEM, user.theme, "a new user follows the operating system")
+        }
+
+        @Test
+        fun `when the profile has a stored theme then getCurrentUser returns it`() = runTest {
+            coEvery { profiles.syncFromLogin(aSyncFromLoginCommand(TestUsers.ALICE)) } returns
+                aUserProfile(TestUsers.ALICE, theme = StoredTheme.DARK)
+
+            assertEquals(ColorTheme.DARK, service.getCurrentUser().theme, "the chosen theme, not the default")
         }
 
         @Test
@@ -69,6 +95,46 @@ class UsersApiServiceTest {
 
             assertEquals(ErrorCode.UNAUTHORIZED, failure.errorCode, "error code without a user")
             coVerify(exactly = 0) { profiles.syncFromLogin(any()) }
+        }
+    }
+
+    @Nested
+    inner class UpdateUserPreferences {
+
+        @Test
+        fun `when a user changes the theme then it is stored for their own profile and the stored value is returned`() = runTest {
+            val alice = aUserProfile(TestUsers.ALICE)
+            coEvery { profiles.findByLogin(TestUsers.ALICE.issuer, TestUsers.ALICE.subject) } returns alice
+            coEvery { profiles.changeTheme(alice.id, StoredTheme.DARK) } returns aUserProfile(TestUsers.ALICE, theme = StoredTheme.DARK)
+
+            val stored = service.updateUserPreferences(UserPreferences(theme = ColorTheme.DARK))
+
+            assertEquals(ColorTheme.DARK, stored.theme, "stored theme")
+        }
+
+        @Test
+        fun `when a user without a profile saves the preferences then the profile is created first`() = runTest {
+            val created = aUserProfile(TestUsers.ALICE)
+            coEvery { profiles.findByLogin(TestUsers.ALICE.issuer, TestUsers.ALICE.subject) } returns null
+            coEvery { profiles.syncFromLogin(aSyncFromLoginCommand(TestUsers.ALICE)) } returns created
+            coEvery { profiles.changeTheme(created.id, StoredTheme.LIGHT) } returns aUserProfile(TestUsers.ALICE, theme = StoredTheme.LIGHT)
+
+            val stored = service.updateUserPreferences(UserPreferences(theme = ColorTheme.LIGHT))
+
+            assertEquals(ColorTheme.LIGHT, stored.theme, "stored theme")
+            coVerify(exactly = 1) { profiles.syncFromLogin(any()) }
+        }
+
+        @Test
+        fun `when nobody is signed in then UNAUTHORIZED and nothing is stored`() = runTest {
+            currentUsers.user = null
+
+            val failure = assertFailsWith<DomainException>("an anonymous call must be rejected") {
+                service.updateUserPreferences(UserPreferences(theme = ColorTheme.DARK))
+            }
+
+            assertEquals(ErrorCode.UNAUTHORIZED, failure.errorCode, "error code without a user")
+            coVerify(exactly = 0) { profiles.changeTheme(any(), any()) }
         }
     }
 

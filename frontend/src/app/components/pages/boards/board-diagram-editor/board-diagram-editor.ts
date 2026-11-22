@@ -1,6 +1,7 @@
 import { Component, computed, effect, input, output, signal } from '@angular/core';
 
-import { MAX_MERMAID_BYTES, byteLength } from '../../../../../board-engine/blocks/mermaid';
+import { byteLength } from '../../../../../board-engine/blocks/mermaid';
+import { MAX_MERMAID_BYTES } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
 import { formatBytes } from '../../../../util/format-bytes';
 import { WithSpan } from '../../../../util/tracing';

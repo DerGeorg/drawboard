@@ -7,6 +7,10 @@ import { App } from './app/app';
 import { RuntimeConfig, loadRuntimeConfig } from './app/services/runtime-config';
 import { appConfig } from './config/config';
 import { environment } from './environments/environment';
+import { applyStoredTheme } from './app/util/theme-mode';
+
+// the remembered theme before anything paints (no inline script: the CSP forbids it)
+applyStoredTheme();
 
 const runtimeConfig: Promise<RuntimeConfig> = environment.runtimeConfig
   ? Promise.resolve(environment.runtimeConfig)

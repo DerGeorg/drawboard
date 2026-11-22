@@ -22,6 +22,7 @@ dependencies {
     runtimeOnly(project(":files"))
     runtimeOnly(project(":plugins"))
     runtimeOnly(project(":planning"))
+    runtimeOnly(project(":gifs"))
 
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.actuator)
@@ -57,6 +58,7 @@ testing {
                 implementation(project(":files"))
                 implementation(project(":plugins"))
                 implementation(project(":planning"))
+                implementation(project(":gifs"))
                 implementation(testFixtures(project(":shared")))
                 implementation(testFixtures(project(":library")))
                 implementation(testFixtures(project(":users")))

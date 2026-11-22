@@ -1,6 +1,6 @@
 import { scriptUrls } from '../../trusted-types';
 import { FileContent, FileContentContext, FileRenderers, INTERACTIVE_ATTR } from '../blocks/file';
-import { FileLinks, FileMeta } from './file-source';
+import { FileLinks, FileMeta } from '@apps/drawboard-engine';
 
 /**
  * PDFs and converted Office documents on the board, rendered with pdf.js (Apache-2.0) to a
@@ -177,14 +177,14 @@ class PdfView implements FileContent {
     this.root = d.createElement('div');
     this.root.className = 'be-pdf';
     this.root.style.cssText =
-      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#f1f5f9';
+      'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--be-pdf-bg,#f1f5f9)';
     this.canvas = d.createElement('canvas');
     this.canvas.className = 'be-pdf-page';
     this.canvas.style.cssText =
       'max-width:100%;max-height:100%;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.2);display:none';
     this.status = d.createElement('div');
     this.status.className = 'be-pdf-status';
-    this.status.style.cssText = 'padding:12px;text-align:center;color:#64748b';
+    this.status.style.cssText = 'padding:12px;text-align:center;color:var(--be-text-3,#64748b)';
     this.status.textContent = 'Loading PDF…';
     this.pager = d.createElement('div');
     this.pager.className = 'be-pdf-pager';

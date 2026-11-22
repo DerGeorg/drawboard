@@ -1,4 +1,11 @@
-# Board engine (frontend `src/board-engine/`)
+# Board engine (package `@apps/drawboard-engine` + frontend `src/board-engine/`)
+
+Since 2026-11-22 the engine has two halves. The **core** (board model, `.drawboard` file format,
+clipboard, templates, collaboration protocol and provider, geometry, camera, palettes and themes)
+is the package `@apps/drawboard-engine` from the repository `engine`: no DOM, runs in Node, one
+entry point, its own tests check the import graph. The **view side** (renderers, tools, input,
+text editor, plugin host, `BoardEngine`) stays in the frontend and imports the core only from the
+package. Paths below like `model/` or `collab/` are in the package, the rest in the frontend.
 
 The whiteboard engine of Drawboard (architecture 3.2/3.3/3.8). Plain TypeScript: **no Angular,
 no RxJS** (ESLint `no-restricted-imports` for `src/board-engine/**`). Angular only creates the

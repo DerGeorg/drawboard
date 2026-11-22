@@ -1,7 +1,13 @@
 import { PointerInfo } from '../input/events';
-import { adoptInto, assignParents, isFrame } from '../model/frames';
-import { MIN_BLOCK_SIZE, Point, Props } from '../model/types';
-import { normalizeRect } from '../util/geometry';
+import {
+  adoptInto,
+  assignParents,
+  isFrame,
+  MIN_BLOCK_SIZE,
+  Point,
+  Props,
+  normalizeRect,
+} from '@apps/drawboard-engine';
 import { Tool, ToolContext, ToolId } from './tool';
 
 export interface CreateToolOptions {

@@ -1,7 +1,6 @@
-import { Camera } from '../camera';
+import { Camera, BoardDoc, Point, Rect } from '@apps/drawboard-engine';
 import { KeyInfo, PointerInfo } from '../input/events';
-import { BoardDoc } from '../model/board-doc';
-import { Point, Rect } from '../model/types';
+import { EstimateSource } from '../blocks/story';
 import { BlockTypeRegistry } from '../renderer/block-registry';
 import { SelectionState } from '../selection';
 
@@ -58,6 +57,12 @@ export interface ToolContext {
   hitTest(world: Point): HitResult | undefined;
   /** The block under the point (ignores strokes and connectors). */
   blockAt(world: Point): string | undefined;
+  /** The element a mounted block is rendered in (undefined while it is not mounted). */
+  blockElement(id: string): HTMLElement | undefined;
+  /** The viewport (client) position of a point in container pixels. */
+  clientAt(screen: Point): Point;
+  /** Open planning poker rounds per story card, when the host provides them. */
+  readonly estimates: EstimateSource | undefined;
   /** Handle of the single selected block under the screen point. */
   handleAt(screen: Point): HandleId | undefined;
   setTool(id: ToolId): void;

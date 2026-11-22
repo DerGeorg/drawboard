@@ -12,6 +12,9 @@ internal class InMemoryUserProfileRepository(vararg initial: UserProfile) : User
     /** Set to make the next [update] fail like a concurrent change would. */
     var failNextUpdate = false
 
+    /** Set to make every [update] fail. */
+    var failAllUpdates = false
+
     val all: List<UserProfile> get() = profiles.values.toList()
 
     override suspend fun findById(id: Uuid): UserProfile? = profiles[id]
@@ -37,7 +40,7 @@ internal class InMemoryUserProfileRepository(vararg initial: UserProfile) : User
 
     override suspend fun update(profile: UserProfile): UserProfile? {
         val stored = checkNotNull(profiles[profile.id]) { "no profile ${profile.id}" }
-        if (failNextUpdate || stored.version != profile.version) {
+        if (failAllUpdates || failNextUpdate || stored.version != profile.version) {
             failNextUpdate = false
             return null
         }

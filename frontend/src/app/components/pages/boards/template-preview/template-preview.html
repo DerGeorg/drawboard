@@ -14,7 +14,7 @@
       [attr.height]="shape.h"
       [attr.rx]="shape.kind === 'text' ? 0.5 : 2"
       [attr.fill]="shape.fill"
-      [attr.stroke]="shape.kind === 'frame' ? '#cbd5e1' : 'none'"
+      [attr.stroke]="shape.kind === 'frame' ? frameStroke() : 'none'"
       stroke-width="0.8"
     />
   }

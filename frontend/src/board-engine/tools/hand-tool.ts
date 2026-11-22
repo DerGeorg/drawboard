@@ -1,6 +1,5 @@
-import { panBy } from '../camera';
+import { panBy, Point } from '@apps/drawboard-engine';
 import { PointerInfo } from '../input/events';
-import { Point } from '../model/types';
 import { Tool, ToolContext, ToolId } from './tool';
 
 /** Pans the camera by dragging. The engine also routes space+drag and middle button here. */

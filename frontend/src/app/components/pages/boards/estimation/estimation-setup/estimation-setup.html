@@ -1,0 +1,231 @@
+<section
+  class="float-panel flex max-h-[calc(100dvh-6rem)] w-[min(26rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto p-4"
+  [attr.aria-labelledby]="`${ids}-heading`"
+  data-testid="estimation-setup"
+>
+  <div class="flex items-center justify-between gap-2">
+    <h2 [id]="`${ids}-heading`" class="text-lg font-bold">New estimation session</h2>
+    <button
+      type="button"
+      class="btn btn-square btn-xs btn-ghost"
+      aria-label="Close the new session"
+      (click)="close()"
+    >
+      <drawboard-icon name="close" />
+    </button>
+  </div>
+
+  <form [formRoot]="setupForm" class="flex flex-col gap-3">
+    <div>
+      <label [for]="`${ids}-title`" class="text-xs font-medium">Name</label>
+      <input
+        [id]="`${ids}-title`"
+        type="text"
+        class="st-input"
+        autocomplete="off"
+        placeholder="Sprint 42"
+        [formField]="setupForm.title"
+        [attr.aria-describedby]="`${ids}-title-errors`"
+      />
+      <drawboard-field-errors [id]="`${ids}-title-errors`" [field]="setupForm.title" />
+    </div>
+
+    <div>
+      <label [for]="`${ids}-mode`" class="text-xs font-medium">Mode</label>
+      <select [id]="`${ids}-mode`" class="select select-sm w-full" [formField]="setupForm.mode">
+        <option [value]="modes.MAGIC">
+          Magic Estimation: silently sort the cards into columns
+        </option>
+        <option [value]="modes.ROTATION">
+          Rotation: cards wander, each holder keeps or changes
+        </option>
+      </select>
+    </div>
+
+    <drawboard-deck-picker [deck]="setupForm.deck" [custom]="setupForm.custom" [idPrefix]="ids" />
+
+    <fieldset class="flex flex-col gap-1" [attr.aria-describedby]="`${ids}-items-error`">
+      <legend class="text-xs font-medium">
+        Cards ({{ pickedCount() }} of at most {{ maxItems }})
+      </legend>
+      <div class="flex flex-wrap gap-1">
+        <button type="button" class="btn btn-xs btn-ghost" (click)="takeSelection()">
+          Take from selection
+        </button>
+        <button type="button" class="btn btn-xs btn-ghost" (click)="pickAll()">All</button>
+        <button type="button" class="btn btn-xs btn-ghost" (click)="pickNone()">None</button>
+      </div>
+      <ul
+        class="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded-lg border border-(--color-st-white-darker) p-1"
+        data-testid="setup-items"
+      >
+        @for (c of candidates(); track c.key) {
+          <li>
+            <label class="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                [checked]="isPicked(c)"
+                (change)="toggle(c)"
+              />
+              <span class="min-w-0 flex-1 truncate">{{ c.title }}</span>
+              @if (c.group; as group) {
+                <span class="max-w-24 shrink-0 truncate text-xs text-(--color-st-grey)">{{
+                  group
+                }}</span>
+              }
+              @if (busyCards().get(c.key); as other) {
+                <span class="badge badge-xs st-badge-yellow shrink-0" [title]="other"
+                  >in a session</span
+                >
+              }
+            </label>
+          </li>
+        } @empty {
+          <li class="p-2 text-sm text-(--color-st-grey)">
+            No story cards or kanban cards on this board yet.
+          </li>
+        }
+      </ul>
+      @if (itemsError(); as error) {
+        <p [id]="`${ids}-items-error`" class="text-xs text-(--color-st-red)">{{ error }}</p>
+      }
+    </fieldset>
+
+    @if (setupForm.mode().value() === modes.MAGIC) {
+      <div class="grid grid-cols-3 gap-2" data-testid="magic-settings">
+        <div>
+          <label [for]="`${ids}-placing`" class="text-xs font-medium">Placing (s)</label>
+          <input
+            [id]="`${ids}-placing`"
+            type="number"
+            class="st-input"
+            [formField]="setupForm.placingSeconds"
+          />
+        </div>
+        <div>
+          <label [for]="`${ids}-moving`" class="text-xs font-medium">Moving (s)</label>
+          <input
+            [id]="`${ids}-moving`"
+            type="number"
+            class="st-input"
+            [formField]="setupForm.movingSeconds"
+          />
+        </div>
+        <div>
+          <label [for]="`${ids}-mark`" class="text-xs font-medium">Mark after moves</label>
+          <input
+            [id]="`${ids}-mark`"
+            type="number"
+            class="st-input"
+            [formField]="setupForm.markThreshold"
+          />
+        </div>
+        @for (
+          field of [setupForm.placingSeconds, setupForm.movingSeconds, setupForm.markThreshold];
+          track $index
+        ) {
+          @for (e of field().errors(); track $index) {
+            <p class="col-span-3 text-xs text-(--color-st-red)">{{ e.message }}</p>
+          }
+        }
+      </div>
+    } @else {
+      <div class="grid grid-cols-2 gap-2" data-testid="rotation-settings">
+        <div>
+          <label [for]="`${ids}-rounds`" class="text-xs font-medium">Rounds</label>
+          <input
+            [id]="`${ids}-rounds`"
+            type="number"
+            class="st-input"
+            [formField]="setupForm.rounds"
+          />
+        </div>
+        <div>
+          <label [for]="`${ids}-round-seconds`" class="text-xs font-medium">Round (s)</label>
+          <input
+            [id]="`${ids}-round-seconds`"
+            type="number"
+            class="st-input"
+            [formField]="setupForm.roundSeconds"
+          />
+        </div>
+        @for (field of [setupForm.rounds, setupForm.roundSeconds]; track $index) {
+          @for (e of field().errors(); track $index) {
+            <p class="col-span-2 text-xs text-(--color-st-red)">{{ e.message }}</p>
+          }
+        }
+        <label class="col-span-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-xs"
+            [formField]="setupForm.advanceWhenDone"
+          />
+          End a round early when everyone is done
+        </label>
+        <div
+          class="col-span-2 flex flex-col gap-1 rounded-lg bg-(--color-st-card) p-2 text-xs"
+          data-testid="rounds-helper"
+        >
+          <div class="flex items-center gap-2">
+            <label [for]="`${ids}-expected`">With</label>
+            <input
+              [id]="`${ids}-expected`"
+              type="number"
+              min="2"
+              max="30"
+              class="input input-xs w-14"
+              [value]="expectedSeats()"
+              (change)="setExpectedSeats($event)"
+            />
+            <span>people each sees about {{ cardsEach() }} cards.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label [for]="`${ids}-wanted`">Each should see</label>
+            <input
+              [id]="`${ids}-wanted`"
+              type="number"
+              min="1"
+              class="input input-xs w-14"
+              [value]="cardsWanted()"
+              (change)="setCardsWanted($event)"
+            />
+            <span>cards</span>
+            <button type="button" class="btn btn-xs btn-ghost" (click)="applyCards()">
+              Set rounds
+            </button>
+          </div>
+          <p class="text-(--color-st-grey)">
+            Every card gets one estimate per round, from a different person each time.
+          </p>
+        </div>
+      </div>
+    }
+
+    <label class="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        class="checkbox checkbox-xs mt-0.5"
+        [formField]="setupForm.anonymous"
+      />
+      <span>
+        Anonymous
+        <span class="block text-xs text-(--color-st-grey)">
+          The review shows values and reasons without names. Cannot be changed later.
+        </span>
+      </span>
+    </label>
+
+    @if (message(); as text) {
+      <p role="alert" class="text-sm text-(--color-st-red)">{{ text }}</p>
+    }
+
+    <button
+      type="submit"
+      class="btn btn-lg st-btn-primary-yellow w-full text-base font-bold"
+      [disabled]="busy() || !!itemsError()"
+    >
+      Create session
+    </button>
+  </form>
+</section>

@@ -1,0 +1,25 @@
+<div>
+  <label [for]="`${idPrefix()}-deck`" class="text-xs font-medium">Deck</label>
+  <select [id]="`${idPrefix()}-deck`" class="select select-sm w-full" [formField]="deck()">
+    <option value="FIBONACCI">Fibonacci: 0, 1, 2, 3, 5, 8, 13, 21, ?, ☕</option>
+    <option value="TSHIRT">T-shirt: XS, S, M, L, XL, ?</option>
+    <option value="CUSTOM">Custom</option>
+  </select>
+</div>
+@if (deck()().value() === 'CUSTOM') {
+  <div>
+    <label [for]="`${idPrefix()}-custom`" class="text-xs font-medium"
+      >Values, separated by commas</label
+    >
+    <input
+      [id]="`${idPrefix()}-custom`"
+      type="text"
+      class="st-input"
+      autocomplete="off"
+      placeholder="1, 2, 4, 8, 16, ?"
+      [formField]="custom()"
+      [attr.aria-describedby]="`${idPrefix()}-custom-errors`"
+    />
+    <drawboard-field-errors [id]="`${idPrefix()}-custom-errors`" [field]="custom()" />
+  </div>
+}

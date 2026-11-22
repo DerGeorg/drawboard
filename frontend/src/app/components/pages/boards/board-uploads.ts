@@ -3,9 +3,8 @@ import { DestroyRef, Service, inject, signal } from '@angular/core';
 import { BoardFile, FilesService } from '@apps/drawboard-api';
 import { Subscription } from 'rxjs';
 
-import { FILE_TYPE, fileBlockSize } from '../../../../board-engine/blocks/file';
+import { FILE_TYPE, fileBlockSize, type Point } from '@apps/drawboard-engine';
 import type { BoardEngine } from '../../../../board-engine/engine';
-import type { Point } from '../../../../board-engine/model/types';
 import { ErrorMessages } from '../../../services/error-messages';
 import { ERRORS_HANDLED_LOCALLY } from '../../../services/error-interceptor';
 import { ApiError } from '../../../util/api-error';

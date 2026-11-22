@@ -14,10 +14,9 @@ import {
 
 import type { BuiltinServices } from '../../../../../board-engine/blocks/builtin';
 import { isEditableTarget } from '../../../../../board-engine/input/input-controller';
-import { CLIPBOARD_MIME, WEB_CLIPBOARD_MIME } from '../../../../../board-engine/io/clipboard';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
-import type { Point } from '../../../../../board-engine/model/types';
+import { CLIPBOARD_MIME, WEB_CLIPBOARD_MIME, BoardDoc, type Point } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
+import { Theme } from '../../../../services/theme';
 
 /** A Markdown code fence of Mermaid source, the whole pasted text. */
 const MERMAID_FENCE = /^\s*```mermaid[^\n]*\n([\s\S]*?)\n?```\s*$/;
@@ -50,6 +49,8 @@ export interface CanvasFiles {
   },
 })
 export class BoardCanvas {
+  private readonly theme = inject(Theme);
+
   /** The board's data. A new document (version restored) gets a new engine. */
   readonly board = input.required<BoardDoc>();
   readonly readOnly = input(false);
@@ -87,11 +88,14 @@ export class BoardCanvas {
             readOnly: this.readOnly(),
             services: this.services(),
             boardId: this.boardId(),
+            theme: this.theme.resolved(),
           }),
         );
       });
     });
     effect(() => this.engine()?.setReadOnly(this.readOnly()));
+    // light or dark: the engine only changes how it draws, the board's colours stay as stored
+    effect(() => this.engine()?.setTheme(this.theme.resolved()));
     inject(DestroyRef).onDestroy(() => this.engine()?.destroy());
   }
 

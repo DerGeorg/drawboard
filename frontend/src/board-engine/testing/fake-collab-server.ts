@@ -1,8 +1,7 @@
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { CollabRole, From } from '../collab/frames';
-import { SocketLike } from '../collab/provider';
+import { CollabRole, From, SocketLike } from '@apps/drawboard-engine';
 
 /**
  * An in-process drawboard.v1 server for tests: an update log with sequence numbers, a fake

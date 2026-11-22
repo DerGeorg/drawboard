@@ -65,6 +65,8 @@
     }
     <drawboard-role-badge class="hidden sm:inline-flex" [role]="current.role" />
 
+    <drawboard-theme-menu />
+
     @if (!guest()) {
       <div class="tooltip tooltip-bottom" data-tip="More">
         <button

@@ -169,7 +169,9 @@ internal class LinksService(
 
     @WithSpan
     @Transactional(readOnly = true)
-    override suspend fun guestCaller(@SpanAttribute("share.id") shareId: Uuid): Caller.Guest? {
+    // No share id on this span: it runs on every guest request, and a trace must not name the link behind a placement or estimate
+    // (Fable B1). Revoke and refresh keep theirs.
+    override suspend fun guestCaller(shareId: Uuid): Caller.Guest? {
         val now = clock.now()
         guestCache[shareId]?.takeIf { now - it.second < GUEST_CACHE_SECONDS.seconds }?.let { return it.first }
         val guest = currentGuest(shareId, now)

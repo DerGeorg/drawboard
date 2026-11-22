@@ -1,6 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 
-import type { ProviderState, ProviderStatus } from '../../../../../board-engine/collab/provider';
+import type { ProviderState, ProviderStatus } from '@apps/drawboard-engine';
 
 /** Complete class strings (Tailwind finds them), label and explanation per connection status. */
 const STATES: Readonly<

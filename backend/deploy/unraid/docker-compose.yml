@@ -23,6 +23,10 @@
 #                                                   see (S3.8): base64 of >= 32 random bytes; a
 #                                                   secret of its own, NEVER the same as file_url_keys
 #                          Create with: `head -c 32 /dev/urandom | base64 > <file>` (once per file).
+#                          Another file, giphy_api_key (GIF search, 3.14, G1): the GIPHY API key of THIS stack, one line of
+#                          16-64 letters and digits. It MUST exist before this file is merged (EMPTY = GIF search is off);
+#                          otherwise compose aborts the stack. gitlab-devops script 40 creates it (empty); the key is put
+#                          in later and the backend stack redeployed. The key never goes into the stack environment.
 #
 #   db                 PostgreSQL 18, database "drawboard"; one schema per module, created
 #                      by the app's Flyway - not here. No host port (S7.8).
@@ -86,7 +90,7 @@ services:
       # The uploaded files (S4). The container runs as uid 10001: the directory must be writable for it.
       # Backups with a tested restore: this directory is part of them (S7.7).
       - /srv/drawboard/files:/data/files
-    secrets: [file_url_keys, plugin_pseudonym_key, guest_signing_keys]
+    secrets: [file_url_keys, plugin_pseudonym_key, guest_signing_keys, giphy_api_key]
     environment:
       APP_ENVIRONMENT: prod
       TZ: Europe/Vienna
@@ -112,6 +116,12 @@ services:
       # guests are off, so switching on needs no compose change.
       DRAWBOARD_GUESTS_ENABLED: ${GUESTS_ENABLED:-false}
       DRAWBOARD_GUEST_SIGNING_KEYS_FILE: /run/secrets/guest_signing_keys
+      # GIF search at GIPHY (3.14, G1-G8): the key is a FILE secret (empty file = GIF search off, `gifsEnabled` false). The
+      # frontend stack has its own switch (GIFS_ENABLED); both must be on. The rating is per instance (g, pg, pg-13; never r) and
+      # the budget is the calls per hour the whole instance may make (a new GIPHY key is a beta key with 100 per hour).
+      DRAWBOARD_GIPHY_API_KEY_FILE: /run/secrets/giphy_api_key
+      DRAWBOARD_GIPHY_RATING: ${GIPHY_RATING:-g}
+      DRAWBOARD_GIPHY_HOURLY_BUDGET: ${GIPHY_HOURLY_BUDGET:-90}
       # Files and plugins (S3, S4): where the bytes are, the keys (secret FILES, S7.8) and the converter.
       DRAWBOARD_FILES_DIR: /data/files
       # Where Spring spools multipart uploads (S2.8, M3 review MUST 1): a directory of its own on the tmp volume, created and
@@ -163,7 +173,7 @@ services:
   # system with tmpfs for what LibreOffice writes, no capabilities, memory and process limits. The tag is pinned (Renovate
   # moves it); latest 8.x at the time of writing is 8.40.0.
   gotenberg:
-    image: gotenberg/gotenberg:8.40.0
+    image: gotenberg/gotenberg:9.8.0
     restart: unless-stopped
     user: "1001:1001"
     command:
@@ -218,3 +228,6 @@ secrets:
     file: ${SECRETS_DIR:?SECRETS_DIR must name the host directory with file_url_keys and plugin_pseudonym_key}/plugin_pseudonym_key
   guest_signing_keys:
     file: ${SECRETS_DIR:?SECRETS_DIR must name the host directory with the secret files}/guest_signing_keys
+  # An empty file switches GIF search off. gitlab-devops script 40 creates it; it must exist before the merge (see the header).
+  giphy_api_key:
+    file: ${SECRETS_DIR:?SECRETS_DIR must name the host directory with the secret files}/giphy_api_key

@@ -10,7 +10,10 @@ Belongs to [drawboard-api](../api) (the OpenAPI contract) and
 [drawboard-frontend](../frontend): separate repositories, versioned and deployed
 independently. Concept and phases: [../docs/architecture.md](../docs/architecture.md).
 
-**Milestone M4** (this state) adds **planning poker** on story cards (module `planning`, section [Planning poker](#planning-poker)),
+**Estimation sessions** (contract 3.0.0) add Magic Estimation and Rotation over many cards at once to module `planning` (section
+[Estimation sessions](#estimation-sessions)).
+
+**Milestone M4** adds **planning poker** on story cards (module `planning`, section [Planning poker](#planning-poker)),
 the **malware scan** of uploads (ClamAV, optional: [Files](#files)) and the **usage metrics** with their Grafana dashboard
 (section [Metrics and the dashboard](#metrics-and-the-dashboard)).
 
@@ -26,9 +29,9 @@ sandboxed on the client, with their own asset server and storage): sections [Fil
 
 ```
 core ──implementation──► shared
-  └──runtimeOnly──► api, auditing, users, library, collab, files, plugins, planning
-api ──► users, library, collab, files, plugins, planning, shared   (never core, never auditing)
-auditing, users, library, collab, files, plugins, planning ──► shared   (domain modules never know each other)
+  └──runtimeOnly──► api, auditing, users, library, collab, files, plugins, planning, gifs
+api ──► users, library, collab, files, plugins, planning, gifs, shared   (never core, never auditing)
+auditing, users, library, collab, files, plugins, planning, gifs ──► shared   (domain modules never know each other)
 ```
 
 Every module lives in `modules/<name>`; project paths stay `:core`, `:api`, …
@@ -36,7 +39,7 @@ Every module lives in `modules/<name>`; project paths stay `:core`, `:api`, …
 | Module | Contents | Schema |
 |---|---|---|
 | `core` | `DrawboardApplication`, the **route table** and token validation (`core/infra/security`), request id, OTel wiring, Flyway per module, clock, R2DBC converters. Only module with the Boot plugin | – |
-| `api` | controllers implementing the generated `BoardsApi`/`FoldersApi`/`SharingApi`/`UsersApi`/`CollabApi`/`FilesApi`/`FileContentApi`/`PluginsApi`/`PlanningApi`; `*ApiService` translate contract ↔ domain and orchestrate `users` + `library` + `collab` + `files` + `plugins` + `planning` (`SignedInUsers`); the WebSocket endpoint (handshake, bridge); the plugin asset server; RFC 9457 errors | – |
+| `api` | controllers implementing the generated `BoardsApi`/`FoldersApi`/`SharingApi`/`UsersApi`/`CollabApi`/`FilesApi`/`FileContentApi`/`PluginsApi`/`PlanningApi`/`GifsApi`; `*ApiService` translate contract ↔ domain and orchestrate `users` + `library` + `collab` + `files` + `plugins` + `planning` + `gifs` (`SignedInUsers`); the WebSocket endpoint (handshake, bridge); the plugin asset server; RFC 9457 errors | – |
 | `shared` | toolbox in flat topic packages: errors (`ErrorCode` mirrors the contract 1:1), the ports `CurrentUserProvider`/`AuditTrail`/`AppLogger`, paging, `@WithSpan`, Kotlin type converters | – |
 | `auditing` | append-only audit trail (enforced in code, no triggers) | `auditing` |
 | `users` | `UserProfile`: our own UUIDv7 per (issuer, subject); sync at login | `users` |
@@ -44,7 +47,8 @@ Every module lives in `modules/<name>`; project paths stay `:core`, `:api`, …
 | `collab` | real-time collaboration: one-time tickets, rooms (the sessions of an open board), update log, snapshots, compaction, awareness relay, `drawboard.v1` frame codec | `collab` |
 | `files` | uploads of a board: type detection (Apache Tika core), caps and quotas, storage port (filesystem adapter), thumbnails, signed URLs, ranges, Gotenberg conversion (port + adapter), orphan sweep | `files` |
 | `plugins` | plugin registry: ZIP rules, manifest schema, grants, upgrades, the enabled list with pseudonyms, the frame document, the storage per plugin and board | `plugins` |
-| `planning` | planning poker: rounds on story cards, participants (members and guests), votes, the result of a reveal, caps, rates, pruning | `planning` |
+| `planning` | planning poker: rounds on story cards, participants (members and guests), votes, the result of a reveal, caps, rates, pruning; estimation sessions (Magic Estimation, Rotation): seats, cards, entries, moves, the server clock, the review | `planning` |
+| `gifs` | GIF search at GIPHY through the server: the key, the rating, the cache, the limits of users and of the instance, the GIPHY adapter | – |
 
 `files`, `plugins` and `planning` do not know boards, roles or tokens: `api` checks the role on the board first (`FilesApiService`,
 `PluginsApiService`, `PlanningApiService`) and then calls the use case. `library` does not know `users` (house rule): the `*ApiService` looks the caller up through
@@ -193,7 +197,9 @@ Make a key: `openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -to
 * A guest is its own principal (`GuestAuthenticationToken`), never a `JwtAuthenticationToken`. **Allowlist**
   (S1.8): read the board (`GET /boards/{id}`), list the boards of a shared folder (`GET /boards?folderId=`),
   collab ticket + WebSocket, refresh, files and plugins read-only (M3 review), and - for links with the role `COMMENTER` or
-  `EDITOR` only - planning poker: list (`state=OPEN` only), get and vote (M4 review, see [Planning poker](#planning-poker));
+  `EDITOR` only - planning poker: list (`state=OPEN` only), get and vote (M4 review, see [Planning poker](#planning-poker)), and
+  estimation sessions: list (`state=ACTIVE` only), get, join, leave, placement and estimate (E8, see
+  [Estimation sessions](#estimation-sessions));
   everything else is 403. A guest reaches only the resource of its link and
   what lies below it (S1.7). Every request looks the link up again (cache of at most 30 s, S1.13):
   revocation, expiry, a trashed board end the guest's REST access (401/404) and its WebSocket (4403/4404).
@@ -271,14 +277,14 @@ GitLab group `apps/drawboard` (numeric id 147 in `settings.gradle.kts`); its ver
 For a contract built locally (`scripts/build.sh install` in the API repository) add
 `-PuseMavenLocal=true` and set the version to `0.0.1-SNAPSHOT` - never push that.
 
-detekt (as in the pipeline, all ten modules; rule set `at.dergeorg.ci:detekt-rules:1.1.0`):
+detekt (as in the pipeline, all eleven modules; rule set `at.dergeorg.ci:detekt-rules:1.1.0`):
 
 ```bash
 mkdir -p .lint-tools
 curl -fsSLo .lint-tools/detekt.jar https://github.com/detekt/detekt/releases/download/v1.23.8/detekt-cli-1.23.8-all.jar
 # detekt-rules.jar: package registry of ci/detekt-rules (project 75), needs a GitLab token
 java -jar .lint-tools/detekt.jar \
-  --input modules/core/src,modules/api/src,modules/shared/src,modules/auditing/src,modules/users/src,modules/library/src,modules/collab/src,modules/files/src,modules/plugins/src,modules/planning/src \
+  --input modules/core/src,modules/api/src,modules/shared/src,modules/auditing/src,modules/users/src,modules/library/src,modules/collab/src,modules/files/src,modules/plugins/src,modules/planning/src,modules/gifs/src \
   --config config/detekt.yml --build-upon-default-config --plugins .lint-tools/detekt-rules.jar
 ```
 
@@ -291,8 +297,12 @@ expired, foreign key, HS256, `alg: none` → 401); `FilesIntegrationTest`, `File
 `FileConversionIntegrationTest` (against a FAKE Gotenberg, never the real image), `FileUrlLeakIntegrationTest`,
 `UploadGuardIntegrationTest` (411/413/429 before the body, the spool directory stays empty) and
 `PluginsIntegrationTest` cover M3; `PlanningIntegrationTest` (every rule of the planning poker contract, members and guests),
+`EstimationIntegrationTest` (both modes from the lobby to DONE, visibility E2-E5 and E9, the order of refusals C2, C3, guests,
+revocation, rates, ETag/304) and `EstimationClockIntegrationTest` (deadlines, idle cancel, retention with a shifted application clock),
 `MetricsIntegrationTest` (the usage metrics as registered), `FileScannerIntegrationTest` and `FileScannerFailClosedIntegrationTest`
-(against a fake clamd) cover M4. The test PostgreSQL runs with `max_connections=400`: every cached application context
+(against a fake clamd) cover M4; `GifsIntegrationTest`, `GifsBudgetIntegrationTest` and `GifsDisabledIntegrationTest` run GIF search against a FAKE
+GIPHY (a `com.sun.net.httpserver` on a port of its own, never the real service), among them the key-leak test (G2) with the HTTP client
+loggers at `DEBUG`. The test PostgreSQL runs with `max_connections=400`: every cached application context
 keeps a connection pool.
 
 ## Files
@@ -545,6 +555,128 @@ estimate into the story card (`estimate`) and clears its `pokerRoundId`; any edi
 | `PLANNING_CREATES_PER_MINUTE` / `_LISTS_PER_MINUTE` / `_GETS_PER_MINUTE` / `_VOTES_PER_MINUTE` | `10` / `30` / `60` / `30` |
 | `PLANNING_SHARE_LISTS_PER_MINUTE` / `_SHARE_GETS_PER_MINUTE` / `_SHARE_VOTES_PER_MINUTE` | `300` / `300` / `100` |
 
+## Estimation sessions
+
+Module `planning`, subdomain `sessions` (architecture 3.15), contract tag `planning` (contract 3.0.0); rules: "Estimation sessions:
+design decision" (E1-E24) and "Estimation sessions: contract review" (C1-C3) in `../docs/architecture.md`. A moderator (the
+creating `EDITOR`/`OWNER` while still `EDITOR`/`OWNER`, or the board's `OWNER`, checked per request - E13) creates a session
+over 1-50 cards (story cards or kanban cards, refs are untrusted hints, E20), callers take a seat in the lobby, the moderator picks
+who takes part and starts; the server deals the cards into a ring of secret slots (`SecureRandom`, E2) and drives the phases by its
+own clock. Seats, cards, entries, reasons and moves live **only** in schema `planning` (migration `V3`) - never in the Yjs document,
+which the server neither reads nor writes; after `finish` a client with edit rights writes the decisions into the cards (E21).
+
+* **Magic Estimation**: `LOBBY` → `PLACING` (each seat puts only the cards dealt to it into a column, nobody else sees them) →
+  `MOVING` (every seat may move every card; columns, `moveCount` and `marked` are public, the mover never) → `REVIEW` → `DONE`.
+* **Rotation**: `LOBBY` → `ROTATING` round 0..rounds-1 (card i is held by slot (i + r) mod P; the holder sees the previous value as
+  `currentValue`, nothing else, keeps it or changes it with a reason) → `REVIEW` → `DONE`. With `advanceWhenDone` a round ends as
+  soon as every seat in the ring is done.
+* `cancel` from every active state; `CANCELLED` and `DONE` are final.
+
+| Route | Who |
+|---|---|
+| `GET /api/boards/{id}/estimation-sessions[?state=ACTIVE\|CLOSED]` | any role; guests with a `COMMENTER`/`EDITOR` link, `ACTIVE` only. Summaries only (never items, seats or entries); 30 per user and board and minute (300 per share) |
+| `POST /api/boards/{id}/estimation-sessions` | `EDITOR`/`OWNER`, signed in. 3 active sessions per board (`409 PLANNING_SESSION_LIMIT_REACHED`), 100 closed kept (pruned oldest `CANCELLED` first); 10 per user and minute |
+| `GET …/{sessionId}` | any role, guests as above. `ETag: W/"<version>"`, `If-None-Match` → `304`, compared after the clock, the role and E9; 75 per user and session and minute (600 per share), a 304 counts |
+| `PUT` / `DELETE …/{sessionId}/seats/me` | `COMMENTER` or higher, guests as above; `LOBBY` only. 30 seats, 15 guests, 10 per link (`409 PLANNING_SESSION_FULL`); 10 per user and session and minute (30 per share) |
+| `POST …/{sessionId}/start`, `…/advance`, `…/finish`, `…/cancel`, `PUT …/items/{itemId}/decision` | the moderator; never guests. 120 per user and minute |
+| `PUT …/items/{itemId}/placement` | a seat that takes part (`403 PLANNING_NOT_SEATED`), MAGIC; 60 per user and session and minute (300 per share) |
+| `PUT …/items/{itemId}/estimate` | a seat that takes part, ROTATION; answers the caller's entry only; 30 per user and session and minute (150 per share) |
+
+Every estimation answer carries `Cache-Control: no-store` and `Vary: Authorization`.
+
+* **One view per caller** (`SessionViews`, used for get and for the answers of create, start, advance, finish and cancel): before
+  `REVIEW` nothing names who holds, placed or moved a card - `mine` only for the caller's own cards, progress per seat (`done`) only,
+  never per card (E3); Magic `PLACING` shows a column only on the caller's own cards, `ROTATING` shows `currentValue`/`myEntry` only
+  to the holder, not to the moderator or the `OWNER` (E4). From `REVIEW` everyone who may see the session sees the same results;
+  entries come in a stored random order, without names when `anonymous` (the default); on entering `REVIEW` the server drops the
+  seat of anonymous entries, the mover of every Magic move and the slots (E5). A guest sees `REVIEW`, `DONE` and `CANCELLED` only
+  with a seat of its own, else `404 PLANNING_SESSION_NOT_FOUND` with the session id only, on every operation (E9).
+* **Order of refusals** (C2), the same everywhere: board (404) → `VIEWER` link (403) → session, E9 and card (404) → role (403) → seat
+  (403) → state and expected round (409 `PLANNING_SESSION_WRONG_STATE`) → card held (409 `PLANNING_ITEM_NOT_HELD`, one body for "other
+  seat" and "other round") → value (400 `PLANNING_VALUE_INVALID`, never echoed) → reason (400 `PLANNING_REASON_REQUIRED`) → move limits
+  (409 `PLANNING_MOVE_LIMIT_REACHED`). A seat that does not hold a card never learns whether it would need a reason.
+* **Start** (C3, E7): 2-30 listed seats, not more seats than cards in either mode, not fewer seats than Rotation rounds (`400
+  VALIDATION_FAILED`, field `seatIds`, after the state check); seats of revoked links are dropped first.
+* **Server clock** (E14, E15, no scheduler): `SessionClock.settle` applies every due transition on the next request, re-checked under
+  the session lock (many polls at a deadline make one transition); the next deadline counts from the old one; a write after the
+  deadline is `409` (no grace); `advance` names the state and round the client believes in. Idle: 24 h in `LOBBY` or a running
+  phase, 7 days in `REVIEW` → `CANCELLED`. Locks: one replica, `KeyedLocks` per session and (for create) per board, board before
+  session; every update of a session names the version it read, so a second writer fails with `409 CONFLICT`.
+* **Version / ETag** rises on join and leave, start, every phase or round change, when a seat's `done` flips, on every Magic move in
+  `MOVING`, a decision, finish, cancel and removed seats - not on a placement in `PLACING` or an entry that flips nothing (E3).
+* **Magic moves** (E16): a move by the same seat within 10 s replaces its previous one (back where it came from removes it); per seat
+  ≤ 5 moves per card and ≤ 3 × cards in total, ≤ 5000 per session. A card is `marked` when it has no column, sits in `?`, was touched
+  by a removed seat, or was moved at least `markThreshold` (≥ 3) times with each seat counting at most 2 moves.
+* **Decisions** (E13): Rotation - one of the entered values, any deck value only for a card without entry (then `overridden`);
+  Magic - any column, `overridden` for an unmarked card decided away from its column. An overridden decision is audited.
+* **Texts** (E12, C1): titles (≤ 200) and reasons (≤ 280) are one line, NFC, without Cc/Cf and U+2028/U+2029, trimmed and checked for
+  blank Unicode-aware; the contract's pattern is linear (no backtracking).
+* **Guests** (E8-E11): see above; never create or moderate. **Revoking a link** (`SharingApiService.revokeLink`, which calls the poker
+  and the estimation use case independently - one failing never skips the other): in `LOBBY` its seats are deleted; in a running
+  phase they are marked removed, their entries, reasons, placements (`PLACING`) and moves are deleted and every card they touched is
+  marked; from `REVIEW` on the record stands. Entering `REVIEW` drops seats of revoked links again (safety net).
+* **Retention** (E22): cancel and idle-cancel delete entries, reasons, moves and placements at once. 30 days after `DONE` no answer
+  holds single values or reasons; the daily job (`TrashCleanup`) then reduces the session to numbers (no reason, no seat, no move).
+  Sessions follow their board into the trash and are purged by `BoardDataEraser` (which erases rounds and sessions independently).
+* **Audit** (E23): `planning.session.created` (board, mode, number of cards, deck kind), `.started` (seats of members and of guests),
+  `.finished` (decisions, overridden), `.cancelled` (idle or not), `.decision-overridden` (card id). Never a value, a reason, a move,
+  a join or which seat entered what.
+
+| Environment (all optional, for tests of a cap) | Default |
+|---|---|
+| `PLANNING_ESTIMATION_MAX_ACTIVE_SESSIONS` / `_MAX_CLOSED_SESSIONS` | `3` / `100` |
+| `PLANNING_ESTIMATION_MAX_SEATS` / `_MAX_GUESTS` / `_MAX_GUESTS_PER_SHARE` / `_MAX_MOVES_PER_SESSION` | `30` / `15` / `10` / `5000` |
+| `PLANNING_ESTIMATION_CREATES_PER_MINUTE` / `_LISTS_…` / `_GETS_…` / `_SEAT_CHANGES_…` / `_PLACEMENTS_…` / `_ESTIMATES_…` / `_MODERATOR_OPS_PER_MINUTE` | `10` / `30` / `75` / `10` / `60` / `30` / `120` |
+| `PLANNING_ESTIMATION_SHARE_LISTS_PER_MINUTE` / `_SHARE_GETS_…` / `_SHARE_SEAT_CHANGES_…` / `_SHARE_PLACEMENTS_…` / `_SHARE_ESTIMATES_PER_MINUTE` | `300` / `600` / `30` / `300` / `150` |
+
+## GIF search
+
+Module `gifs` (3.14), contract tag `gifs` (contract 2.3.0), decisions G1-G16 in "GIF search via GIPHY: design decision" of
+`../docs/architecture.md`. The picker of the frontend searches GIPHY **through this backend**: the key stays on the server, GIPHY sees the
+server's address and never the user's. Search is `POST /api/gifs/search` (a body, so the text is in no URL), trending is
+`GET /api/gifs/trending`. The answer holds `{id, title, width, height}` per GIF and nothing else - the client builds the image address from
+the id (the image itself is loaded by the viewer's browser from GIPHY, never copied by the server, G13).
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `DRAWBOARD_GIPHY_API_KEY_FILE` | file with the GIPHY key (Docker/Kubernetes secret); wins over the variable | – |
+| `DRAWBOARD_GIPHY_API_KEY` | the key itself (development) | – |
+| `DRAWBOARD_GIPHY_RATING` | `g`, `pg` or `pg-13`; `r` or anything else stops the start (G6). Never a request parameter | `g` |
+| `DRAWBOARD_GIPHY_HOURLY_BUDGET` | calls to GIPHY per hour for the whole instance (a new GIPHY key is a beta key with 100 per hour) | `90` |
+
+* **On or off (G1, G3)**: no key, a blank value or an **empty file** = off (`CurrentUser.gifsEnabled=false`, every route `404 GIFS_DISABLED`,
+  the same for every signed-in user; a file that does not exist counts as no key). A key that is not 16 to 64 letters and digits stops
+  the start - the message never names the value. Nothing is sent to GIPHY at the start; the one log line says `GIF search` with
+  `gifs.enabled` and `gifs.rating`. In the dev profile there is no key: off.
+* **Order of the checks (G7)**: disabled (404) → who calls (guests `403 FORBIDDEN`, also with an `EDITOR` link, G5; the route table
+  and `GifsApiService` both say so) → validation (text of at least 2 characters after trimming and collapsing white space, at most 50, no
+  control character, page 0-9, language two letters: `400 VALIDATION_FAILED`) → the limits of the user, **10 per minute and 40 per hour,
+  cache hits included** (`429 TOO_MANY_REQUESTS`) → the cache (key: normalised lower-case text, page, rating, language; search 15
+  minutes, trending 30 minutes, at most 500 entries) → the budget of the instance, **for calls to GIPHY only** (`429 GIFS_BUDGET_EXHAUSTED`
+  with `Retry-After`; GIPHY's own 429 gives the same answer and blocks calls for its `Retry-After`, 60 seconds if there is none, at most an
+  hour) → GIPHY. Equal searches at the same time share one call (single flight); a failure is kept for 30 seconds so the same text is not
+  asked again at once. GIPHY `401`/`403`/`5xx`, any other `4xx`, a timeout, an unreadable or oversized answer: `503 GIFS_UNAVAILABLE` with
+  `Retry-After: 30`, never a word of what GIPHY said.
+* **The call (G4)**: base `https://api.giphy.com/v1/gifs/` is a constant of `GiphyUpstream` - no property, no variable changes it (a test
+  points it at a fake server through an `UpstreamEndpoint` bean). No redirect is followed, 2 seconds to connect, 5 seconds in all, at most
+  2 MB. Parameters: the key, `q`, `limit=24`, `offset=page*24`, `rating`, `lang` (trending: key, limit, offset, rating) and an `Accept`
+  header - nothing of the user or of the client's request. The answer is read for `id`, `title` and the size of `images.original`;
+  entries whose id does not match `^[A-Za-z0-9]{1,64}$` or whose size is outside 1-4096 are dropped; a title loses control, format
+  (bidi, zero-width), separator and private-use characters, white space becomes one blank, at most 200 characters. `hasMore` comes from
+  `pagination.total_count` and is always false on page 9 and for trending.
+* **The key is a secret (G2)**: GIPHY takes it as a query parameter, so every layer that prints a URL is a leak. `ApiKey` has a redacted
+  `toString`; the GIPHY client is built with `WebClient.builder()` (no observation registry, so no `http.url` on a span) over the **JDK
+  HTTP client**, which, unlike Reactor Netty (`HttpClientConnect` logs the URI of every call at `DEBUG`), prints nothing; every failure
+  leaves the adapter as `UpstreamFailure` with a fixed word as message (`timeout`, `unreachable`, `key_refused`, `rate_limited`,
+  `server_error`, `bad_response`), no cause and no stack trace; the span of a call is named `GIPHY api.giphy.com search|trending` and
+  records only that word; the properties class prints without the key. The error body names no cause.
+* **Search texts (G8)** are in no log line, span attribute, metric label or audit event: they live in the cache keys (`toString` leaves
+  them out) and in the call to GIPHY. There is no audit event. Both answers carry `Cache-Control: no-store`.
+* **Metric**: `drawboard.gifs.requests{outcome}` (`hit`, `miss`, `upstream_error`, `limited_user`, `limited_instance`, `disabled`),
+  Prometheus `drawboard_gifs_requests_total`.
+* One replica: cache, limits, budget and the single-flight map are in memory (like every other counter of the application); with two
+  replicas the budget of the instance would be per replica, so keep `DRAWBOARD_GIPHY_HOURLY_BUDGET` at half of GIPHY's limit then.
+
 ## Metrics and the dashboard
 
 Everything is pushed by OTLP to Alloy and Prometheus (nothing is exposed for scraping). Names are Micrometer names; Prometheus
@@ -567,12 +699,15 @@ user, a board, a file name or a vote.
 | `drawboard.guest.sessions` | counter | – | existed (sessions started or renewed; the token is stateless, so "open now" is unknown) |
 | `drawboard.share.exchanges` | counter | `result` | existed |
 | `drawboard.planning.rounds` / `.votes` / `.refused` | counter | `event` / – / `reason` | **new** |
+| `drawboard.planning.sessions` | counter | `event` = `created` `started` `finished` `cancelled` `idle_cancelled`, `mode` = `magic` `rotation` | **new** (estimation sessions) |
+| `drawboard.planning.session.inputs` / `.session.refused` | counter | `kind` = `placement` `move` `estimate` / `reason` = `rate_limit` `session_full` `session_limit` `move_limit` | **new** (E17, never a value) |
+| `drawboard.gifs.requests` | counter | `outcome` = `hit` `miss` `upstream_error` `limited_user` `limited_instance` `disabled` | **new** (3.14, G8) |
 | `drawboard_blocks` by type | – | – | **not built**: the server never reads the Yjs document, so there are no board summaries |
 | `drawboard_exports_total`, `drawboard_imports_total` | – | – | **not built**: export and import run in the browser (S5.5, S5.6); the frontend can report them through Faro |
 
 Plus the standard HTTP, JVM and R2DBC metrics, traces and logs.
 
-**Dashboard "17 · Drawboard usage"** (uid `svc-drawboard`, folder Services) shows all of the above in six rows: who and what,
+**Dashboard "17 · Drawboard usage"** (uid `svc-drawboard`, folder Services) shows the above (not yet GIF search) in six rows: who and what,
 collaboration, storage and files, sharing and guests, planning poker. It is generated with the others:
 
 ```bash

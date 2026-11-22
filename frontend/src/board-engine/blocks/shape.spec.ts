@@ -1,4 +1,4 @@
-import { BlockData, Props } from '../model/types';
+import { BlockData, Props } from '@apps/drawboard-engine';
 import { shapeBlock } from './shape';
 
 describe('shapeBlock', () => {
@@ -19,7 +19,12 @@ describe('shapeBlock', () => {
 
   function outline(props: Props): SVGElement {
     const host = document.createElement('div');
-    shapeBlock.render(host, { block: aShape(props), text: () => '', readOnly: false });
+    shapeBlock.render(host, {
+      block: aShape(props),
+      text: () => '',
+      readOnly: false,
+      theme: () => 'light',
+    });
     return host.querySelector('svg [fill]') as SVGElement;
   }
 

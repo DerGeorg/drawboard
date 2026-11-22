@@ -1,6 +1,6 @@
 import { getStroke } from 'perfect-freehand';
 
-import { StrokeData } from '../model/types';
+import { StrokeData } from '@apps/drawboard-engine';
 
 /** SVG path data of the filled outline of a freehand stroke (perfect-freehand, MIT). */
 export function strokePath(stroke: StrokeData): string {

@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 
 import { mermaidRendering } from '../../trusted-types';
-import { MAX_MERMAID_BYTES } from '../blocks/mermaid';
+import { MAX_MERMAID_BYTES } from '@apps/drawboard-engine';
 import { MERMAID_CONFIG, MermaidApi, mermaidRenderer, sanitizeSvg } from './mermaid-renderer';
 
 const NS = 'xmlns="http://www.w3.org/2000/svg"';
@@ -63,6 +63,23 @@ describe('mermaid renderer', () => {
   });
 
   describe('configuration (S5.1)', () => {
+    it('when a diagram is rendered for the dark canvas then mermaid switches to its dark theme and back', async () => {
+      const m = fakeMermaid();
+      const r = renderer(m);
+
+      await r.render('graph TD; A-->B', 'light');
+      await r.render('graph TD; A-->B', 'dark');
+      await r.render('graph TD; B-->C', 'dark');
+      await r.render('graph TD; A-->B', 'light');
+
+      expect(
+        m.configs.map((c) => c['theme']),
+        'initialisations',
+      ).toEqual(['default', 'dark', 'default']);
+      expect(m.configs[1]?.['securityLevel'], 'still strict in dark').toBe('strict');
+      expect(m.configs[1]?.['htmlLabels'], 'still no HTML labels in dark').toBe(false);
+    });
+
     it('when mermaid is first used then it is set up strict, without HTML labels and with the limits', async () => {
       const m = fakeMermaid();
 

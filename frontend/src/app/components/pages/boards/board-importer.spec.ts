@@ -2,8 +2,7 @@ import { HttpTestingController } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { BoardFile, parseBoardFile } from '../../../../board-engine/io/board-file';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
+import { BoardFile, parseBoardFile, BoardDoc } from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { signedInAsAlice } from '../../../test/fake-auth';
 import { aBoard, aProblem } from '../../../test/fixtures';
@@ -23,6 +22,9 @@ class FakeWriter {
   readonly connected: string[] = [];
   readonly flushes: number[] = [];
   syncFails = false;
+  readonly state = signal<{ reloadRequired: boolean } | undefined>(undefined);
+  /** Set by a test: the provider dropped a piece as too large while it was flushed. */
+  dropsPiece = false;
 
   constructor() {
     FakeWriter.instance = this;
@@ -38,6 +40,9 @@ class FakeWriter {
 
   whenFlushed(): Promise<void> {
     this.flushes.push(this.doc().blockIds().length);
+    if (this.dropsPiece) {
+      this.state.set({ reloadRequired: true });
+    }
     return Promise.resolve();
   }
 }
@@ -187,6 +192,31 @@ describe('BoardImporter', () => {
 
       expect(await result, 'result').toBeUndefined();
       expect(FakeWriter.instance, 'writer created').toBeUndefined();
+    });
+
+    it('when the provider drops a piece as too large then the import fails and the board is deleted', async () => {
+      importer.collabType = class extends FakeWriter {
+        override dropsPiece = true;
+      } as unknown as typeof BoardCollab;
+      const result = importer.save(aFile());
+      await settle();
+      expectRequest('POST', '/api/boards').flush(aBoard({ id: 'lost' }), {
+        status: 201,
+        statusText: 'Created',
+      });
+      await settle();
+      expectRequest('DELETE', '/api/boards/lost', 'discard').flush(null, {
+        status: 204,
+        statusText: 'No Content',
+      });
+
+      expect(await result, 'no success without the content').toBeUndefined();
+      expect(
+        TestBed.inject(Toasts)
+          .toasts()
+          .map((t) => t.kind),
+        'toast kinds',
+      ).toEqual(['error']);
     });
 
     it('when the connection cannot be synced then the empty board is deleted again and a toast tells', async () => {

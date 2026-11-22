@@ -1,7 +1,14 @@
 import { TestEngine, createTestEngine } from '../testing/helpers';
-import { KANBAN_TYPE, KanbanModel, newKanbanProps } from './kanban-model';
+import {
+  KANBAN_TYPE,
+  KanbanModel,
+  newKanbanProps,
+  STORY_TYPE,
+  StoryModel,
+  newStoryProps,
+  readStory,
+} from '@apps/drawboard-engine';
 import { STORY_ESTIMATE_ACTION, storyLabel } from './story';
-import { STORY_TYPE, StoryModel, newStoryProps, readStory } from './story-model';
 
 describe('story block', () => {
   let t: TestEngine;

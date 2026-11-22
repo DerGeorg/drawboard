@@ -3,9 +3,13 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { BoardFile as StoredFile, BoardFileConversion, BoardFileKind } from '@apps/drawboard-api';
 
-import { BoardFile, parseBoardFile, writeBoardFile } from '../../../../board-engine/io/board-file';
-import { BoardDoc } from '../../../../board-engine/model/board-doc';
-import { BUILTIN_TEMPLATES } from '../../../../board-engine/templates/builtin-templates';
+import {
+  BoardFile,
+  parseBoardFile,
+  writeBoardFile,
+  BoardDoc,
+  loadBuiltinTemplates,
+} from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { signedInAsAlice } from '../../../test/fake-auth';
 import { RETRO_BOARD_ID, SPRINT_BOARD_ID, aBoard } from '../../../test/fixtures';
@@ -169,7 +173,7 @@ describe('BoardTemplates', () => {
 
   describe('from a built-in template', () => {
     it('when a built-in template is used then a board with its title and content is created in the folder', async () => {
-      const template = BUILTIN_TEMPLATES[0];
+      const template = (await loadBuiltinTemplates())[0];
       const result = templates.fromBuiltin(template, { folderId: 'folder-1' });
       await settle();
 
@@ -187,7 +191,7 @@ describe('BoardTemplates', () => {
     });
 
     it('when a title is given then it replaces the template title and the template stays unchanged', async () => {
-      const template = BUILTIN_TEMPLATES[1];
+      const template = (await loadBuiltinTemplates())[1];
       const before = JSON.stringify(template.file);
       const result = templates.fromBuiltin(template, { title: 'Our retro' });
       await settle();
@@ -584,7 +588,7 @@ describe('BoardTemplates', () => {
     });
 
     it('when a built-in template is used then it is validated like an import and nothing is left out', async () => {
-      const template = BUILTIN_TEMPLATES[2];
+      const template = (await loadBuiltinTemplates())[2];
       const result = templates.fromBuiltin(template);
       await settle();
       expectRequest('POST', '/api/boards', 'create board').flush(aBoard({ id: TARGET }), {

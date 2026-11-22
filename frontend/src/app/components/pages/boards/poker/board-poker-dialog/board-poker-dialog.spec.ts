@@ -4,24 +4,16 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { BoardRole, GrantRole, PokerRound, PokerRoundState } from '@apps/drawboard-api';
 
-import {
-  STORY_TYPE,
-  StoryModel,
-  newStoryProps,
-} from '../../../../../../board-engine/blocks/story-model';
+import { STORY_TYPE, StoryModel, newStoryProps, BoardDoc } from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../../board-engine/model/board-doc';
 import { all, buttonByLabel, buttonByText, textOf } from '../../../../../test/dom';
 import { FakeAuth, provideFakeAuth } from '../../../../../test/fake-auth';
 import { SPRINT_BOARD_ID } from '../../../../../test/fixtures';
 import { expectRequest, provideHttpTesting, settle } from '../../../../../test/http-testing';
 import { ROUND_ID, aPokerRound } from '../../testing/poker';
 import { BoardPoker } from '../board-poker';
-import {
-  BoardPokerDialog,
-  POKER_CANDIDATE_DEBOUNCE_MS,
-  parseCustomDeck,
-} from './board-poker-dialog';
+import { parseCustomDeck } from '../../../../shared/deck-picker/deck-picker';
+import { BoardPokerDialog, POKER_CANDIDATE_DEBOUNCE_MS } from './board-poker-dialog';
 
 const ROUNDS = `/api/boards/${SPRINT_BOARD_ID}/poker-rounds`;
 const ROUND = `${ROUNDS}/${ROUND_ID}`;

@@ -9,7 +9,7 @@ Portainer live next to the code (`backend/deploy/`, `frontend/deploy/`); the cha
 counterpart and uses the same images, variables, ports and hardening.
 
 Licence: AGPL-3.0 ([`LICENSE`](LICENSE)). Published for others: the source as a daily snapshot of
-`main` of all four repositories in <https://github.com/DerGeorg/drawboard> (job `sync:github`,
+`main` of all five repositories in <https://github.com/DerGeorg/drawboard> (job `sync:github`,
 [`scripts/github-sync.sh`](scripts/github-sync.sh); [`public/`](public) holds its root README and the
 gitleaks allowlist), the chart (`oci://ghcr.io/dergeorg/charts/drawboard`) and the images
 (`ghcr.io/dergeorg/drawboard-{backend,frontend}`). What the sync drops or rewrites (agent notes, LAN

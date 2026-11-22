@@ -1,5 +1,6 @@
 package at.dergeorg.drawboard.api.infra.web.error
 
+import at.dergeorg.drawboard.shared.observability.TracedPaths
 import at.dergeorg.drawboard.contract.model.ErrorModel
 import at.dergeorg.drawboard.shared.error.ErrorCode
 import io.micrometer.tracing.handler.TracingObservationHandler.TracingContext
@@ -48,7 +49,7 @@ internal fun ServerWebExchange.problemFields(
     detail: Pair<String, Any?>? = null,
 ): Map<String, Any?> = buildMap {
     put("http.request.method", request.method.name())
-    put("url.path", request.path.value())
+    put("url.path", TracedPaths.mask(request.path.value())) // no card of a placement or an estimate next to the caller (B1)
     put("http.response.status_code", status)
     put("error.code", code.name)
     detail?.let { (key, value) -> put(key, value) }

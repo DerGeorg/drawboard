@@ -1,6 +1,11 @@
-import { BoardDoc } from '../model/board-doc';
-import { safeColor } from '../presence';
-import { ConnectorData, Point } from '../model/types';
+import {
+  BoardDoc,
+  safeColor,
+  BoardTheme,
+  displayColor,
+  ConnectorData,
+  Point,
+} from '@apps/drawboard-engine';
 import { connectorEndpoints } from '../scene';
 import { strokePath } from './stroke-path';
 
@@ -13,6 +18,7 @@ export class SvgLayer {
   private readonly strokeGroup: SVGGElement;
   private readonly connectorEls = new Map<string, SVGGElement>();
   private readonly strokeEls = new Map<string, SVGPathElement>();
+  private theme: BoardTheme = 'light';
 
   constructor(
     doc: Document,
@@ -25,6 +31,14 @@ export class SvgLayer {
     this.connectorGroup = doc.createElementNS(NS, 'g');
     this.strokeGroup = doc.createElementNS(NS, 'g');
     this.svg.append(this.connectorGroup, this.strokeGroup);
+  }
+
+  /** Redraws every connector and stroke in the colours of `theme` (the document is untouched). */
+  setTheme(theme: BoardTheme): void {
+    if (theme !== this.theme) {
+      this.theme = theme;
+      this.renderAll();
+    }
   }
 
   renderAll(): void {
@@ -53,7 +67,7 @@ export class SvgLayer {
       if (s) {
         const path = this.svg.ownerDocument.createElementNS(NS, 'path');
         path.setAttribute('d', strokePath(s));
-        path.setAttribute('fill', safeColor(s.style.color, '#0f172a'));
+        path.setAttribute('fill', displayColor(safeColor(s.style.color, '#0f172a'), this.theme));
         path.dataset['strokeId'] = id;
         this.strokeGroup.appendChild(path);
         this.strokeEls.set(id, path);
@@ -89,7 +103,8 @@ export class SvgLayer {
     }
     line.setAttribute('d', d);
     line.setAttribute('fill', 'none');
-    line.setAttribute('stroke', safeColor(c.style.color, '#334155'));
+    const color = displayColor(safeColor(c.style.color, '#334155'), this.theme);
+    line.setAttribute('stroke', color);
     line.setAttribute('stroke-width', String(c.style.width));
     line.setAttribute('stroke-linecap', 'round');
     line.setAttribute('stroke-linejoin', 'round');
@@ -103,7 +118,7 @@ export class SvgLayer {
       text.setAttribute('y', String((a.y + b.y) / 2 - 6));
       text.setAttribute('text-anchor', 'middle');
       text.setAttribute('font-size', '14');
-      text.setAttribute('fill', safeColor(c.style.color, '#334155'));
+      text.setAttribute('fill', color);
       text.textContent = c.label;
       g.appendChild(text);
     }

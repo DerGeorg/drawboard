@@ -17,16 +17,16 @@
 # =============================================================================
 
 include:
-  - component: $CI_SERVER_FQDN/ci/components/version@2.19.0
-  - component: $CI_SERVER_FQDN/ci/components/angular-lint@2.19.0
-  - component: $CI_SERVER_FQDN/ci/components/angular-test@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/version@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-lint@2.20.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-test@2.20.0
     inputs:
       junit-path: "junit/unit-results.xml"
   # nginx image (CSR, no @angular/ssr): angular-image renders deploy/nginx/default.conf.template
   # at container start (runtime config /config.json, same-origin /api and /faro proxies) and
   # passes NPM_TOKEN to npm ci as a BuildKit secret. The defaults below are baked into the image
   # as ENV; the compose files in deploy/ override them per environment.
-  - component: $CI_SERVER_FQDN/ci/components/angular-image@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-image@2.20.0
     inputs:
       runtime-env: |
         APP_ENVIRONMENT=unset
@@ -40,6 +40,7 @@ include:
         FARO_SAMPLING_RATE=1
         FILES_ORIGIN=
         PLUGIN_ORIGIN=
+        GIFS_ENABLED=false
         ABOUT_URL=https://drawboard.dergeorg.at
         SOURCE_URL=https://github.com/DerGeorg/drawboard
   # Playwright against the image built above, a real backend, PostgreSQL and Keycloak with the
@@ -49,7 +50,7 @@ include:
   # require the last two in the pipeline before guests and third-party plugins go to production.
   # The backend runs its dev profile (realm drawboard, throwaway keys of application-dev.yaml);
   # the values below only move it into the job's stack. Pin backend-image and realm-ref together.
-  - component: $CI_SERVER_FQDN/ci/components/angular-e2e@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/angular-e2e@2.20.0
     inputs:
       backend-image: "registry.dergeorg.at/apps/drawboard/backend:1.12.1"
       realm-project: "apps/drawboard/backend"
@@ -65,16 +66,17 @@ include:
         DRAWBOARD_FILES_DIR=/tmp/files
       frontend-env: |
         OIDC_ISSUER=http://localhost:18180/realms/drawboard
-  - component: $CI_SERVER_FQDN/ci/components/sbom@2.19.0
+        GIFS_ENABLED=true
+  - component: $CI_SERVER_FQDN/ci/components/sbom@2.20.0
     inputs:
       source-dirs: "."            # lockfile: the npm packages are bundled into the JS
-  - component: $CI_SERVER_FQDN/ci/components/release@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/release@2.20.0
 
   # Publishing for others (Georg, 2026-11-11): one click on publish:image in a release
   # pipeline on main copies this release's image unchanged in content to
   # ghcr.io/dergeorg/drawboard-frontend (version + latest). Never without asking Georg.
   # Credentials: group variables GHCR_USER / GHCR_TOKEN (gitlab-devops scripts/31-drawboard-ghcr.sh).
-  - component: $CI_SERVER_FQDN/ci/components/image-publish@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/image-publish@2.20.0
     inputs:
       target-image: ghcr.io/dergeorg/drawboard-frontend
       labels: |
@@ -87,7 +89,7 @@ include:
   # Portainer Git stacks of deploy/compose.dev.yaml and deploy/compose.prod.yaml on main
   # (gitlab-devops scripts/24-drawboard-stacks.sh). The jobs only set APP_IMAGE; the Git
   # redeploy uses the group variable STACK_GIT_PASSWORD.
-  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.20.0
     inputs:
       job-name: "deploy:dev"
       stack-name: "drawboard-frontend-dev"
@@ -95,7 +97,7 @@ include:
       environment-name: "dev"
       environment-url: "https://drawboard-dev.dergeorg.at"
       when: on_success                  # dev deploys without a click (main only)
-  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.19.0
+  - component: $CI_SERVER_FQDN/ci/components/deploy-portainer@2.20.0
     inputs:
       job-name: "deploy:prod"
       stack-name: "drawboard-frontend"

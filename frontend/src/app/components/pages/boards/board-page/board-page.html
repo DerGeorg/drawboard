@@ -52,14 +52,20 @@
     (endPresenting)="follow.endPresenting()"
     (ignore)="ignorePresenter($event.userId)"
   />
-  <drawboard-board-poker-rounds
-    class="absolute top-3 left-1/2 z-10 -translate-x-1/2"
-    [engine]="engine()"
-    [readOnly]="readOnly()"
-    (open)="openPoker($event)"
-    (openQuick)="openQuickPoker($event)"
-    (startQuick)="startQuickPoker()"
-  />
+  <div class="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 gap-2">
+    <drawboard-board-poker-rounds
+      [engine]="engine()"
+      [readOnly]="readOnly()"
+      (open)="openPoker($event)"
+      (openQuick)="openQuickPoker($event)"
+      (startQuick)="startQuickPoker()"
+    />
+    <drawboard-estimation-pill
+      [readOnly]="readOnly()"
+      (open)="openEstimation($event)"
+      (create)="newEstimation()"
+    />
+  </div>
   <drawboard-board-context-toolbar
     class="pointer-events-none absolute inset-0 z-10"
     [engine]="engine()"
@@ -77,6 +83,9 @@
     (diagram)="addDiagram()"
     (kanban)="addKanban()"
     (story)="addStory()"
+    [gifsAvailable]="gifsAvailable()"
+    [boardKey]="boardId()"
+    (gif)="addGif($event)"
     [pluginBlocks]="plugins.blockOptions()"
     (pluginBlock)="addPluginBlock($event)"
   />
@@ -122,6 +131,26 @@
               [engine]="panelEngine"
               mode="quick"
               [roundId]="open.roundId"
+              (closed)="panel.set(undefined)"
+            />
+          }
+        }
+        @case ('estimation-setup') {
+          <drawboard-estimation-setup
+            class="absolute top-16 right-3 z-20"
+            [engine]="panelEngine"
+            (created)="openEstimation($event)"
+            (closed)="panel.set(undefined)"
+          />
+        }
+        @case ('estimation') {
+          @if (open.kind === 'estimation') {
+            <!-- the whole canvas: the Magic board covers it, other states take the right side -->
+            <drawboard-estimation-panel
+              class="pointer-events-none absolute inset-0 z-20"
+              [engine]="panelEngine"
+              [sessionId]="open.sessionId"
+              [readOnly]="readOnly()"
               (closed)="panel.set(undefined)"
             />
           }
@@ -184,8 +213,7 @@
   <drawboard-modal heading="Open a link?" (closed)="answerLink(false)">
     <p class="text-sm">
       The plugin <strong>{{ prompt.pluginId }}</strong> wants to open a page on
-      <strong data-testid="link-host">{{ prompt.host }}</strong
-      >.
+      <strong data-testid="link-host">{{ prompt.host }}</strong>.
     </p>
     <p class="mt-2 text-xs break-all text-(--color-st-grey)">{{ prompt.url }}</p>
     <div class="mt-4 flex justify-end gap-2">

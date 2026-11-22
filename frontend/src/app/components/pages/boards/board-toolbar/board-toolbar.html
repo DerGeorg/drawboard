@@ -42,7 +42,7 @@
                   <button
                     type="button"
                     [class]="swatchClass(stickyColor() === c, 'rounded-sm shadow-sm')"
-                    [style.background]="c"
+                    [style.background]="shade(c)"
                     [attr.aria-label]="`Sticky colour ${c}`"
                     [attr.aria-pressed]="stickyColor() === c"
                     (click)="pickStickyColor(c)"
@@ -79,7 +79,7 @@
                         'rounded-full border border-(--color-st-white-darker)'
                       )
                     "
-                    [style.background]="c === 'transparent' ? transparentPattern : c"
+                    [style.background]="c === 'transparent' ? transparentPattern : shade(c)"
                     [attr.aria-label]="`Fill ${c}`"
                     [attr.aria-pressed]="fillColor() === c"
                     (click)="pickFill(c)"
@@ -91,7 +91,7 @@
                   <button
                     type="button"
                     [class]="swatchClass(penColor() === c, 'rounded-full')"
-                    [style.background]="c"
+                    [style.background]="shade(c)"
                     [attr.aria-label]="`Outline ${c}`"
                     [attr.aria-pressed]="penColor() === c"
                     (click)="pickPenColor(c)"
@@ -108,7 +108,7 @@
                   <button
                     type="button"
                     [class]="swatchClass(penColor() === c, 'rounded-full')"
-                    [style.background]="c"
+                    [style.background]="shade(c)"
                     [attr.aria-label]="`Connector colour ${c}`"
                     [attr.aria-pressed]="penColor() === c"
                     (click)="pickPenColor(c)"
@@ -122,7 +122,7 @@
                   <button
                     type="button"
                     [class]="swatchClass(penColor() === c, 'rounded-full')"
-                    [style.background]="c"
+                    [style.background]="shade(c)"
                     [attr.aria-label]="`Pen colour ${c}`"
                     [attr.aria-pressed]="penColor() === c"
                     (click)="pickPenColor(c)"
@@ -152,6 +152,42 @@
               </div>
             }
           }
+        </div>
+      }
+    </div>
+  }
+
+  @if (!readOnly() && gifsAvailable()) {
+    <div class="relative">
+      <div class="tooltip tooltip-right" data-tip="GIF (GIPHY)">
+        <button
+          type="button"
+          data-bar
+          [class]="
+            gifMenu()
+              ? 'btn btn-square btn-sm st-btn-primary-yellow'
+              : 'btn btn-square btn-sm btn-ghost'
+          "
+          aria-label="GIF"
+          aria-haspopup="true"
+          [attr.aria-expanded]="gifMenu()"
+          (click)="toggleGifs()"
+        >
+          <drawboard-icon name="gif" />
+        </button>
+      </div>
+      @if (gifMenu()) {
+        <div
+          class="absolute bottom-0 left-full z-20 ml-3 flex w-max flex-col gap-2 float-panel p-2"
+          role="group"
+          aria-label="GIF options"
+          data-testid="gif-flyout"
+        >
+          <drawboard-gif-picker
+            [boardKey]="boardKey()"
+            (picked)="pickGif($event)"
+            (closed)="closeFlyout()"
+          />
         </div>
       }
     </div>

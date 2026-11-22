@@ -1,13 +1,12 @@
 import { Service, signal } from '@angular/core';
 
-import type { PeerPresence } from '../../../../../board-engine/presence';
-import type { ProviderState } from '../../../../../board-engine/collab/provider';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { type PeerPresence, type ProviderState, BoardDoc } from '@apps/drawboard-engine';
 import { BoardCollab } from '../board-collab';
 import { BoardFiles } from '../board-files';
 import { BoardPlugins } from '../board-plugins';
 import { BoardUploads } from '../board-uploads';
 import { BoardFollow } from '../board-follow';
+import { BoardEstimation } from '../estimation/board-estimation';
 import { BoardPoker } from '../poker/board-poker';
 
 /** Stands in for the live connection of a board page: no ticket request, no WebSocket. */
@@ -43,6 +42,7 @@ export const fakeBoardCollab = {
       BoardUploads,
       BoardPlugins,
       BoardPoker,
+      BoardEstimation,
       BoardFollow,
     ],
   },

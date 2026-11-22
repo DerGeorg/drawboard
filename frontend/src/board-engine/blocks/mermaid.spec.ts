@@ -1,6 +1,6 @@
 import { BoardEngine } from '../engine';
-import { BoardDoc } from '../model/board-doc';
-import { DiagramRenderer, MAX_MERMAID_BYTES, MERMAID_TYPE, RENDER_DELAY_MS } from './mermaid';
+import { BoardDoc, BoardTheme, MAX_MERMAID_BYTES, MERMAID_TYPE } from '@apps/drawboard-engine';
+import { DiagramRenderer, RENDER_DELAY_MS } from './mermaid';
 
 describe('mermaid block', () => {
   let container: HTMLElement;
@@ -71,6 +71,40 @@ describe('mermaid block', () => {
       await vi.advanceTimersByTimeAsync(RENDER_DELAY_MS);
 
       expect(rendered, 'debounced').toEqual(['flowchart LR', 'flowchart LR\n A --> B']);
+    });
+
+    it('when the theme changes then the same source renders again in the theme, without a document change', async () => {
+      const themes: (BoardTheme | undefined)[] = [];
+      setUp({
+        render: (source, theme) => {
+          rendered.push(source);
+          themes.push(theme);
+          return Promise.resolve(svgOf(source));
+        },
+      });
+      add('flowchart LR\n A --> B');
+      await vi.advanceTimersByTimeAsync(0);
+      const changes: unknown[] = [];
+      board.observe((change) => changes.push(change));
+
+      engine.setTheme('dark');
+      await vi.advanceTimersByTimeAsync(RENDER_DELAY_MS);
+
+      expect(themes, 'themes of the renders').toEqual(['light', 'dark']);
+      expect(rendered.length, 'rendered twice').toBe(2);
+      expect(svg(), 'diagram shown').not.toBeNull();
+      expect(changes, 'document changes').toEqual([]);
+    });
+
+    it('when the theme is set again to the same one then the diagram is not rendered again', async () => {
+      setUp();
+      add('flowchart LR');
+      await vi.advanceTimersByTimeAsync(0);
+
+      engine.setTheme('light');
+      await vi.advanceTimersByTimeAsync(RENDER_DELAY_MS);
+
+      expect(rendered, 'renders').toEqual(['flowchart LR']);
     });
 
     it('when the renderer fails then the error is shown as text', async () => {

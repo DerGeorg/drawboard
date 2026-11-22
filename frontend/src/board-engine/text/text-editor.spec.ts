@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 
-import { BoardDoc } from '../model/board-doc';
-import { applyTextDiff, startTextEditor, textDiff, transformIndex } from './text-editor';
+import { BoardDoc, applyTextDiff, textDiff, transformIndex } from '@apps/drawboard-engine';
+import { startTextEditor } from './text-editor';
 
 describe('text-editor', () => {
   describe('textDiff', () => {

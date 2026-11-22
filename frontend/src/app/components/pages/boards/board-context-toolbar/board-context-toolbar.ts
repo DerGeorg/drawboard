@@ -1,7 +1,14 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, input, signal } from '@angular/core';
 
-import { STICKY_COLORS } from '../../../../../board-engine/blocks/sticky';
+import {
+  STICKY_COLORS,
+  safeColor,
+  FILL_COLORS,
+  STROKE_COLORS,
+  STROKE_WIDTHS,
+  displayColor,
+} from '@apps/drawboard-engine';
 import {
   BoardEngine,
   SelectedTable,
@@ -9,9 +16,8 @@ import {
   SelectionKind,
   StyleInfo,
 } from '../../../../../board-engine/engine';
-import { safeColor } from '../../../../../board-engine/presence';
-import { FILL_COLORS, STROKE_COLORS, STROKE_WIDTHS } from '../../../../../board-engine/palette';
 import { WithSpan } from '../../../../util/tracing';
+import { Theme } from '../../../../services/theme';
 import { placeToolbar } from '../../../../util/toolbar-placement';
 import { Icon } from '../../../shared/icon/icon';
 
@@ -38,6 +44,7 @@ const TRANSPARENT_PATTERN = 'repeating-conic-gradient(#cbd5e1 0 25%, #fff 0 50%)
 })
 export class BoardContextToolbar {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly theme = inject(Theme);
 
   readonly engine = input<BoardEngine>();
 
@@ -110,7 +117,7 @@ export class BoardContextToolbar {
     // the value comes from block props, i.e. from other people: only plain hex reaches the style
     return !color || color === 'transparent' || color === 'none'
       ? TRANSPARENT_PATTERN
-      : safeColor(color, TRANSPARENT_PATTERN);
+      : displayColor(safeColor(color, TRANSPARENT_PATTERN), this.theme.resolved());
   }
 
   @WithSpan('BoardContextToolbar.toggle', {

@@ -6,6 +6,7 @@ import at.dergeorg.drawboard.library.domain.access.model.ResourceKind
 import at.dergeorg.drawboard.library.domain.sharing.provides.LinksUseCase
 import at.dergeorg.drawboard.library.domain.sharing.provides.RevokedLink
 import at.dergeorg.drawboard.planning.domain.rounds.provides.PlanningUseCase
+import at.dergeorg.drawboard.planning.domain.sessions.provides.EstimationUseCase
 import at.dergeorg.drawboard.collab.domain.rooms.provides.CollabUseCase
 import at.dergeorg.drawboard.shared.error.DomainException
 import at.dergeorg.drawboard.shared.error.ErrorCode
@@ -34,6 +35,7 @@ class SharingApiServiceTest {
     private val links = mockk<LinksUseCase>()
     private val collab = mockk<CollabUseCase>(relaxUnitFun = true)
     private val planning = mockk<PlanningUseCase>()
+    private val estimation = mockk<EstimationUseCase>()
     private val log = RecordingAppLogger()
     private val linkId = Uuid.generateV7()
 
@@ -49,6 +51,7 @@ class SharingApiServiceTest {
         profiles = profiles,
         collab = collab,
         planning = planning,
+        estimation = estimation,
         log = log,
     )
 
@@ -58,23 +61,50 @@ class SharingApiServiceTest {
     }
 
     @Test
-    fun `when a link is revoked then its guests are removed from the open rounds after the sessions are rechecked`() = runTest {
-        coEvery { planning.removeGuestsOfShare(linkId) } returns Unit
+    fun `when a link is revoked then its guests leave the open rounds and the estimation sessions after the recheck`() =
+        runTest {
+            coEvery { planning.removeGuestsOfShare(linkId) } returns Unit
+            coEvery { estimation.removeGuestsOfShare(linkId) } returns Unit
+
+            service.revokeLink(linkId)
+
+            coVerifyOrder {
+                links.revokeLink(any<Caller>(), linkId)
+                collab.recheckAll()
+                planning.removeGuestsOfShare(linkId)
+                estimation.removeGuestsOfShare(linkId)
+            }
+            assertEquals(emptyList(), log.entries, "nothing to report")
+        }
+
+    @Test
+    fun `when removing the guests from the rounds fails then the estimation sessions are still cleaned up (E24)`() = runTest {
+        coEvery { planning.removeGuestsOfShare(linkId) } throws IllegalStateException("database gone")
+        coEvery { estimation.removeGuestsOfShare(linkId) } returns Unit
 
         service.revokeLink(linkId)
 
-        coVerifyOrder {
-            links.revokeLink(any<Caller>(), linkId)
-            collab.recheckAll()
-            planning.removeGuestsOfShare(linkId)
-        }
-        assertEquals(emptyList(), log.entries, "nothing to report")
+        coVerify(exactly = 1) { estimation.removeGuestsOfShare(linkId) }
+        assertEquals(1, log.entries.size, "one failure logged")
     }
+
+    @Test
+    fun `when removing the guests from the estimation sessions fails then the rounds were cleaned up and the failure is logged`() =
+        runTest {
+            coEvery { planning.removeGuestsOfShare(linkId) } returns Unit
+            coEvery { estimation.removeGuestsOfShare(linkId) } throws IllegalStateException("database gone")
+
+            service.revokeLink(linkId)
+
+            coVerify(exactly = 1) { planning.removeGuestsOfShare(linkId) }
+            assertEquals(LogLevel.ERROR, log.entries.single().level, "logged at ERROR")
+        }
 
     @Test
     fun `when removing the guests fails then the revoke still succeeds and the failure is logged at ERROR with the share id`() = runTest {
         val failure = IllegalStateException("database gone")
         coEvery { planning.removeGuestsOfShare(linkId) } throws failure
+        coEvery { estimation.removeGuestsOfShare(linkId) } returns Unit
 
         service.revokeLink(linkId) // no exception: the link is revoked and the sessions are cut
 
@@ -92,5 +122,6 @@ class SharingApiServiceTest {
         assertFailsWith<DomainException>("revoke refused") { service.revokeLink(linkId) }
 
         coVerify(exactly = 0) { planning.removeGuestsOfShare(any()) }
+        coVerify(exactly = 0) { estimation.removeGuestsOfShare(any()) }
     }
 }

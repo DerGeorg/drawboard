@@ -11,10 +11,11 @@ import {
   PluginServices,
 } from '../../../../board-engine/plugins/plugin-host';
 import type { FrameConnector } from '../../../../board-engine/plugins/plugin-instance';
-import { ErrorCode, PluginError } from '../../../../board-engine/plugins/protocol';
+import { PluginError, type PluginErrorCode as ErrorCode } from '@apps/drawboard-engine';
 import { Auth } from '../../../services/auth';
 import { ERRORS_HANDLED_LOCALLY } from '../../../services/error-interceptor';
 import { RUNTIME_CONFIG } from '../../../services/runtime-config';
+import { Theme } from '../../../services/theme';
 import { Toasts } from '../../../services/toasts';
 import { ApiError } from '../../../util/api-error';
 
@@ -44,6 +45,7 @@ export class BoardPlugins {
   private readonly api = inject(PluginsService);
   private readonly auth = inject(Auth);
   private readonly toasts = inject(Toasts);
+  private readonly theme = inject(Theme);
   private readonly pluginOrigin = inject(RUNTIME_CONFIG).pluginOrigin;
   private readonly connect = inject(PLUGIN_FRAME_CONNECTOR, { optional: true }) ?? undefined;
   private readonly context = new HttpContext().set(ERRORS_HANDLED_LOCALLY, true);
@@ -85,12 +87,7 @@ export class BoardPlugins {
         userName: () => this.auth.guest()?.name ?? this.auth.user()?.displayName ?? '',
         guest: () => this.auth.guest() !== null,
         locale: navigator.language,
-        colorScheme: () =>
-          document.documentElement.dataset['theme'] === 'dark' ||
-          (document.documentElement.dataset['theme'] !== 'light' &&
-            window.matchMedia?.('(prefers-color-scheme: dark)').matches)
-            ? 'dark'
-            : 'light',
+        colorScheme: () => this.theme.resolved(),
       },
       this.services(board.id),
       { pluginOrigin: this.pluginOrigin, connect: this.connect },

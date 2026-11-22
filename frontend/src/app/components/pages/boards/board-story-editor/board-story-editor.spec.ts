@@ -7,9 +7,9 @@ import {
   STORY_TYPE,
   StoryModel,
   newStoryProps,
-} from '../../../../../board-engine/blocks/story-model';
+  BoardDoc,
+} from '@apps/drawboard-engine';
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
 import { buttonByLabel, textOf } from '../../../../test/dom';
 import { BoardStoryEditor } from './board-story-editor';
 

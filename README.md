@@ -19,7 +19,7 @@ Live collaboration · Any OIDC sign-in · Hardened defaults · No licence keys
 
 </div>
 
-> Development happens in a private GitLab with four repositories; this repository is a
+> Development happens in a private GitLab with five repositories; this repository is a
 > **snapshot** of their `main` branches, refreshed every night. Problems, questions and ideas
 > belong in the [GitHub issues](https://github.com/DerGeorg/drawboard/issues). Security problems
 > go through [a private report](https://github.com/DerGeorg/drawboard/security/advisories/new),
@@ -134,8 +134,9 @@ the engine: [`deploy/docs/board-engine.md`](deploy/docs/board-engine.md), the wi
   backend does not scale horizontally yet.
 - **Images are linux/amd64.** On a Mac with Apple silicon the trial runs emulated and starts slower.
 - **Building from source needs the contract packages.** The builds fetch them and the house lint
-  rules from a private package registry. Build the contract from `api/` first and point backend
-  and frontend at the local artifacts, or use the published images.
+  rules from a private package registry. Build the contract from `api/` and the engine from
+  `engine/` first and point backend and frontend at the local artifacts, or use the published
+  images.
 - **Guest links and third-party plugins are off by default.** Read
   [what to do first](deploy/helm/drawboard/README.md#before-enabling-guest-links) before switching
   them on.
@@ -146,7 +147,8 @@ the engine: [`deploy/docs/board-engine.md`](deploy/docs/board-engine.md), the wi
 |---|---|---|
 | [`api/`](api) | The OpenAPI contract and the collaboration protocol | Redocly, openapi-generator |
 | [`backend/`](backend) | Spring Boot 4 service in Kotlin: WebFlux, R2DBC/PostgreSQL, the collaboration WebSocket | Gradle, JDK 25 |
-| [`frontend/`](frontend) | Angular app with its own board engine, served by nginx | Node 24, Angular CLI |
+| [`frontend/`](frontend) | Angular app with the view side of the board engine, served by nginx | Node 24, Angular CLI |
+| [`engine/`](engine) | The board engine core as npm package: board model, file format, templates, collaboration protocol; no DOM, runs in Node too | Node 24, TypeScript, Vitest |
 | [`deploy/`](deploy) | Helm chart, Docker Compose setup, architecture and security decisions | Helm |
 
 Each commit here names the source commits and releases it was built from. History, merge requests

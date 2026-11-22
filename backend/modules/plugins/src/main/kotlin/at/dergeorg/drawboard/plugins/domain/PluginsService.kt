@@ -2,6 +2,7 @@ package at.dergeorg.drawboard.plugins.domain
 
 import at.dergeorg.drawboard.plugins.common.PluginsModule
 import at.dergeorg.drawboard.plugins.domain.archive.ArchiveProblem
+import at.dergeorg.drawboard.plugins.domain.archive.ArchiveUnpacker
 import at.dergeorg.drawboard.plugins.domain.archive.PluginArchive
 import at.dergeorg.drawboard.plugins.domain.archive.refuse
 import at.dergeorg.drawboard.plugins.domain.frame.FrameDocuments
@@ -42,8 +43,10 @@ import at.dergeorg.drawboard.shared.security.RateRule
 import at.dergeorg.drawboard.shared.security.WindowRateLimiter
 import io.opentelemetry.instrumentation.annotations.SpanAttribute
 import io.opentelemetry.instrumentation.annotations.WithSpan
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.springframework.stereotype.Service
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.JsonNode
@@ -73,15 +76,19 @@ internal class PluginsService(
     private val json: JsonMapper,
     private val audit: AuditTrail,
     private val clock: Clock,
+    private val archive: ArchiveUnpacker = PluginArchive(),
 ) : PluginsUseCase {
 
     private val events = DomainEvents(PluginsModule.NAME)
     private val pseudonyms = UserPseudonyms(settings.pseudonymKey)
-    private val archive = PluginArchive()
     private val installs = WindowRateLimiter(clock, RateRule(settings.installsPerMinute, 1.minutes))
     private val storageWrites = WindowRateLimiter(clock, RateRule(settings.storageWritesPerMinute, 1.minutes))
 
-    /** Installs run one at a time: two uploads of the same id must not both pass the version check. */
+    /**
+     * Installs run one at a time, from unpacking to commit: two uploads of the same id must not both pass the version check,
+     * and only one unpacked archive (up to 50 MiB) is in memory at a time, however many uploads arrive (S3 SHOULD of the
+     * Fable review "Plugin archive memory").
+     */
     private val installLock = Mutex()
 
     @WithSpan
@@ -94,14 +101,10 @@ internal class PluginsService(
     @WithSpan
     override suspend fun install(command: InstallPluginCommand): InstalledPlugin {
         installs.take(command.installerId.toString())
-        val unpacked = archive.unpack(command.zip)
-        val manifest = readManifest(unpacked.files)
-        val entryBytes = unpacked.files.getValue(manifest.entry)
-        val sha256 = hex(digest("SHA-256", command.zip))
-        val sha384 = hex(digest("SHA-384", command.zip))
-        val integrity = "sha384-" + Base64.getEncoder().encodeToString(digest("SHA-384", entryBytes))
-        val files = unpacked.files.map { (path, data) -> BundleFile(path, PluginAssets.mediaTypeOf(path), data) }
         return installLock.withLock {
+            // inflating and hashing is CPU work: never on an event-loop thread
+            val bundle = withContext(Dispatchers.Default) { readBundle(command.zip) }
+            val manifest = bundle.manifest
             transactions.required {
                 val existing = plugins.findById(manifest.id)
                 requireNamespaceFree(manifest, plugins.findAll())
@@ -115,15 +118,15 @@ internal class PluginsService(
                 val candidate = InstalledPlugin(
                     id = manifest.id, name = manifest.name, version = manifest.version, description = manifest.description,
                     enabled = existing?.enabled ?: false, installedAt = clock.now(), installedBy = command.installerId,
-                    bundleSha256 = sha256, bundleSha384 = sha384, entry = manifest.entry, integrity = integrity,
+                    bundleSha256 = bundle.sha256, bundleSha384 = bundle.sha384, entry = manifest.entry, integrity = bundle.integrity,
                     blockTypes = manifest.blockTypes, requestedCapabilities = manifest.capabilities, grantedCapabilities = kept,
                     revision = existing?.revision,
                 )
-                bundles.insertAll(manifest.id, sha256, files)
+                bundles.insertAll(manifest.id, bundle.sha256, bundle.files)
                 val stored = if (existing == null) plugins.insert(candidate) else plugins.update(candidate) ?: throw conflict(existing)
-                if (existing != null && existing.bundleSha256 != sha256) bundles.deleteBundle(manifest.id, existing.bundleSha256)
+                if (existing != null && existing.bundleSha256 != bundle.sha256) bundles.deleteBundle(manifest.id, existing.bundleSha256)
                 val details = PluginInstalled(
-                    version = stored.version, previousVersion = existing?.version, sha256 = sha256, sha384 = sha384,
+                    version = stored.version, previousVersion = existing?.version, sha256 = bundle.sha256, sha384 = bundle.sha384,
                     requestedCapabilities = stored.requestedCapabilities.map { it.label }, keptGrants = kept.map { it.label },
                 )
                 audit.record(
@@ -134,6 +137,28 @@ internal class PluginsService(
             }
         }
     }
+
+    /** Everything an install stores, read from the upload: refused with the matching 400 before any row is touched. */
+    private fun readBundle(zip: ByteArray): Bundle {
+        val unpacked = archive.unpack(zip)
+        val manifest = readManifest(unpacked.files)
+        val entryBytes = unpacked.files.getValue(manifest.entry)
+        return Bundle(
+            manifest = manifest,
+            sha256 = hex(digest("SHA-256", zip)),
+            sha384 = hex(digest("SHA-384", zip)),
+            integrity = "sha384-" + Base64.getEncoder().encodeToString(digest("SHA-384", entryBytes)),
+            files = unpacked.files.map { (path, data) -> BundleFile(path, PluginAssets.mediaTypeOf(path), data) },
+        )
+    }
+
+    private class Bundle(
+        val manifest: Manifest,
+        val sha256: String,
+        val sha384: String,
+        val integrity: String,
+        val files: List<BundleFile>,
+    )
 
     /** The manifest of the archive: found, parsed, valid, and its entry file present - or the matching 400. */
     private fun readManifest(files: Map<String, ByteArray>): Manifest {

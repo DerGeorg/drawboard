@@ -8,7 +8,7 @@ import {
 import { Board, BoardsService } from '@apps/drawboard-api';
 import { firstValueFrom } from 'rxjs';
 
-import { BoardFile, splitBoardFile, writeBoardFile } from '../../../../board-engine/io/board-file';
+import { BoardFile, splitBoardFile, writeBoardFile } from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { ApiError } from '../../../util/api-error';
 import { WithSpan } from '../../../util/tracing';
@@ -92,6 +92,10 @@ export class BoardImporter {
       for (const piece of splitBoardFile(content, IMPORT_PIECE_BYTES)) {
         writeBoardFile(collab.doc(), piece);
         await collab.whenFlushed();
+        if (collab.state()?.reloadRequired) {
+          // the provider dropped a piece that was too large and flushes "successfully"
+          throw new Error('A piece of the import was too large.');
+        }
       }
       return board;
     } catch {

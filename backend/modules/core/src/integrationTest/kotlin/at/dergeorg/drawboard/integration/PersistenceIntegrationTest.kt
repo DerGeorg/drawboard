@@ -158,7 +158,7 @@ class PersistenceIntegrationTest(
         val SCHEMAS = listOf("auditing", "library", "users")
 
         /** The newest migration per schema where it is not V1. */
-        val LATEST_MIGRATION = mapOf("library" to "5")
+        val LATEST_MIGRATION = mapOf("library" to "5", "users" to "2")
         val OWNER: Uuid = Uuid.random()
     }
 }

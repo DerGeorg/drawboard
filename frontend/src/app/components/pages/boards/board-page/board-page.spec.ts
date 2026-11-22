@@ -13,8 +13,10 @@ import {
   provideHttpTesting,
   settle,
 } from '../../../../test/http-testing';
-import { CLIPBOARD_MIME } from '../../../../../board-engine/io/clipboard';
+import { CLIPBOARD_MIME } from '@apps/drawboard-engine';
+import { GifConsentStore } from '../../../../services/gif-consent';
 import { Toasts } from '../../../../services/toasts';
+import { provideTestRuntimeConfig } from '../../../../test/runtime-config';
 import { BoardCollab } from '../board-collab';
 import { BoardPlugins } from '../board-plugins';
 import { flushFolders } from '../testing/library';
@@ -26,10 +28,16 @@ describe('BoardPage', () => {
   let navigate: ReturnType<typeof vi.spyOn>;
   let collab: FakeBoardCollab;
   const boardId = signal(SPRINT_BOARD_ID);
+  let gifsOnInstance = false;
 
   async function render(auth = signedInAsAlice()): Promise<void> {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpTesting(), auth.providers],
+      providers: [
+        provideRouter([]),
+        provideHttpTesting(),
+        auth.providers,
+        provideTestRuntimeConfig({ gifsEnabled: gifsOnInstance }),
+      ],
     });
     TestBed.overrideComponent(BoardPage, fakeBoardCollab);
     navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
@@ -38,7 +46,11 @@ describe('BoardPage', () => {
     await settle();
   }
 
-  beforeEach(() => boardId.set(SPRINT_BOARD_ID));
+  beforeEach(() => {
+    boardId.set(SPRINT_BOARD_ID);
+    gifsOnInstance = false;
+    localStorage.clear();
+  });
 
   afterEach(() => {
     const http = TestBed.inject(HttpTestingController);
@@ -46,6 +58,10 @@ describe('BoardPage', () => {
     http.match('/api/plugins').forEach((r) => r.flush({ items: [] }));
     // and the open planning poker rounds
     http.match((r) => r.url.endsWith('/poker-rounds')).forEach((r) => r.flush({ items: [] }));
+    // and its active estimation sessions
+    http
+      .match((r) => r.url.endsWith('/estimation-sessions'))
+      .forEach((r) => r.flush({ items: [] }));
     http.verify();
   });
 
@@ -339,6 +355,169 @@ describe('BoardPage', () => {
       await fixture.whenStable();
 
       expect(uploadButtons(), 'no upload').toBe(0);
+    });
+  });
+
+  describe('GIFs (3.14)', () => {
+    const gifButtons = (): number => all(fixture, 'button[aria-label="GIF"]').length;
+
+    function alice(gifsEnabled: boolean) {
+      const auth = provideFakeAuth();
+      auth.auth.signIn('alice', 'Alice Admin', false, false, 'SYSTEM', gifsEnabled);
+      return auth;
+    }
+
+    async function open(role: BoardRole = BoardRole.EDITOR): Promise<void> {
+      expectRequest('GET', `/api/boards/${SPRINT_BOARD_ID}`, 'load board').flush(aBoard({ role }));
+      await settle();
+      await fixture.whenStable();
+    }
+
+    it('when both switches are on then the GIF button opens a picker that first asks for consent and calls nothing', async () => {
+      gifsOnInstance = true;
+      await render(alice(true));
+      await open();
+
+      expect(gifButtons(), 'GIF button').toBe(1);
+      buttonByLabel(fixture, 'GIF').click();
+      await fixture.whenStable();
+
+      expect(all(fixture, '[data-testid=gif-consent]').length, 'consent notice').toBe(1);
+      // afterEach verifies that no /api/gifs request was made
+    });
+
+    it('when the frontend switch is off then there is no GIF button although the backend has a key', async () => {
+      gifsOnInstance = false;
+      await render(alice(true));
+      await open();
+
+      expect(gifButtons(), 'no GIF button').toBe(0);
+    });
+
+    it('when the backend has no key then there is no GIF button although the frontend switch is on', async () => {
+      gifsOnInstance = true;
+      await render(alice(false));
+      await open();
+
+      expect(gifButtons(), 'no GIF button').toBe(0);
+    });
+
+    it('when a guest opens the board then there is no GIF picker, the switches are on or not (G5)', async () => {
+      gifsOnInstance = true;
+      const guest = provideFakeAuth();
+      guest.auth.signInAsGuest({
+        name: 'Gustav',
+        role: GrantRole.EDITOR,
+        kind: ShareResourceKind.BOARD,
+        id: SPRINT_BOARD_ID,
+      });
+      await render(guest);
+      await open();
+
+      expect(gifButtons(), 'no GIF button').toBe(0);
+      expect(all(fixture, 'button[aria-label="Sticky note"]').length, 'but drawing').toBe(1);
+    });
+
+    it('when a viewer opens the board then there is no GIF button', async () => {
+      gifsOnInstance = true;
+      await render(alice(true));
+      await open(BoardRole.VIEWER);
+
+      expect(gifButtons(), 'no GIF button').toBe(0);
+    });
+
+    it('when a GIF block is on the board and nobody agreed then the board shows the placeholder and loads nothing', async () => {
+      gifsOnInstance = true;
+      await render(alice(true));
+      await open();
+      collab.doc().addBlock({
+        type: 'core.gif',
+        x: 0,
+        y: 0,
+        w: 240,
+        h: 180,
+        props: { giphyId: 'abc123' },
+      });
+      await fixture.whenStable();
+
+      expect(textOf(fixture), 'placeholder').toContain('loading it sends your IP address to GIPHY');
+      expect(all(fixture, '[data-block-type="core.gif"] img').length, 'no image').toBe(0);
+    });
+
+    it('when a guest agrees with "Load" then the GIF loads from the GIPHY URL on this board', async () => {
+      gifsOnInstance = true;
+      const guest = provideFakeAuth();
+      guest.auth.signInAsGuest({
+        name: 'Gustav',
+        role: GrantRole.VIEWER,
+        kind: ShareResourceKind.BOARD,
+        id: SPRINT_BOARD_ID,
+      });
+      await render(guest);
+      await open(BoardRole.VIEWER);
+      collab.doc().addBlock({
+        type: 'core.gif',
+        x: 0,
+        y: 0,
+        w: 240,
+        h: 180,
+        props: { giphyId: 'abc123' },
+      });
+      await fixture.whenStable();
+
+      buttonByText(fixture, 'Load').click();
+      await fixture.whenStable();
+
+      const img = all<HTMLImageElement>(fixture, '[data-block-type="core.gif"] img')[0];
+      expect(img?.getAttribute('src'), 'src').toBe(
+        'https://media.giphy.com/media/abc123/200w.webp',
+      );
+      expect(
+        TestBed.inject(GifConsentStore).allowed(SPRINT_BOARD_ID),
+        'consent for this board',
+      ).toBe(true);
+    });
+
+    it('when the instance has no frontend switch then a GIF block stays a placeholder even with "Always"', async () => {
+      gifsOnInstance = false;
+      await render(alice(true));
+      TestBed.inject(GifConsentStore).allowAlways();
+      await open();
+      collab.doc().addBlock({
+        type: 'core.gif',
+        x: 0,
+        y: 0,
+        w: 240,
+        h: 180,
+        props: { giphyId: 'abc123' },
+      });
+      await fixture.whenStable();
+
+      expect(textOf(fixture), 'text').toContain('GIPHY is not enabled on this instance');
+      expect(all(fixture, '[data-block-type="core.gif"] img').length, 'no image').toBe(0);
+    });
+
+    it('when a GIF is picked then a block with its aspect ratio, its id and a cleaned alt text is added', async () => {
+      gifsOnInstance = true;
+      await render(alice(true));
+      await open();
+
+      fixture.componentInstance['addGif']({
+        id: 'abc123',
+        title: 'A cat\u202E',
+        width: 400,
+        height: 200,
+      });
+      fixture.componentInstance['addGif']({ id: '../x', title: 'bad', width: 4, height: 3 });
+      await fixture.whenStable();
+
+      const blocks = collab
+        .doc()
+        .blocks()
+        .filter((b) => b.type === 'core.gif');
+      expect(blocks.length, 'only the valid one').toBe(1);
+      expect(blocks[0]?.props, 'props').toEqual({ giphyId: 'abc123', alt: 'A cat' });
+      expect(blocks[0]?.w / (blocks[0]?.h ?? 1), 'aspect ratio').toBeCloseTo(2, 1);
     });
   });
 

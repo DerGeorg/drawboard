@@ -1,4 +1,4 @@
-import { Emitter } from './util/emitter';
+import { Emitter } from '@apps/drawboard-engine';
 
 /** The ids (blocks, connectors, strokes) the user selected. Insertion ordered. */
 export class SelectionState {

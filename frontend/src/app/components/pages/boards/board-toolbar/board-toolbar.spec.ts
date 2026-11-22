@@ -2,7 +2,8 @@ import { inputBinding, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { BoardEngine } from '../../../../../board-engine/engine';
-import { BoardDoc } from '../../../../../board-engine/model/board-doc';
+import { BoardDoc } from '@apps/drawboard-engine';
+import { Theme } from '../../../../services/theme';
 import { all, buttonByLabel } from '../../../../test/dom';
 import type { PluginBlockOption } from '../../../../../board-engine/plugins/plugin-host';
 import { EmojiCatalog, RawEmoji } from '../../../shared/emoji-picker/emoji-catalog';
@@ -47,6 +48,11 @@ describe('BoardToolbar', () => {
     buttonByLabel(fixture, label).getAttribute('aria-pressed');
   const flyout = (): HTMLElement | null =>
     (fixture.nativeElement as HTMLElement).querySelector('[data-testid=flyout]');
+
+  afterEach(() => {
+    window.localStorage.clear();
+    delete document.documentElement.dataset['theme'];
+  });
 
   beforeEach(() => {
     readOnly.set(false);
@@ -182,6 +188,25 @@ describe('BoardToolbar', () => {
 
       expect(engine.drawStyle.color, 'colour').toBe('#dc2626');
       expect(engine.drawStyle.size, 'size').toBe(8);
+    });
+
+    it('when the theme is dark then the swatches show the colours as they are drawn and store the original', async () => {
+      await render();
+      await TestBed.inject(Theme).set('DARK');
+      buttonByLabel(fixture, 'Shapes').click();
+      await fixture.whenStable();
+
+      expect(buttonByLabel(fixture, 'Fill #ffffff').style.background, 'white fill').toBe(
+        'rgb(30, 41, 59)',
+      );
+      expect(buttonByLabel(fixture, 'Outline #0f172a').style.background, 'default ink').toBe(
+        'rgb(226, 232, 240)',
+      );
+      expect(buttonByLabel(fixture, 'Fill #fde68a').style.background, 'pastel stays').toBe(
+        'rgb(253, 230, 138)',
+      );
+      buttonByLabel(fixture, 'Outline #0f172a').click();
+      expect(engine.drawStyle.color, 'stored value').toBe('#0f172a');
     });
 
     it('when the shapes flyout is open then fill and outline set the style of the next shape', async () => {

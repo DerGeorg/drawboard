@@ -40,6 +40,12 @@ export interface RuntimeConfig {
    * https URL. Never absent: an operator of a modified version points it at their own source.
    */
   readonly sourceUrl: string;
+  /**
+   * GIFs from GIPHY are switched on for this deployment (`GIFS_ENABLED`, exactly `true`; G3). The
+   * same switch adds `https://media.giphy.com` to the CSP `img-src`. Absent or false = GIF blocks
+   * are placeholders and there is no GIF picker.
+   */
+  readonly gifsEnabled?: boolean;
   /** Grafana Faro; absent = no browser telemetry at all. */
   readonly faro?: {
     /** Same-origin collector path, e.g. '/faro/collect' (the image proxies it to Alloy). */
@@ -73,7 +79,9 @@ export async function loadRuntimeConfig(url = '/config.json'): Promise<RuntimeCo
   return normalizeRuntimeConfig(await response.json());
 }
 
-type RawRuntimeConfig = Partial<Omit<RuntimeConfig, 'faro'>> & {
+type RawRuntimeConfig = Partial<Omit<RuntimeConfig, 'faro' | 'gifsEnabled'>> & {
+  /** nginx writes a JSON boolean; whatever else arrives (a string, a number) is not "on". */
+  gifsEnabled?: unknown;
   faro?: Partial<Record<keyof NonNullable<RuntimeConfig['faro']>, string | number>>;
 };
 
@@ -106,6 +114,8 @@ export function normalizeRuntimeConfig(raw: RawRuntimeConfig): RuntimeConfig {
     pluginOrigin: origin(raw.pluginOrigin, 'pluginOrigin'),
     aboutUrl: aboutUrl(raw.aboutUrl),
     sourceUrl: httpsUrl(raw.sourceUrl) ?? DEFAULT_SOURCE_URL,
+    // fail closed (G3): only the boolean true switches GIFs on
+    gifsEnabled: raw.gifsEnabled === true,
     faro: faro?.collectorUrl
       ? {
           collectorUrl: String(faro.collectorUrl),

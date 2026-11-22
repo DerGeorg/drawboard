@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 
 import { FakeAuth, provideFakeAuth } from '../../../test/fake-auth';
 import { all, buttonByLabel, textOf } from '../../../test/dom';
+import { expectRequest, provideHttpTesting, settle } from '../../../test/http-testing';
 import { provideTestRuntimeConfig } from '../../../test/runtime-config';
 import { LibraryShell, LibraryView } from './library-shell';
 
@@ -23,6 +24,7 @@ describe('LibraryShell', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([{ path: 'boards', children: [] }]),
+        provideHttpTesting(),
         fake.providers,
         provideTestRuntimeConfig({ environment }),
       ],
@@ -39,6 +41,11 @@ describe('LibraryShell', () => {
 
   const el = (selector: string): HTMLElement | null =>
     (fixture.nativeElement as HTMLElement).querySelector(selector);
+
+  afterEach(() => {
+    window.localStorage.clear();
+    delete document.documentElement.dataset['theme'];
+  });
 
   beforeEach(() => {
     view.set('recent');
@@ -191,6 +198,31 @@ describe('LibraryShell', () => {
       (all(fixture, '[role=menuitem]')[0] as HTMLElement).click();
 
       expect(auth.logoutCalls, 'logout calls').toBe(1);
+    });
+
+    it('when the menu is opened then it offers System, Light and Dark and choosing one applies it', async () => {
+      await render();
+      buttonByLabel(fixture, 'Account menu').click();
+      await fixture.whenStable();
+
+      const choices = all<HTMLButtonElement>(fixture, '[role=menuitemradio]');
+      expect(
+        choices.map((c) => c.textContent?.replace(/\s+/g, ' ').trim().replace(/ On$/, '')),
+        'choices',
+      ).toEqual(['System', 'Light', 'Dark']);
+      expect(choices[0]?.getAttribute('aria-checked'), 'System is current').toBe('true');
+
+      choices[2]?.click();
+      await settle();
+      // the choice follows the signed-in user: it is saved to the profile
+      expectRequest('PUT', '/api/users/me/preferences', 'save the theme').flush({ theme: 'DARK' });
+      await fixture.whenStable();
+
+      expect(document.documentElement.dataset['theme'], 'attribute').toBe('dark');
+      expect(
+        all<HTMLButtonElement>(fixture, '[role=menuitemradio]')[2]?.getAttribute('aria-checked'),
+        'Dark is current',
+      ).toBe('true');
     });
 
     it('when an instance admin opens the menu then it links to the plugins', async () => {

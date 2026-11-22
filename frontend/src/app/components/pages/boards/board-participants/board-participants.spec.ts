@@ -1,8 +1,7 @@
 import { inputBinding, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import type { ProviderState } from '../../../../../board-engine/collab/provider';
-import { PeerPresence } from '../../../../../board-engine/presence';
+import { type ProviderState, PeerPresence } from '@apps/drawboard-engine';
 import { provideRouter } from '@angular/router';
 
 import { all, buttonByLabel, textOf } from '../../../../test/dom';

@@ -3,7 +3,7 @@ import { CollabService } from '@apps/drawboard-api';
 import { of } from 'rxjs';
 import * as Y from 'yjs';
 
-import type { SocketLike } from '../../../../board-engine/collab/provider';
+import type { SocketLike } from '@apps/drawboard-engine';
 import { Toasts } from '../../../services/toasts';
 import { BoardCollab } from './board-collab';
 

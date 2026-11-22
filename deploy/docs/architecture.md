@@ -29,10 +29,11 @@ Same layout as the other apps (`sail`, `signalbox`):
 apps/drawboard/
   api/        OpenAPI contract (REST only); npm package + Kotlin jar
   backend/    Spring Boot 4, Kotlin, WebFlux + R2DBC, hexagonal modules
-  frontend/   Angular workspace:
-                projects/app            the Angular app
-                projects/board-engine   framework-free TypeScript: Yjs model, viewport, hit testing, tools
-                projects/plugin-sdk     published npm package for plugin authors
+  frontend/   Angular app; src/board-engine is the view side of the engine (renderers, tools,
+              input, text editor, plugin host), src/plugin-sdk the SDK for plugin authors
+  engine/     npm package @apps/drawboard-engine: the DOM-free engine core (board model, file
+              format, templates, collaboration protocol and provider); runs in the browser and
+              in Node, used by the frontend and later the MCP server and the desktop app
   deploy/     Helm chart, compose files for Portainer
   docs/       this file, ADRs, collaboration protocol
 ```
@@ -289,6 +290,51 @@ frontend. A generated service dashboard plus a "Drawboard usage" dashboard.
   modifiers, keycaps and complete tag sequences; no whitespace, bidi controls, letters or
   markup) on import, paste and template copy, and again on every read before rendering;
   rendered as text only. Used for reactions and dot voting in retros.
+
+### 3.14 GIFs
+
+* Search and insert GIFs from GIPHY. Each installation needs its own GIPHY API key
+  (`DRAWBOARD_GIPHY_API_KEY_FILE`, a secret per deployment); without a key the feature does not
+  exist (`CurrentUser.gifsEnabled = false`, 404 `GIFS_DISABLED`). The frontend has its own
+  switch `GIFS_ENABLED`, which adds `https://media.giphy.com` to the CSP and sets `gifsEnabled`
+  in `/config.json`.
+* Search runs through the backend (`searchGifs`, `listTrendingGifs`): the key stays on the
+  server, GIPHY sees the server's address, not the user's. Signed-in users only. Content rating
+  per instance (`DRAWBOARD_GIPHY_RATING`, default `g`). A new GIPHY key is a beta key with 100
+  calls per hour for the whole instance: results are cached, users are limited, and the
+  instance budget (`DRAWBOARD_GIPHY_HOURLY_BUDGET`, default 90) answers 429 when used up.
+* Block `core.gif`, props `{ giphyId, alt? }`. The image is loaded from GIPHY by the viewer's
+  browser (no copy on the server), from a URL built from the id and a fixed base, and only
+  after the viewer agreed ("Load" or "Always in this browser"), guests included.
+* The block travels with export, import, data links, paste and template copies as the id only.
+  Instances without GIFs, `/open`, image/PDF exports and thumbnails show a placeholder and
+  load nothing.
+* "Powered by GIPHY" is shown in the picker. Decisions G1–G16 in section 8.
+
+### 3.15 Estimation sessions
+
+Two moderated modes next to planning poker, for many cards at once; one resource
+`EstimationSession` with `mode` in module `planning`, subdomain `sessions`.
+
+* **Magic Estimation:** the cards (story blocks or kanban cards) are dealt evenly;
+  in the placing phase everyone silently puts their own cards into a deck column, in
+  the moving phase everyone may move any card; cards that were moved often or sit in
+  "?" are marked and discussed in the review.
+* **Rotation:** the cards are dealt evenly and wander in a ring for a fixed number of
+  timed rounds. Each holder sees the previous estimate without its author and either
+  keeps it or changes it with a reason. Reasons and all values become visible only in
+  the review, with average and median; the team agrees on one of the values chosen.
+* A moderator (editor or owner) creates the session, picks who is seated, may advance
+  a phase early and records the decisions; the moderator sees nothing earlier than
+  anyone else. Guests on commenter or editor links may take part, never moderate.
+* Everything lives on the server (schema `planning`): seats, entries, moves, reasons,
+  timers. Phases end by the server clock, applied lazily on the next request - no
+  scheduler. Clients poll with ETags like poker; the Magic board is an overlay, not
+  Yjs blocks. Nothing of a session is in the Yjs document, exports or templates.
+* After "finish" a client with edit rights writes the decided values into the cards
+  as ordinary editor updates (story `estimate`; kanban `estimate` and, for integers,
+  `points`). Reasons and single values are dropped 30 days after the end; decisions
+  stay. Rules: section 8, "Estimation sessions: design decision".
 
 ## 4. Backend modules
 
@@ -1521,6 +1567,448 @@ Decisions:
 **Open before `deploy:prod` of M5:** once `feat/emojis` and `feat/templates` are both on
 `main`, the test from the design review that an invalid `props.emoji` in a template never
 reaches the new document (through `importableCopy`).
+
+### GIF search via GIPHY: design decision (Fable, 2026-11-13)
+
+Design review of GIF search and a `core.gif` block (3.14) against S1.8, S3.5, S4, S5.2, S5.4–S5.7,
+S7.2, S7.3, S7.5, S7.8 and the M5 reviews. **Verdict: approved as a built-in block that hotlinks
+GIPHY behind a per-viewer click-to-load, with search through a backend proxy for signed-in users.**
+Checked 2026-11-13: `https://media.giphy.com/media/<id>/{giphy,200w}.webp` answers 200 without a
+redirect, with `Access-Control-Allow-Origin: *` and without cookies. GIPHY's terms could not be
+read; a server-side copy is therefore not approved.
+
+| # | Level | Decision |
+|---|---|---|
+| G1 | MUST | Key from `DRAWBOARD_GIPHY_API_KEY_FILE` (or `DRAWBOARD_GIPHY_API_KEY`, file wins). Missing or empty = GIFs off; present but not `^[A-Za-z0-9]{16,64}$` = startup fails. No call to GIPHY at startup. |
+| G2 | MUST | The key never reaches a browser, log, span, metric, audit event or error body. GIPHY takes it as a query parameter: the GIPHY client runs without HTTP client observation (own span: host and outcome only), exceptions are mapped without message and URI, the holder has a redacted `toString`. A test asserts the key is in no log line and no span for success, 401, timeout and 5xx. |
+| G3 | MUST | Two switches, both fail closed: backend key → `CurrentUser.gifsEnabled`; frontend `GIFS_ENABLED=true` → `gifsEnabled` in `/config.json` and the CSP source. Picker needs both; rendering needs the config flag (guests have no `CurrentUser`). Helm drives both from `gifs.enabled`. SHOULD: admin hint when they disagree. |
+| G4 | MUST | Upstream fixed to `https://api.giphy.com/v1/gifs/{search,trending}`, no redirects, 2 s connect, 5 s response, 2 MB body. Sent: key, `q`, `limit=24`, `offset`, `rating`, `lang`; never a user or client identifier. The answer is mapped to `{id, title, width, height}` and validated; no GIPHY URL is passed on. Backend egress 443 in the NetworkPolicy only with `gifs.enabled`. |
+| G5 | MUST | Search for signed-in users only; guests 403, also with an EDITOR link (S1.8 unchanged). Guests can still move, copy and paste GIF blocks. |
+| G6 | MUST | Rating per instance: `DRAWBOARD_GIPHY_RATING` = `g` (default), `pg`, `pg-13`; never a client parameter. It filters search only: any editor can write any `giphyId` into the document; accepted because of G10. |
+| G7 | MUST | Limits (`WindowRateLimiter`), order disabled → principal → validation → user → cache → instance → upstream: 10/min and 40/h per user (429 `TOO_MANY_REQUESTS`); `DRAWBOARD_GIPHY_HOURLY_BUDGET` (default 90, beta keys have 100/h) on upstream calls (429 `GIFS_BUDGET_EXHAUSTED`, also for GIPHY's own 429). Cache per (normalised q, page, rating, lang) 15 min, ≤ 500 entries; trending 30 min. SHOULD: single-flight, failures cached 30 s. Frontend debounce ≥ 400 ms, ≥ 2 chars. |
+| G8 | MUST | Search terms in no log, span, metric label or audit event: search is `POST /gifs/search` with a body. Metric `drawboard_gifs_requests_total{outcome}` only. |
+| G9 | MUST | `core.gif`, props `{ giphyId, alt? }`: id `^[A-Za-z0-9]{1,64}$`, alt plain text ≤ 200. Validated on import, paste, template copy, export and on every read before a URL is built. URL = `https://media.giphy.com/media/<id>/` + `200w.webp` or `giphy.webp` (constants). `<img crossorigin="anonymous" referrerpolicy="no-referrer" loading="lazy" decoding="async">`, no `srcset`; only in the viewport, ≤ 30 loaded at once. |
+| G10 | MUST | Click-to-load per viewer, guests included: placeholder "GIF from GIPHY – loading sends your IP address to GIPHY" with "Load" (board, session) and "Always in this browser" (localStorage, validated, revocable). The picker asks the same before showing previews. No instance-wide auto-load. |
+| G11 | MUST | Never loaded, placeholder only: instances without `gifsEnabled` (data kept), `/open` data links (S5.6), PNG/SVG/PDF export, board thumbnail. Built-in templates hold no `core.gif` (T7). |
+| G12 | MUST | CSP `img-src` gains exactly `https://media.giphy.com`, only with `GIFS_ENABLED=true`; no wildcard, no other directive. Header test for both states. Another host needs a review. |
+| G13 | MUST | No server-side download, copy or proxying of GIPHY media; `core.gif` never becomes a `core.file`. A copy route needs GIPHY's terms read and a new review. |
+| G14 | MUST | Built-in, not a plugin: a plugin bundle may hold no secret (S3.5) and plugin frames load no third-party images (S3.3). |
+| G15 | SHOULD | "Powered by GIPHY" in the picker, "GIPHY" on placeholder and block, as text or a shipped asset, never fetched. |
+| G16 | SHOULD | The operator's privacy notice names GIPHY (viewer IP on load, search terms from the server's IP). |
+
+Accepted: a viewer who clicks "Load" tells GIPHY IP address, user agent and which GIF; without
+cookies or referrer. GIPHY may change or remove what an id shows. A hostile editor can place GIFs
+outside the instance rating.
+
+**Before enabling in production:** G1–G13 implemented, the key-leak test (G2) and the CSP test
+(G12) green, GIPHY's API terms read by Georg (hotlinking, attribution, caching of results).
+
+### GIF backend review (Fable, 2026-11-13)
+
+Review of backend `feat/gifs` (ccc2e03, badd229: module `gifs`, `GifsApi`, route table, compose secret
+`giphy_api_key`) and gitlab-devops script 40 against G1–G8, G13, S1.8, S7.3, S7.8. **Verdict: approved, no
+MUST in the code; merge under the rollout condition below.** Tests read, not re-run by the reviewer.
+
+* MUST (rollout): the file `giphy_api_key` exists on dev and prod before the merge (stack 72 follows `main`
+  within 5 min; a missing secret file stops the stack) and is EMPTY on prod until "Before enabling in
+  production" of the design decision is complete. Script 40 writes an empty prod file unless it is called
+  with `--prod-freigabe`; `--pruefen` shows `prod: leer` and `GIFS_ENABLED=false` on `drawboard-frontend`.
+* SHOULD: pin `org.springframework.http.codec` and `org.springframework.core.codec` to INFO in
+  `application.yaml` - at DEBUG Spring's Jackson decoder logs `Decoded [<body>]`, which would print the
+  search text (and every other JSON body, S7.2). Add both loggers at DEBUG to the leak test. Due before a
+  prod key is entered.
+* SHOULD: script 40 says after `--ersetzen` that the backend stack must be redeployed (the key is read once
+  at start; "off" is not off before that) and names the precondition at the prod prompt. (Done.)
+* SHOULD: the leak test also covers GIPHY's 429 and connection refused.
+* G1 met: file wins over the variable; empty, blank or missing = off; wrong shape or unreadable file stops
+  the start without naming the value; no call to GIPHY at start.
+* G2 met: redacted holders; the GIPHY client is `WebClient.builder()` over the JDK `HttpClient` (no
+  observation, no OTel agent, no client span, no `traceparent`); Spring 7 logs the request without its query
+  even at DEBUG; every failure is an `UpstreamFailure` with a fixed word, no cause, no stack trace; actuator
+  exposes `health,info` only, on its own port; the key is a file secret (uid 10001, 0400), never in compose.
+  The two ArchUnit exceptions for `java.time.Duration` in `GiphyUpstream` are accepted.
+* G4 met except the NetworkPolicy (Helm, open): constant host, no redirect, 2 s connect, 5 s total, 2 MB,
+  strictly encoded parameters, mapping to `{id, title, width, height}` with validation, no GIPHY URL passed on.
+* G5 met: `signedIn` in the route table plus the check in `GifsApiService`; guests 403 also with an EDITOR
+  link (S1.8 unchanged).
+* G6 met: rating from configuration only; `r` stops the start.
+* G7 met (backend): order disabled → principal → validation → user (cache hits count) → cache → budget →
+  GIPHY; budget reserved before the call, failures count; GIPHY's 429 blocks for its `Retry-After`
+  (1 s–1 h, default 60 s); single flight; failures cached 30 s. Accepted: contract validation answers 400
+  before 404 on an instance without a key; limits and cache per replica; a refused key costs one call per new
+  search text until the budget is used up.
+* G8 met: POST body, redacted `toString` on command and cache key, no span attribute, metric label `outcome`
+  only, no echo of the value in errors, `Cache-Control: no-store`.
+* G13 met: no download, copy or proxy route.
+* Still open before production: G3 (frontend switch, Helm, admin hint), G4 NetworkPolicy, G7 frontend
+  debounce, G9–G12 with the CSP header test, G15, G16, GIPHY's terms read by Georg.
+
+### Kanban story cards review (Fable, 2026-11-19)
+
+Review of frontend!63 (`feat/kanban-stories`, 97e33a8: story cards dragged into kanban columns,
+card fields `description`, `criteria`, `estimate`, the card editor, the way back as a story
+card, the lock during an open poker round) against 3.10, S2.5, S5.2, S5.5/S5.6, S7.6, T5, the
+M4 frontend review and the clipboard review. **Verdict: merge after MUST 1**; SHOULDs 2 and 3
+before the next production deploy, 4 and 5 optional.
+
+| # | Level | Finding | Fix |
+|---|---|---|---|
+| 1 | MUST | A kanban no longer fits one UPDATE frame (S2.5): one maximal card is 110 KB as a Yjs update, 10 of them exceed 1 MiB, a full kanban is 55 MB. Dropping ~10 stuffed story cards is one transaction: the provider drops its queue and demands a reload (as clipboard MUST 1). On import and template copy a kanban is one piece (`splitBoardFile`: a single item may exceed the piece size); the provider drops it, `whenFlushed` resolves, and the import reports success without the kanban | Budget per kanban: `KANBAN_LIMITS.maxDetailBytes` (256 KiB UTF-8 over all descriptions and criterion texts), enforced in `addStoryCards`, `updateCard`, the file validator (refuse) and `readKanban` (details beyond it read as empty); a test that a maximal kanban and a maximal drop stay < 1 MiB; the importer fails when the provider reports `reloadRequired` |
+| 2 | SHOULD | The drop lock needs the card's own `pokerRoundId` and the server's pairing; any editor can clear the hint | Lock on `EstimateSource.isOpen(blockId)` alone |
+| 3 | SHOULD | `planStoryDrop` walks all blocks and reads the whole kanban on every pointer move; one fat kanban makes story drags stutter for everyone | Hit test only while moving; count the room once at pointer up |
+| 4 | SHOULD (optional) | A kanban hidden under another block still takes the drop | Refuse when a non-dragged block with a higher `z` covers the point |
+| 5 | SHOULD (optional) | Moving a card out as a sticky drops description and criteria silently | Toast, or a story card when the card has details |
+
+Decisions:
+
+* **Card details (S5.5 extended):** `description` (≤ 10 000), `criteria` (≤ 50, text ≤ 500,
+  unique UUID ids), `estimate` (a deck value, `isValidEstimate`) are validated on every read
+  from the document (`readKanban`, shared `readCriteria`), on every write, and on import, paste
+  and template copy with the story card's own validators. A card never carries a `pokerRoundId`;
+  a story card made from a card starts with `pokerRoundId: null`.
+* **S2.5 refined:** a single block must fit one UPDATE frame. Block types with unbounded
+  children (kanban) carry a byte budget that the validators and the models enforce; "write in
+  pieces" assumes it.
+* **S5.2 met:** the new fields reach the DOM only as `textContent`, `title` and form values;
+  no style value comes from them.
+* **S7.6 kept:** no vote or round data reaches the document. The lock during an open round is
+  a convenience bound to the server's pairing (SHOULD 2), not a control: deleting a story card
+  with an open round stays possible, and the reveal then writes nothing.
+* **Drop = delete + add, one transaction, one undo step.** Connectors attached to a dropped
+  story card are deleted with it, as with Delete; undo restores them. Accepted.
+* **Guests (EDITOR link)** gain nothing beyond their Yjs update rights; read-only clients
+  cannot drop, save or move out. S2.4 and S2.7 hold unchanged; document growth is bounded by
+  the server's log limit, as for text blocks.
+
+### Estimation sessions: design decision (Fable, 2026-11-19)
+
+Review of the design for estimation sessions (Magic Estimation and Rotation, module
+`planning`, subdomain `sessions`; no code yet) against 3.10, S1.7, S1.8 (M4), S1.10,
+S1.13, S2.4, S2.6, S5.2, S7.1, S7.3, S7.6, S7.7, the M4 reviews and "Quick poker
+rounds". **Verdict: approved as a design with the changes below; the contract is
+written from this entry and reviewed before its release.**
+
+Anonymity and visibility
+
+* E1 MUST `anonymous` (default true), deck, items and settings are fixed at creation
+  and shown in the lobby before anyone joins; no operation changes them.
+* E2 MUST Slots are assigned by the server at start with `SecureRandom` and never
+  leave it: no slot, holder or owner of a card other than the caller's own (`mine`)
+  in any answer, error, audit event, log, span or metric.
+* E3 MUST Before REVIEW, progress is published per seat only (`done`), never per card:
+  no `entryCount`, no `placed` of other seats' cards (per card + per seat together
+  reveal the ring). `version` rises when a seat's `done` flips, not per entry.
+* E4 MUST Rotation before REVIEW: the holder sees the latest earlier value of a card
+  as `currentValue`, without author, reason, round or history; nobody else sees any
+  value, the moderator and the OWNER included. Magic PLACING: only one's own columns;
+  MOVING: columns, `moveCount`, `marked` for everyone with access; the mover is never
+  named, in any mode, also with `anonymous=false`.
+* E5 MUST From REVIEW: entries of a card are returned in a stored random order,
+  without entry id, round or timestamp; with `anonymous=true` without names. On
+  entering REVIEW with `anonymous=true` the server nulls `entry.seat_id`,
+  `move.seat_id` and `seat.slot` (magic moves always); with `anonymous=false` the
+  names are shown and the mapping goes with the 30-day purge.
+* E6 Named limits (documented in the UI text of the lobby): the next holder sees the
+  previous value; the first entry of a card is recognisable (no reason, not kept);
+  small teams can guess; a DB admin can map until REVIEW.
+* E7 MUST Rounds ≤ seated participants at start, so nobody holds a card twice.
+
+Guests (S1.8, S1.10)
+
+* E8 MUST Guests with a COMMENTER or EDITOR link: list (ACTIVE), get, join, leave,
+  placement, estimate, on the board of their link or below their folder (S1.7).
+  VIEWER-link guests 403 on everything. Never create, start, advance, decide, finish,
+  cancel. Guests join only by `joinEstimationSession`, never by GET.
+* E9 MUST A guest sees LOBBY and running phases of every session of the board, but
+  REVIEW, DONE and CANCELLED only when its session holds a non-removed seat (else 404
+  `PLANNING_SESSION_NOT_FOUND`, also in the list). `moderatorId` absent for guests;
+  seat ids are session-local random UUIDs; names as stored at join with `guest: true`.
+* E10 MUST Caps: 30 seats, 15 guests, 10 per link (409 `PLANNING_SESSION_FULL`);
+  guest limits keyed by share as well as session.
+* E11 MUST Revoking a link (S1.13): LOBBY removes its seats; in a running phase the
+  seat is marked removed, its rotation entries and reasons are deleted, its magic
+  placements cleared, its move rows deleted and every card it touched set `marked`;
+  removed seats never block "all done"; `version` rises. From REVIEW on the record
+  stands (it is unattributable, E5); moderator or OWNER can cancel. Start and the
+  step into REVIEW drop seats of revoked shares again (safety net, M4 backend
+  SHOULD 5). A member who loses access keeps entries made while allowed.
+* E12 MUST Reasons and titles: text only, one line, NFC, Cc/Cf refused, reason ≤ 280,
+  title ≤ 200; rendered with `textContent`, never linkified, never copied into the
+  document, toasts, spans, Faro or local storage.
+
+Moderator
+
+* E13 MUST Moderator = creating EDITOR/OWNER while still EDITOR/OWNER, or the board
+  OWNER; checked per request; 404 for the session before 403. No privileged view, no
+  editing of others' entries, no extend or pause. Rotation decision ∈ values entered
+  for that card (any deck value only when the card has no entry, then `overridden`);
+  magic decision ≠ column on an unmarked card is `overridden`; both server-enforced.
+
+Time, load, locks
+
+* E14 MUST Only the server clock decides: no client time in any request; `advance`
+  carries the expected `{state, round}` (else 409); transitions never go back; a
+  write after the deadline is 409 without grace; estimate and placement carry the
+  expected round/state (SHOULD).
+* E15 MUST `settle` is re-checked under the session lock (thirty clients polling at 0
+  cause one transition); the `If-None-Match` comparison happens after settle; the 304
+  path reads the session row only. Lock order board → session, separate `KeyedLocks`
+  instances, lazy idle-cancel never takes a session lock while a board lock is held
+  in the other order. One replica (M4 backend SHOULD 7 unchanged; SHOULD `@Version`
+  on the session row so a second replica fails loudly).
+* E16 MUST Limits: 3 active sessions per board, 100 closed, 1–50 items, 2–30 seats,
+  rounds 1..min(10, seats), phase times 30–900 s (magic moving ≤ 1800 s), entries ≤
+  500. Magic: per seat ≤ 5 moves per card and ≤ 3 × items moves in total (409
+  `PLANNING_MOVE_LIMIT_REACHED`), 5000 per session as backstop; `marked` counts at
+  most 2 moves per seat and card (SHOULD).
+* E17 MUST Rates (S7.3), per user and, for guests, per share: create 10/min; list
+  30/min per board (share 300); get 75/min per session incl. 304 (share 600);
+  join/leave 10/min (share 30); placement 60/min (share 300); estimate 30/min (share
+  150); moderator operations 120/min. 429 with `Retry-After`, metrics only. The list
+  returns summaries, never items, seats or entries.
+* E18 Transport: ETag polling stays (2 s, magic MOVING 1 s, pause while hidden,
+  back-off on 429, SHOULD 0–500 ms jitter at a deadline). No WebSocket frame. Answers
+  `no-store`, `Vary: Authorization`, `If-None-Match: *` is no match.
+* E19 Awareness poke allowed as in "Quick poker rounds": field `estimation: <counter>`
+  and nothing else. MUST raised only by the client that performed create, start,
+  advance, decide, finish or cancel - never on join, placement, move or estimate (the
+  relay names the sender). Receivers with access re-list (throttled 5 s) and nothing
+  else; no id in the payload. MUST no cursor, drag, selection or "in estimation"
+  state of the overlay in awareness; the chip derives from the server's seat list.
+
+Document, records
+
+* E20 MUST S7.6 holds: sessions, seats, entries, moves, reasons and results live only
+  in schema `planning`; the server never reads or writes the Yjs document; refs are
+  untrusted hints checked for form and unique per session; no session id, value or
+  reason in the document, `.drawboard` files, templates, versions or board copies.
+  The Magic board is an overlay, not Yjs blocks. Descriptions and criteria are read
+  live from the document by ref, never copied to the server.
+* E21 MUST Results are written by a non-read-only client from the DONE session only:
+  the decided value, only when block, block type and (kanban) card exist and match
+  the ref; story `estimate` via `isValidEstimate`, kanban `estimate` and `points`
+  only for an integer 0..999; any editor who can read the session may do it later.
+  SHOULD show the live title next to the stored one and the card's current value
+  before overwriting. No `PLANNING_ITEM_BUSY`: a card in two sessions is a UI hint.
+* E22 MUST Retention: cancel and idle-cancel delete entries, reasons and moves at
+  once; 30 days after DONE no answer contains single values or reasons any more
+  (enforced on read; deletion by the daily purge, SHOULD), decisions and aggregates
+  stay; everything follows the board (trash 404, purge S7.7); deleted users read
+  "Deleted user". Idle: 24 h in LOBBY and running phases; SHOULD 7 days in REVIEW.
+* E23 MUST Audit (S7.1): session created (board, mode, item count, deck kind),
+  started (seat counts members/guests), finished (decisions, overridden), cancelled,
+  decision overridden (session and item id). Never values, reasons, moves, joins or
+  seat-to-entry relations; refusals are metrics with fixed labels (S7.10).
+* E24 MUST No regression of poker: the common refactor is a pure move (poker tests
+  unchanged and green, `oasdiff` shows no change on poker operations, minor release);
+  new routes are named one by one in the route table, the rest stays `denyAll`; the
+  Playwright guest allowlist covers the new guest operations; board erase and share
+  revocation call both use cases, one failing never skips the other.
+
+Contract corrections (from the same review): `listEstimationSessions` returns summaries only (id,
+mode, title, state, round, moderatorName, createdAt, seatCount, itemCount, `me.seated`), guests
+403 on `state=CLOSED`; `startEstimationSession` `seatIds` 2..30, unique, non-removed, rotation
+`rounds ≤ seatIds.size`; `placeEstimationItem` `{value, state?}`, `null` only in PLACING;
+`setRotationEstimate` `{value, reason?, round?}`, same value = kept (a reason is discarded),
+returns `myEntry` only; `advanceEstimationSession` `{state, round}`; cancel from every non-closed
+state. Authorisation order: board role (404) → VIEWER-link guest (403) → session (404) → role or
+seat (403) → state (409). `EstimationItem` without `entryCount` and `placed`; `column`,
+`moveCount`, `marked` from MOVING (PLACING: `column` only for `mine`); `currentValue`, `myEntry`
+holder only in ROTATING; `result`, `decision`, `overridden` from REVIEW. `EstimationSeat`
+`{id, displayName, guest, seated, done}` sorted by join time. `EstimationEntry` without id,
+round, time. `moveTrail` values only. All arrays `maxItems`, strings `maxLength`, objects
+`additionalProperties: false`. `PLANNING_NOT_SEATED` is 403; `PLANNING_ITEM_NOT_HELD` identical
+for "other seat" and "other round"; `PLANNING_ITEM_BUSY` dropped. V3: entry `shuffle` key,
+`seat_id` nullable, move `seat_id` nulled at REVIEW, seat `slot` nulled at REVIEW when anonymous,
+item flag "touched by a removed seat".
+
+**Estimation sessions with guests in production only when:** the contract and code
+reviews have passed, one revoke on dev has been seen to remove a link's seat and
+entries from a running session, the guest allowlist test runs in the pipeline, and a
+test proves that no answer before REVIEW differs per card for a non-holder (E3).
+
+### Estimation sessions: contract review (Fable, 2026-11-19)
+
+Review of the contract (api `feat/estimation-sessions`, c49559e, built as 2.3.0-local)
+against E1-E24 and the contract corrections of the design decision, S1.8, S1.10, S7.3,
+S7.6 and the M4 contract review. **Verdict: release as 2.3.0 after three changes.**
+Guest allowlist (list ACTIVE, get, join, leave, placement, estimate for COMMENTER/EDITOR
+links; VIEWER links 403; no moderator operation), visibility per state (E3-E5, E9),
+rates (E17), ETag with `no-store` and `Vary: Authorization`, and the unchanged poker
+operations (E24) are as decided.
+
+* C1 MUST The pattern for titles and reasons must not backtrack: the form
+  `^[^C]*[^\sC][^C]*$` is quadratic (250 000 characters = 174 s in `java.util.regex`),
+  bean validation runs before authorisation and rate limit, and 1 MB bodies pass
+  nginx - one request of any signed-in user or guest blocks a thread. Use
+  `^[^\S\x00-\x1F\x7F-\x9F]*[^\s\x00-\x1F\x7F-\x9F][^\x00-\x1F\x7F-\x9F]*$` (first
+  class disjoint from the second, linear). Rule for every future pattern in the
+  contract: neighbouring repeated classes are disjoint.
+* C2 MUST Order of refusals, the same for every operation: board role (404) ->
+  VIEWER-link guest (403) -> session incl. E9 (404) -> role or seat (403) -> state and
+  expected round (409 `PLANNING_SESSION_WRONG_STATE`) -> card held (409
+  `PLANNING_ITEM_NOT_HELD`) -> value (400 `PLANNING_VALUE_INVALID`) -> reason (400
+  `PLANNING_REASON_REQUIRED`) -> move limits (409). Only schema-level 400, which do
+  not depend on the session, may come earlier. A reason check before the hold check
+  would let a seated non-holder read `currentValue` of every card (E4).
+* C3 MUST (amends E7) `startEstimationSession` refuses more seats than cards, in both
+  modes (400 `VALIDATION_FAILED`, field `seatIds`): a seat without a card makes `done`
+  tell holders from non-holders, with one card it names the holder of every round
+  (E2, E3).
+* SHOULD: a guest without a seat gets 404 `PLANNING_SESSION_NOT_FOUND` (params
+  `sessionId` only) on every operation of a REVIEW, DONE or CANCELLED session, join
+  and leave included, and the `If-None-Match` comparison happens after authorisation
+  and E9 (`version` is guessable); `markThreshold` at least 3 (one seat counts 2
+  moves per card and must not mark alone); `moveCount` at most 150; Magic
+  `overridden` = unmarked card and value != column, a marked card is never
+  overridden; a CANCELLED session has no `result`, `decision`, `overridden`, `column`,
+  `moveCount`, `marked`; titles and reasons also refuse U+2028/U+2029, trim and blank
+  check Unicode-aware on the server; "no reason needed" is tied to a card without
+  `currentValue`, not to the first holder.
+* Confirmed as written: `round` 0-based (MAGIC 0, last round kept from REVIEW);
+  `seated` true for every joined seat in LOBBY, `me.seatId` also for seats not
+  picked (only the caller's own), `EstimationSessionMe` in the summary (guests always
+  `moderator: false`); removed seats are not listed; unknown `itemId` = 404
+  `PLANNING_SESSION_NOT_FOUND` with `params.itemId` (never on the E9 404); wrong
+  expected state/round = 409 `PLANNING_SESSION_WRONG_STATE`, `PLANNING_ITEM_NOT_HELD`
+  with one body; Rotation accepts every deck value incl. `coffee`, Magic columns and
+  decisions exclude it; decide, join, leave, placement 204, start, advance, finish,
+  cancel 200 with the caller's view; finish with undecided cards; `moveTrail` <= 151,
+  `entries` <= 10; 30 days after DONE `entries` and `moveTrail` are empty while
+  distribution, average, median, candidates and decisions stay (unattributed counts);
+  flat `EstimationSettings` with per-mode 400.
+* For the backend review: absent `anonymous` is true; `no-store` on every estimation
+  answer (the 200 of `setRotationEstimate` carries a secret value); the 200 bodies of
+  start, advance, finish and cancel use the same per-caller view as get; a test for
+  C2 (non-holder never gets `PLANNING_REASON_REQUIRED`) and C3; the purge reduces
+  entries to counts; 600 gets per share and minute equal ten guests of one link at
+  1 s in MOVING, so the client back-off on 429 must work.
+
+### Estimation sessions: frontend review (Fable, 2026-11-19)
+
+Review of the frontend (frontend `feat/estimation-sessions`, f0a8b47..bf4934d, contract
+3.0.0) against 3.15, E1-E24, C1-C3, S1.8, S2.4, S5.2 and S7.6. **Verdict: merge after
+F1 and F2.** Per-seat progress only (E3), server-only visibility with identical texts
+for 403/404 (E4, E5), titles and reasons as interpolated text without toasts, spans,
+Faro attributes or storage (E12), expected state/round on advance, placement and
+estimate (E14), no awareness field and no poke (E19), write-back from DONE only with
+matching block, type and card (E20, E21), VIEWER-link guests without any call and the
+guest allowlist test (E8, E24) are as decided. The `EtagPoller` change (interval read
+after the answer) does not alter poker, which passes a constant interval.
+
+* F1 MUST Before REVIEW the estimation UI never changes the selection or the camera:
+  "show on the board" in the Rotation panel selected the held card and centred the
+  viewport on it, and both are published by name through awareness (S2.4) - one click
+  per round names the holder and with it the ring (E2, E4, E19). The Rotation panel
+  shows title and description itself; `focusRef` stays in the review only. Test: no
+  panel interaction in ROTATING changes selection or camera. The lobby names the limit:
+  what one selects or looks at on the board stays visible to others.
+* F2 MUST The wait after a 429 (`Retry-After`, back-off) holds against `refresh()`,
+  `pollSoon()` and the return from a hidden tab: the poller keeps a "not before" time
+  and only re-arms its timer. No poll after an own placement or estimate (the tab keeps
+  its own state; MOVING polls every second anyway) - otherwise ten guests of one link
+  in MOVING exhaust the share budget and keep it exhausted (E17, E18).
+* SHOULD: placement and estimate send the state/round the user acted in (state at
+  pointer-down, round of the rendered card), not the one at send time; a drag is
+  cancelled when the phase changes. The cast for `EstimationStart.seatIds` (generated
+  as `Set`, sent as a de-duplicated array) is correct; the generator maps `set` to
+  `Array` with the next contract release and the cast goes; a test asserts the body is
+  an array.
+* For the backend review: paths `/items/{itemId}/estimate` and `/placement` in server
+  spans and access logs together with a user id are a holder or mover relation (E2,
+  E4, E23) - no user id on these spans, or the item id masked in the route attribute.
+* Not built: the awareness poke of E19; other clients learn of a new session when they
+  open the board or the menu.
+
+### Estimation sessions: backend review (Fable, 2026-11-19)
+
+Review of the backend (backend `feat/estimation-sessions`, 06c6c8d..602a2a7 on backend!46, contract
+3.0.0) against 3.15, E1-E24, C1-C3 with their SHOULDs, S1.7, S1.8, S1.13, S7.1, S7.3, S7.6, S7.7,
+S7.10 and the M4 backend review. **Verdict: merge as one stack after two changes.** No holder,
+mover or author relation in any answer, error, metric or audit event; refusal order C2, C3, E9 on
+every operation, moderator rule E13, server clock and settle under the session lock (E14, E15),
+limits and rates (E16, E17), retention on read (E22), audit details (E23), route table and both
+use cases in erase and revocation (E24) and the text rules (E12, C1) are as decided.
+
+* B1 MUST No caller identity in the trace of `placeEstimationItem` and `setRotationEstimate`: the
+  spans carry `item.id` and the path, and every guest request has a `guestCaller` span with
+  `share.id` - for a link used by one guest that is a holder or mover relation in Tempo, kept
+  after the REVIEW nulling (E2, E5). Drop `share.id` from that span (or mask the item id in span
+  attributes, `http.url` and the error log line); a test asserts that these traces hold no share,
+  guest or user id. Members are not affected (no user id or client address on spans or log lines).
+* B2 MUST Revocation in MOVING re-chains the remaining moves of a card: the first one's
+  `from_value` becomes the original placement (null for a card dealt to the removed seat), so
+  `moveTrail` holds nothing the removed seat entered (E11).
+* SHOULD: entry and move ids random instead of UUIDv7, `created_at` of entries dropped and
+  `moved_at` replaced by a sequence at REVIEW in anonymous sessions (time correlation with request
+  logs); `slot` and `touched` cleared when a running session is cancelled; the rate limit of get
+  keyed after the session was found, a limit before `header()` on the other operations; the E3
+  integration test also for Magic PLACING; the frontend nginx logs the two item routes without
+  the item id.
+* Confirmed as built: revocation - LOBBY deletes the seat; running phases mark it removed, delete
+  its entries, reasons and moves, clear the column of a card dealt to it unless a remaining move
+  sets one, mark every card it touched, raise the version and end a round nobody else holds up;
+  from REVIEW the record stands; start and the step into REVIEW drop seats of revoked links again.
+  A Magic move replaces the same seat's previous move of that card within 10 s when nobody moved
+  it in between (window from the first move). The 304 path reads the guest's own seat in REVIEW,
+  DONE and CANCELLED (amends E15). `no-store` on errors comes from the security headers, `Vary`
+  on success only. The retention purge runs in the trash cleanup interval. Metrics
+  `drawboard.planning.sessions{event,mode}`, `.session.inputs{kind}`, `.session.refused{reason}`.
+  One replica; every session update names the version it read (409 `CONFLICT` otherwise).
+* Of "with guests in production only when": contract and backend review passed (after B1, B2), the
+  backend guest allowlist and the E3 test run in the pipeline. Open: the frontend review and its
+  Playwright allowlist, one revoke seen on dev in a running session.
+
+### Plugin archive memory (Fable, 2026-11-21)
+
+Review of backend!49 (`fix/plugin-archive-memory`, 5edaf99 + 9e9b9fc) against S3.9, S7.3 and the
+M3 backend review. **Verdict: approved, deploy as is.** The ZIP is read twice from the same private
+bytes: pass 1 applies every S3.9 rule in the old order with the old reasons and only counts (16 KiB
+buffer, refused at the first byte over 50 MiB; the data of directory entries counts too, else
+`nextEntry` inflates it unbounded); pass 2 reads the accepted files into arrays of the counted size
+and refuses (NOT_A_ZIP) any name, size or entry set that differs - fail-closed, no header size is
+ever allocated. Every `IOException` of the JDK reader is NOT_A_ZIP (a cut local header was a 500).
+Peak per install ≈ 20 MB + 50 MiB (was ~2-3x), a hostile archive costs ≤ ~0.1 s CPU; with the upload
+guard (2 in flight per user, 8 per instance) no further limit is required for an admin-only route.
+* SHOULD (follow-up MR, before third-party plugins): unpack, manifest and digests inside the
+  install lock or a 1-permit semaphore and off the Reactor thread, so only one 50 MiB result
+  exists at a time (done in backend!50, see the next entry). Known and harmless: entries absent
+  from the central directory skip the symlink bit check - nothing is ever extracted.
+
+### Plugin archive serialisation (Fable, 2026-11-21)
+
+Review of backend!50 (`fix/plugin-archive-serial`, 75dea1d on 9e9b9fc) against the SHOULD of
+"Plugin archive memory", S3.9 and S7.3. **Verdict: approved, deploy as is; the SHOULD is
+discharged.** Unpack, manifest and digests now run inside the install lock, before the transaction,
+in `withContext(Dispatchers.Default)`: one unpacked archive (≤ 50 MiB) per instance at a time, and
+no event-loop thread inflates or hashes. The block is not interruptible and `withContext` returns
+only when it has ended, so a request cancelled mid-unpack keeps the lock until its arrays are
+garbage - the bound holds for abandoned uploads too; a waiter that is cancelled leaves the (fair)
+queue at once. Outside the lock only the raw upload waits (≤ 20 MB each, upload guard: 2 per user,
+8 per instance): worst case ≈ 8 x 20 MB + 50 MiB, was 8 x 70 MB. The lock is held well under 1 s
+longer than before (estimate; the transaction was already inside), installs stay at 10/min per admin,
+taken before the lock - no further limit for an admin-only route. Reactor context (security, trace)
+crosses the dispatcher switch unchanged, the transaction starts after it. Refusal order, reasons and
+error codes are the same.
+* No SHOULD left. Rules to keep: never register an `ArchiveUnpacker` bean (the service's optional
+  constructor parameter would take it instead of `PluginArchive`; the type is module-internal and
+  test-only), and keep `readBundle` free of suspension points and logging.
+* Known and accepted: waiting for the install lock has no timeout (cancellable, capped by the
+  upload guard); a hanging install transaction holds the lock, as before.
+
+### GitHub sync: GIF test values (Fable, 2026-11-22)
+
+The gitleaks gate of `sync:github` stopped on four `generic-api-key` findings in the GIF tests of
+the backend (`main` at ea09caa). **Verdict: all four cleared, none is a credential.** Three are
+keys made up for the tests, a word plus a counting sequence, 21-24 characters where a real GIPHY
+key has 32: `VariableKey0123456789` (GifsBudgetIntegrationTest), `IntegrationKey0123456789`
+(GifsSupport), `TestKey0123456789abcdef` (GifFixtures); the tests only ever send them to the fake
+GIPHY and look for the text in logs, spans and answers. The fourth is no key at all: in
+GifsConfigurationTest gitleaks reads the property `gifs.rating=PG-13` after `$TEST_KEY",` as the
+value. History of the backend (all refs, gitleaks 8.30.1 with the default rules, plus every line
+that ever named a GIPHY key): no real key was ever committed, nothing to rotate.
+* `public/gitleaks.toml` allows exactly these four values, each anchored, for `generic-api-key`
+  only. A new test key needs its own entry, or a name the rule does not match.
 
 ### Before enabling in production
 

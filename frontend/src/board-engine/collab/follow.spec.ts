@@ -1,5 +1,4 @@
-import { PeerPresence } from '../presence';
-import { ViewportState } from './awareness-state';
+import { PeerPresence, ViewportState } from '@apps/drawboard-engine';
 import {
   FollowController,
   FollowEnd,

@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":files"))
     implementation(project(":plugins"))
     implementation(project(":planning"))
+    implementation(project(":gifs"))
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.validation)
     implementation(libs.jackson.module.kotlin) // Boot 4 = Jackson 3 (tools.jackson, not com.fasterxml)

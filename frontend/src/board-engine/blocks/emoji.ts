@@ -1,9 +1,12 @@
-import { BlockData } from '../model/types';
+import {
+  EMOJI_DEFAULT_SIZE,
+  EMOJI_TYPE,
+  BlockData,
+  EMOJI_FALLBACK,
+  isValidEmoji,
+} from '@apps/drawboard-engine';
 import { BlockType } from '../renderer/block-registry';
-import { EMOJI_FALLBACK, isValidEmoji } from '../util/emoji';
 
-export const EMOJI_TYPE = 'core.emoji';
-export const EMOJI_DEFAULT_SIZE = 64;
 /** The glyph fills this share of the smaller side of the block. */
 const GLYPH_SHARE = 0.78;
 /** The glyph never gets bigger than this in block space (zoom is a transform, not a font size). */

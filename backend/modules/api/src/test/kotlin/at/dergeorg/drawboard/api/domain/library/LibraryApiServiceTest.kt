@@ -49,7 +49,7 @@ class LibraryApiServiceTest {
     private val files = mockk<FilesUseCase>(relaxed = true)
     private val alice = Caller.User(ALICE_ID, ALICE.groups)
     private val service = LibraryApiService(signedInUsers, Callers(signedInUsers, FixedCurrentGuestProvider(), mockk()), library, trash,
-        collab, BoardDataEraser(collab, files, mockk(relaxed = true), mockk(relaxed = true)))
+        collab, BoardDataEraser(collab, files, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true)))
 
     private val board = aBoard(ownerId = ALICE_ID)
 
